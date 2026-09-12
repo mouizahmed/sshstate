@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is the primary development platform (brief §8, R9); Linux runs
+        # portable tests from the start. Go 1.27 is the minimum: crypto/mldsa,
+        # required by the §4.8 suite, is not present in 1.26.
+        os: [macos-latest, ubuntu-latest]
+        # 1.27.0 verifies the floor declared in go.mod is honest; 1.27.1 is the
+        # latest patch. Go 1.26 cannot build this project at all.
+        go: ['1.27.0', '1.27.1']
+    runs-on: ${{ matrix.os }}
+    env:
+      # go.mod carries `toolchain go1.27.1`. Under the default GOTOOLCHAIN=auto
+      # that directive makes Go download and switch to 1.27.1 whatever version
+      # is installed, which would silently turn the 1.27.0 floor job into a
+      # second 1.27.1 job. `local` pins each run to the toolchain setup-go
+      # installed, so the floor is actually exercised.
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: false
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "not gofmt-clean:"; echo "$out"; exit 1; fi
+      - name: vet
+        run: go vet ./...
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test ./...
+      - name: test -race
+        run: go test -race ./...
+
+  cross-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      # Release targets for M3a. CGO_ENABLED=0 holds while the crypto suite is
+      # pure Go; the launchd activation adapter will need cgo on darwin later,
+      # so this must not be read as a promise about the finished client.
+      - name: cross-build
+        run: |
+          set -eux
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${t%/*}" GOARCH="${t#*/}" CGO_ENABLED=0 go build -o /dev/null ./...
+          done
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
