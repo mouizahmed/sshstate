@@ -34,6 +34,8 @@ type Daemon struct {
 
 	stopOnce sync.Once
 	stop     chan struct{}
+
+	effectiveConfigArgs []string
 }
 
 func New(mgr *vault.Manager, layout paths.Layout, log *slog.Logger) *Daemon {
