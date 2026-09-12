@@ -7,9 +7,9 @@ toolchain go1.27.1
 require (
 	filippo.io/age v1.3.2
 	github.com/gowebpki/jcs v1.0.1
-	golang.org/x/crypto v0.55.0
-	golang.org/x/sys v0.47.0
-	golang.org/x/term v0.45.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.46.0
 	modernc.org/sqlite v1.58.0
 )
 
