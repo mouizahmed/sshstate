@@ -42,6 +42,10 @@ func (l Layout) PublicDir() string { return filepath.Join(l.SSH, "public") }
 
 func (l Layout) KnownHosts() string { return filepath.Join(l.SSH, "known_hosts") }
 
+func (l Layout) UserKnownHosts() string {
+	return filepath.Join(filepath.Dir(l.UserSSHConfig), "known_hosts")
+}
+
 func (l Layout) CaptureFile() string { return filepath.Join(l.SSH, "known_hosts.capture") }
 
 func (l Layout) AgentSocket() string { return filepath.Join(l.Runtime, "agent.sock") }

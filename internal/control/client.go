@@ -146,6 +146,16 @@ func (c *Client) Doctor(ctx context.Context) (*DoctorResponse, error) {
 	return &out, c.do(ctx, http.MethodGet, RouteDoctor, nil, &out)
 }
 
+func (c *Client) TrustPreview(ctx context.Context) (*TrustPreviewResponse, error) {
+	var out TrustPreviewResponse
+	return &out, c.do(ctx, http.MethodGet, RouteTrust, nil, &out)
+}
+
+func (c *Client) TrustImport(ctx context.Context, digests []string) (*TrustImportResponse, error) {
+	var out TrustImportResponse
+	return &out, c.do(ctx, http.MethodPost, RouteTrustImport, TrustImportRequest{Digests: digests}, &out)
+}
+
 func (c *Client) Shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, RouteShutdown, struct{}{}, nil)
 }

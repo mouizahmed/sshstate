@@ -1,0 +1,144 @@
+// Copyright (C) 2026 Mouiz Ahmed
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package vault
+
+import (
+	"bytes"
+	"fmt"
+	"sort"
+
+	"github.com/mouizahmed/sshstate/internal/protocol"
+)
+
+type KnownHostView struct {
+	RecordID    protocol.ID
+	Line        string
+	KeyType     string
+	Fingerprint string
+	Marker      string
+	Status      TrustStatus
+	LineDigest  []byte
+}
+
+type KnownHostSpec struct {
+	Line        string
+	KeyType     string
+	Fingerprint string
+	Marker      string
+	Status      TrustStatus
+	LineDigest  []byte
+}
+
+func (m *Manager) KnownHosts() ([]KnownHostView, error) {
+	var out []KnownHostView
+	err := m.read(func(s *session, r *Reader) error {
+		var err error
+		out, err = m.knownHostsLocked(r)
+		return err
+	})
+	return out, err
+}
+
+func (m *Manager) AddKnownHosts(specs []KnownHostSpec) (added, skipped int, err error) {
+	err = m.mutate(func(s *session, w *Writer, r *Reader) error {
+		existing, err := m.knownHostsLocked(r)
+		if err != nil {
+			return err
+		}
+		have := make(map[string]bool, len(existing))
+		for _, e := range existing {
+			have[string(e.LineDigest)] = true
+		}
+		var envelopes []*protocol.Envelope
+		for _, spec := range specs {
+			if have[string(spec.LineDigest)] {
+				skipped++
+				continue
+			}
+			payload := &KnownHostPayload{
+				FormatVersion: PayloadFormatVersion,
+				Line:          spec.Line,
+				KeyType:       spec.KeyType,
+				Fingerprint:   spec.Fingerprint,
+				Marker:        spec.Marker,
+				Status:        spec.Status,
+				LineDigest:    protocol.Bytes(spec.LineDigest),
+			}
+			if err := payload.Validate(); err != nil {
+				return err
+			}
+			recordID, err := protocol.NewID()
+			if err != nil {
+				return err
+			}
+			mutationID, err := protocol.NewID()
+			if err != nil {
+				return err
+			}
+			env, err := w.Seal(Mutation{
+				RecordID:   recordID,
+				RecordType: protocol.RecordKnownHost,
+				Rev:        1,
+				MutationID: mutationID,
+			}, payload)
+			if err != nil {
+				return err
+			}
+			envelopes = append(envelopes, env)
+			have[string(spec.LineDigest)] = true
+			added++
+		}
+		if err := m.store.ApplyLocalBatch(envelopes...); err != nil {
+			added = 0
+			return err
+		}
+		return nil
+	})
+	return added, skipped, err
+}
+
+func (m *Manager) ApprovedTrustLines() ([]string, error) {
+	views, err := m.KnownHosts()
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, v := range views {
+		if v.Status == TrustApproved {
+			lines = append(lines, v.Line)
+		}
+	}
+	sort.Strings(lines)
+	return lines, nil
+}
+
+func (m *Manager) knownHostsLocked(r *Reader) ([]KnownHostView, error) {
+	envs, err := m.store.LiveRecords(protocol.RecordKnownHost)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]KnownHostView, 0, len(envs))
+	for _, env := range envs {
+		var p KnownHostPayload
+		if err := r.Open(env, &p); err != nil {
+			return nil, fmt.Errorf("known_host record %s: %w", env.Context.RecordID, err)
+		}
+		if err := p.Validate(); err != nil {
+			return nil, fmt.Errorf("known_host record %s: %w", env.Context.RecordID, err)
+		}
+		out = append(out, KnownHostView{
+			RecordID:    env.Context.RecordID,
+			Line:        p.Line,
+			KeyType:     p.KeyType,
+			Fingerprint: p.Fingerprint,
+			Marker:      p.Marker,
+			Status:      p.Status,
+			LineDigest:  p.LineDigest,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return bytes.Compare(out[i].LineDigest, out[j].LineDigest) < 0
+	})
+	return out, nil
+}

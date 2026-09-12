@@ -10,14 +10,16 @@ const APIVersion = "v1"
 const MaxRequestBytes = 1 << 20
 
 const (
-	RouteStatus   = "/" + APIVersion + "/status"
-	RouteUnlock   = "/" + APIVersion + "/unlock"
-	RouteLock     = "/" + APIVersion + "/lock"
-	RouteHosts    = "/" + APIVersion + "/hosts"
-	RouteKeys     = "/" + APIVersion + "/keys"
-	RouteGenerate = "/" + APIVersion + "/generate"
-	RouteDoctor   = "/" + APIVersion + "/doctor"
-	RouteShutdown = "/" + APIVersion + "/shutdown"
+	RouteStatus      = "/" + APIVersion + "/status"
+	RouteUnlock      = "/" + APIVersion + "/unlock"
+	RouteLock        = "/" + APIVersion + "/lock"
+	RouteHosts       = "/" + APIVersion + "/hosts"
+	RouteKeys        = "/" + APIVersion + "/keys"
+	RouteGenerate    = "/" + APIVersion + "/generate"
+	RouteDoctor      = "/" + APIVersion + "/doctor"
+	RouteShutdown    = "/" + APIVersion + "/shutdown"
+	RouteTrust       = "/" + APIVersion + "/trust"
+	RouteTrustImport = "/" + APIVersion + "/trust/import"
 )
 
 type Error struct {
@@ -98,6 +100,44 @@ type GenerateResponse struct {
 	Hosts        int      `json:"hosts"`
 	PublicFiles  []string `json:"public_files"`
 	ObsoleteKept []string `json:"obsolete_kept,omitempty"`
+}
+
+const (
+	TrustStatusNew      = "new"
+	TrustStatusImported = "imported"
+	TrustStatusConflict = "conflict"
+)
+
+type TrustCandidate struct {
+	Digest       string   `json:"digest"`
+	Line         string   `json:"line"`
+	LineNo       int      `json:"line_no"`
+	Destinations []string `json:"destinations"`
+	Aliases      []string `json:"aliases"`
+	KeyType      string   `json:"key_type"`
+	Fingerprint  string   `json:"fingerprint"`
+	Marker       string   `json:"marker,omitempty"`
+	Status       string   `json:"status"`
+	Note         string   `json:"note,omitempty"`
+}
+
+type TrustPreviewResponse struct {
+	SourcePath string           `json:"source_path"`
+	Candidates []TrustCandidate `json:"candidates"`
+	Opaque     int              `json:"opaque"`
+	Unrelated  int              `json:"unrelated"`
+	Problems   []string         `json:"problems,omitempty"`
+}
+
+type TrustImportRequest struct {
+	Digests []string `json:"digests"`
+}
+
+type TrustImportResponse struct {
+	Imported       int    `json:"imported"`
+	Pending        int    `json:"pending"`
+	Skipped        int    `json:"skipped"`
+	KnownHostsPath string `json:"known_hosts_path"`
 }
 
 type DoctorFinding struct {

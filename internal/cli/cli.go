@@ -11,16 +11,19 @@ import (
 	"os"
 	"strings"
 
+	"golang.org/x/term"
+
 	"github.com/mouizahmed/sshstate/internal/control"
 	"github.com/mouizahmed/sshstate/internal/paths"
 )
 
 type Env struct {
-	Layout     paths.Layout
-	Stdout     io.Writer
-	Stderr     io.Writer
-	ReadSecret func(prompt string) ([]byte, error)
-	ReadLine   func(prompt string) (string, error)
+	Layout      paths.Layout
+	Stdout      io.Writer
+	Stderr      io.Writer
+	ReadSecret  func(prompt string) ([]byte, error)
+	ReadLine    func(prompt string) (string, error)
+	Interactive bool
 }
 
 type Command struct {
@@ -93,10 +96,11 @@ func DefaultEnv() (*Env, error) {
 		return nil, err
 	}
 	return &Env{
-		Layout:     layout,
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
-		ReadSecret: readSecret,
-		ReadLine:   readLine,
+		Layout:      layout,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		ReadSecret:  readSecret,
+		ReadLine:    readLine,
+		Interactive: term.IsTerminal(int(os.Stdin.Fd())),
 	}, nil
 }

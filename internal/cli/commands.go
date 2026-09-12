@@ -302,11 +302,16 @@ func runAdd(ctx context.Context, env *Env, args []string) error {
 func runInstall(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "install")
 	withService := fs.Bool("service", false, "also register the daemon with the platform service manager")
+	importTrust := fs.Bool("import-trust", false, "import matching entries from ~/.ssh/known_hosts without asking")
+	skipTrust := fs.Bool("skip-trust", false, "activate the Include without importing existing host-key trust")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if _, err := env.Client().Generate(ctx); err != nil {
 		return hint(err)
+	}
+	if err := env.resolveTrust(ctx, *importTrust, *skipTrust); err != nil {
+		return err
 	}
 	res, err := sshconfig.Install(env.Layout)
 	if err != nil {
@@ -326,10 +331,6 @@ func runInstall(ctx context.Context, env *Env, args []string) error {
 		}
 	}
 	env.printf("\nManaged hosts now resolve through OpenSSH. Check with: sshstate doctor\n")
-	env.warnf("\nHost keys for managed hosts are read from the sshstate trust files, not\n")
-	env.warnf("your existing ~/.ssh/known_hosts, so you may be prompted to accept a host\n")
-	env.warnf("key you have already accepted before. Importing existing trust arrives in\n")
-	env.warnf("the known-host milestone.\n")
 	return nil
 }
 

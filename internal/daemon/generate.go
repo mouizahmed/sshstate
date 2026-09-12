@@ -90,21 +90,27 @@ func checkJumpGraph(hosts []sshconfig.Host) error {
 	return nil
 }
 
-func (d *Daemon) regenerate() error {
+func (d *Daemon) regenerate() ([]sshconfig.Host, error) {
 	hosts, err := d.renderable()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return sshconfig.Publish(hosts, d.layout)
+	if err := sshconfig.Publish(hosts, d.layout); err != nil {
+		return nil, err
+	}
+	lines, err := d.mgr.ApprovedTrustLines()
+	if err != nil {
+		return nil, err
+	}
+	if err := sshconfig.PublishKnownHosts(lines, d.layout); err != nil {
+		return nil, err
+	}
+	return hosts, nil
 }
 
 func (d *Daemon) handleGenerate(w http.ResponseWriter, r *http.Request) {
-	hosts, err := d.renderable()
+	hosts, err := d.regenerate()
 	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if err := sshconfig.Publish(hosts, d.layout); err != nil {
 		writeError(w, err)
 		return
 	}
