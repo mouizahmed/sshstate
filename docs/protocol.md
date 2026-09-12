@@ -25,6 +25,13 @@ One suite per vault per epoch. No mixed mode, no negotiation, no fallback.
 Unknown suite identifiers fail closed. Changing suite is an epoch transition, not
 an in-place substitution.
 
+The current `crypto.Seal` and `crypto.Open` helpers are for small key bundles.
+Both enforce a 1 MiB serialized-ciphertext cap, including recipient and framing
+overhead; the maximum plaintext size therefore depends on the recipient set.
+Large enrollment snapshots and exports need a separate bounded streaming API
+before implementation. Secret identity serialization uses explicit
+`ExportSecret()`; ordinary key formatting is redacted.
+
 ## To be specified before Milestone 2
 
 - Canonical encoding: RFC 8785 JCS, with golden vectors. No delimiter

@@ -89,6 +89,7 @@ go build ./...
 
 ## Documentation
 
+- [Project brief and milestones](docs/project-brief.md)
 - [Threat model](docs/threat-model.md)
 - [Protocol](docs/protocol.md) — draft, frozen before Milestone 2
 - [Decision records](docs/decisions/)

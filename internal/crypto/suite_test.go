@@ -5,6 +5,7 @@ package crypto
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -149,7 +150,7 @@ func TestSealOpenRoundTrip(t *testing.T) {
 
 func TestEncryptionKeyStringRoundTrip(t *testing.T) {
 	k, _ := GenerateEncryptionKey()
-	restored, err := ParseEncryptionKey(k.String())
+	restored, err := ParseEncryptionKey(k.ExportSecret())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +165,7 @@ func TestEncryptionKeyStringRoundTrip(t *testing.T) {
 
 func TestRecoveryKitSecretStaysShort(t *testing.T) {
 	k, _ := GenerateEncryptionKey()
-	if got := len(k.String()); got > 128 {
+	if got := len(k.ExportSecret()); got > 128 {
 		t.Fatalf("secret encoding is %d chars; recovery kit assumes it stays short", got)
 	}
 	if got := len(k.Recipient().String()); got < 1000 {
@@ -233,6 +234,66 @@ func TestOversizedEnvelopeRejected(t *testing.T) {
 	k, _ := GenerateEncryptionKey()
 	if _, err := Open(k, make([]byte, maxEnvelope+1)); err == nil {
 		t.Fatal("oversized envelope accepted")
+	}
+}
+
+func TestSigningKeyFormattingRedactsSeed(t *testing.T) {
+	k, err := GenerateSigningKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := strings.Trim(fmt.Sprintf("%v", k.Seed()), "[]")
+	for _, value := range []any{k, *k} {
+		for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+			got := fmt.Sprintf(format, value)
+			if strings.Contains(got, seed) || !strings.Contains(got, "redacted") {
+				t.Errorf("%s did not redact signing key", format)
+			}
+		}
+	}
+}
+
+func TestEncryptionKeyFormattingRedactsSecret(t *testing.T) {
+	k, err := GenerateEncryptionKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []any{k, *k} {
+		for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+			got := fmt.Sprintf(format, value)
+			if strings.Contains(got, k.ExportSecret()) || !strings.Contains(got, "redacted") {
+				t.Errorf("%s did not redact encryption key", format)
+			}
+		}
+	}
+}
+
+func TestEnvelopeSizeBoundary(t *testing.T) {
+	k, err := GenerateEncryptionKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := bytes.Repeat([]byte("x"), maxEnvelope-4096)
+	ct, err := Seal(payload, k.Recipient())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Open(k, ct)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("near-limit round trip failed: %v", err)
+	}
+	for _, size := range []int{maxEnvelope, maxEnvelope + 1} {
+		ct, err := Seal(bytes.Repeat([]byte("x"), size), k.Recipient())
+		if err == nil || ct != nil {
+			t.Fatalf("Seal accepted oversized envelope for %d plaintext bytes", size)
+		}
+	}
+	recipients := make([]*Recipient, 8)
+	for i := range recipients {
+		recipients[i] = k.Recipient()
+	}
+	if ct, err := Seal(payload, recipients...); err == nil || ct != nil {
+		t.Fatal("recipient overhead bypassed envelope size limit")
 	}
 }
 

@@ -46,6 +46,10 @@ func SigningKeyFromSeed(seed []byte) (*SigningKey, error) {
 
 func (k *SigningKey) Seed() []byte { return k.sk.Bytes() }
 
+func (k SigningKey) String() string { return "[redacted signing key]" }
+
+func (k SigningKey) GoString() string { return k.String() }
+
 func (k *SigningKey) Verifier() *VerifyKey { return &VerifyKey{pk: k.sk.PublicKey()} }
 
 func (k *SigningKey) Sign(domain string, msg []byte) ([]byte, error) {
@@ -114,7 +118,11 @@ func ParseEncryptionKey(s string) (*EncryptionKey, error) {
 	return &EncryptionKey{id: id}, nil
 }
 
-func (k *EncryptionKey) String() string { return k.id.String() }
+func (k *EncryptionKey) ExportSecret() string { return k.id.String() }
+
+func (k EncryptionKey) String() string { return "[redacted encryption key]" }
+
+func (k EncryptionKey) GoString() string { return k.String() }
 
 func (k *EncryptionKey) Recipient() *Recipient { return &Recipient{r: k.id.Recipient()} }
 
@@ -129,6 +137,9 @@ func ParseRecipient(s string) (*Recipient, error) {
 }
 
 func Seal(plaintext []byte, recipients ...*Recipient) ([]byte, error) {
+	if len(plaintext) > maxEnvelope {
+		return nil, fmt.Errorf("seal: plaintext exceeds %d bytes", maxEnvelope)
+	}
 	if len(recipients) == 0 {
 		return nil, errors.New("seal: at least one recipient required")
 	}
@@ -140,7 +151,7 @@ func Seal(plaintext []byte, recipients ...*Recipient) ([]byte, error) {
 		rs = append(rs, r.r)
 	}
 	var buf bytes.Buffer
-	w, err := age.Encrypt(&buf, rs...)
+	w, err := age.Encrypt(envelopeWriter{&buf}, rs...)
 	if err != nil {
 		return nil, fmt.Errorf("seal: %w", err)
 	}
@@ -155,7 +166,19 @@ func Seal(plaintext []byte, recipients ...*Recipient) ([]byte, error) {
 
 const maxEnvelope = 1 << 20
 
+type envelopeWriter struct{ buf *bytes.Buffer }
+
+func (w envelopeWriter) Write(p []byte) (int, error) {
+	if len(p) > maxEnvelope-w.buf.Len() {
+		return 0, fmt.Errorf("envelope exceeds %d bytes", maxEnvelope)
+	}
+	return w.buf.Write(p)
+}
+
 func Open(k *EncryptionKey, ciphertext []byte) ([]byte, error) {
+	if k == nil || k.id == nil {
+		return nil, errors.New("open: nil encryption key")
+	}
 	if len(ciphertext) > maxEnvelope {
 		return nil, fmt.Errorf("open: envelope exceeds %d bytes", maxEnvelope)
 	}

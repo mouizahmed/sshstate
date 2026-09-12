@@ -1,4 +1,5 @@
 GO ?= go
+GOFMT ?= gofmt
 PKGS := ./...
 
 .PHONY: all build test vet fmt-check race vuln check clean
@@ -18,8 +19,8 @@ vet:
 	$(GO) vet $(PKGS)
 
 fmt-check:
-	@out="$$($(GO) fmt $(PKGS))"; \
-	if [ -n "$$out" ]; then echo "gofmt made changes in:"; echo "$$out"; exit 1; fi
+	@out="$$($(GOFMT) -l .)" || exit $$?; \
+	if [ -n "$$out" ]; then echo "not gofmt-clean:"; echo "$$out"; exit 1; fi
 
 vuln:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest $(PKGS)
