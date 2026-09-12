@@ -4,7 +4,10 @@ go 1.27.0
 
 toolchain go1.27.1
 
-require filippo.io/age v1.3.2
+require (
+	filippo.io/age v1.3.2
+	github.com/gowebpki/jcs v1.0.1
+)
 
 require (
 	filippo.io/hpke v0.4.0 // indirect
