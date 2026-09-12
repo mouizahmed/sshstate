@@ -161,3 +161,133 @@ CI ran `govulncheck` from Milestone 0 and would have caught the `x/crypto`
 downgrade on the next push. It would **not** have caught the `age` downgrade:
 v1.3.1 has no advisory, so nothing distinguishes it from the pinned version
 except the pin itself. That is the gap `TestPinnedDependencyMinimums` closes.
+
+---
+
+## D4 — `doctor` reported a problem on every correctly generated host
+
+- Found: Milestone 1 completion, by `internal/daemon.TestDoctorReportsNoProblemsOnGeneratedConfig`
+- Severity: a false alarm on the normal case, which is how a diagnostic becomes noise
+- Fixed in: `internal/daemon/doctor.go`
+
+### What happened
+
+The generated config writes `UpdateHostKeys no`. Doctor compared the effective
+value against that same string and reported:
+
+```
+problem  effective configuration
+         host "prod": updatehostkeys is "false", the vault says "no"
+```
+
+`ssh -G` does not echo the configured word. It renders `UpdateHostKeys` as a
+boolean: `yes` prints `true`, `no` prints `false`, and only `ask` prints itself
+(verified against OpenSSH_10.0p2). So every host generated exactly as intended
+was reported as misconfigured.
+
+`ProxyJump` has a second version of the same problem in the opposite direction:
+when it resolves to `none`, `ssh -G` omits the keyword entirely rather than
+printing `proxyjump none`, so a check that expected to read a value back would
+have reported a missing setting on every host without a jump host.
+
+### Why it survived
+
+There were no tests for `doctor` at all. Its output was read by a human during
+development, where one wrong line among a dozen correct ones is easy to accept
+as "something about host keys". Nothing compared the whole report against an
+expectation, so nothing had to be right.
+
+The deeper cause is that `ssh -G` output was treated as an echo of the config
+rather than as its own rendering with its own spellings. That assumption held
+for `hostname`, `user`, `port` and `identityagent`, which is why it survived.
+
+### Fix
+
+`updatehostkeys` is compared against the rendered value. `proxyjump` is checked
+as three cases: absent means none, present must match the vault, and a jump host
+appearing where the vault declares none is a problem in itself. The remaining
+managed fields — `stricthostkeychecking` and the ordered
+`UserKnownHostsFile` pair — are now checked too, so every field the generator
+writes explicitly is a field doctor verifies.
+
+### Guard
+
+`TestDoctorReportsNoProblemsOnGeneratedConfig` runs the real `ssh` binary
+against a real generated config and fails on any `problem` finding.
+`TestDoctorDetectsManagedFieldOverrides` overrides each managed field in turn
+from a Host block placed ahead of the managed Include, and requires each one to
+be reported. Verified by mutation: restoring the `"no"` expectation makes the
+first test fail with the original message.
+
+Doctor tests need a seam. OpenSSH resolves `~/.ssh/config` from the passwd
+entry and ignores `$HOME`, so a test cannot point it at a temporary config by
+setting an environment variable; the daemon carries an unexported
+`effectiveConfigArgs` that tests set to `-F <path>`. It is empty in production,
+where inspecting the user's real configuration is the entire purpose.
+
+---
+
+## D5 — A failed recovery-kit check stranded the vault
+
+- Found: Milestone 1 completion, during review of the init flow
+- Severity: an unrecoverable state reachable by mistyping, with advice that could not work
+- Fixed in: `internal/cli/commands.go`, `internal/vault/manager.go`
+
+### What happened
+
+`init` creates the vault, prints the recovery kit, and asks the user to type its
+checksum back (§7.2). After three wrong answers it failed with:
+
+```
+recovery kit not confirmed; run sshstate init again after saving the kit
+```
+
+`init` refuses to run against an existing vault, so that advice could not be
+followed. The vault existed, held its keys, and refused every mutation until
+confirmed — and nothing could confirm it. The blocking error pointed at
+`sshstate init --confirm-recovery`, a flag that was never implemented.
+
+Three wrong answers is not an unlikely path: the checksum is ten transcribed
+characters, and the whole point of asking for it is that people get it wrong.
+
+### Fix
+
+`sshstate confirm-recovery --kit <path>` completes the check against an existing
+vault. It asks for the saved kit rather than the checksum, which is both
+stronger evidence that the kit was saved and the only evidence still available
+once the terminal has scrolled.
+
+The kit never crosses the control socket (§4.6). The CLI reads and verifies it
+locally, the daemon issues a nonce, and the CLI answers with an ML-DSA-65
+signature over that nonce under the domain
+`sshstate.recovery-kit-confirm.v1`, which the daemon verifies against the
+recovery verify key already pinned in genesis. A kit belonging to a different
+vault therefore proves nothing about this one. The command also works with no
+daemon running, because a stopped daemon is a common part of being stranded.
+
+Both error messages now name the command that exists, and `init`'s failure adds
+what to do if the kit really was lost: delete the database and start over.
+
+### Guard
+
+A mistyped checksum was only the most obvious way to reach this state. Review
+found two more: a recovery kit that cannot be written (`--kit` naming a
+directory that does not exist) and a closed stdin both returned their own error
+after the vault was already on disk, saying nothing about what had been left
+behind. Every exit after vault creation now explains the state, and the advice
+depends on whether the kit survived — a vault whose kit reached nowhere is not
+recoverable, and telling its owner to "confirm it later" would be false.
+Kit creation also refuses an existing path instead of overwriting it or
+inheriting permissions that could expose the recovery secret.
+
+`TestFailedConfirmationPointsAtAWorkingCommand` asserts that the advice names a
+command in the command table and not the flag that never existed.
+`TestInitExplainsItselfWhenTheKitCannotBeWritten` and
+`TestInitExplainsItselfWhenTheConfirmationCannotBeRead` cover the other two
+exits. `TestInitRefusesExistingRecoveryKitPathWithoutChangingIt` proves an
+existing destination keeps both its contents and permissions.
+`TestConfirmRecoveryWithoutDaemon` walks the stranded path end to end and then
+adds a host, which is the property that actually matters.
+`TestConfirmRecoveryRejectsAnotherVaultsKit`, `TestRecoveryChallengeIsSingleUse`,
+`TestRecoveryChallengeExpires` and `TestRecoveryProofIsDomainSeparated` cover the
+proof itself.

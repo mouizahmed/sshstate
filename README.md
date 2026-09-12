@@ -8,7 +8,8 @@ while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 
 > **Status: pre-v1, Milestone 1.** Local operation works end to end on macOS: a
 > vault, a recovery kit, a daemon with an agent socket, generated configuration,
-> and a real `ssh` login authenticated by a key that is never written to disk.
+> reviewed import of the host-key trust you already have, and a real `ssh` login
+> authenticated by a key that is never written to disk.
 > There is no synchronization yet — no relay, no pairing, no second device, no
 > backup or restore. This is an implementation in progress, not a released tool,
 > and it has not been independently audited. Do not put credentials you care
@@ -106,7 +107,17 @@ ssh prod
 
 `init` prints a recovery kit and asks you to type its checksum back. That is
 deliberate: the kit is the only way into the vault if every device is lost, and
-it is not stored anywhere else.
+it is not stored anywhere else. If that check fails, the vault is created but
+refuses changes until you run `sshstate confirm-recovery --kit <path>`.
+
+`install` shows the entries in your existing `~/.ssh/known_hosts` that match
+managed hosts — fingerprints, markers, and any conflict with trust already in
+the vault — and asks whether to import them, continue without them, or cancel.
+Nothing is imported without that answer, and your own `known_hosts` is never
+modified. Trust is published before the Include is activated, so a host you have
+already accepted does not prompt again. Scripts pass `--import-trust` or
+`--skip-trust`; without one, a noninteractive install refuses rather than
+choosing for you.
 
 `uninstall` removes the `Include` and leaves the vault, your keys, your SSH
 config and your `known_hosts` alone. `--purge` is refused until encrypted export
