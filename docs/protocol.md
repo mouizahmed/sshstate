@@ -334,7 +334,11 @@ Carried as `{"event": {...}, "signature": "<base64url>"}`, signed under
 - On `revoke`, `device_verify_key`, `device_recipient` and `transcript_digest`
   are `null`.
 - `transcript_digest` is non-null on an `enroll` with `authority: device`, and
-  null on an `enroll` with `authority: recovery`.
+  null on an `enroll` with `authority: recovery`. The root event is the one
+  device-authorized enrolment with no pairing behind it, and carries 32 zero
+  bytes rather than null. A nullable exception for exactly one event would put a
+  branch in the validator for an attacker to aim at; an all-zero digest keeps the
+  rule absolute and can match no real transcript.
 - Event digest: SHA-256 over JCS of `{event, signature}`.
 
 ### 4.2 Chain validation
