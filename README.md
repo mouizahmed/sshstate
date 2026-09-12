@@ -6,9 +6,13 @@ sshstate keeps your managed SSH hosts, connection options, trusted host keys and
 credentials available across every machine you use, including headless ones,
 while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 
-> **Status: pre-v1, Milestone 0.** The module, cryptographic suite and CI exist.
-> Nothing user-facing is implemented yet. This is an implementation in progress,
-> not a released tool, and it has not been independently audited.
+> **Status: pre-v1, Milestone 1.** Local operation works end to end on macOS: a
+> vault, a recovery kit, a daemon with an agent socket, generated configuration,
+> and a real `ssh` login authenticated by a key that is never written to disk.
+> There is no synchronization yet — no relay, no pairing, no second device, no
+> backup or restore. This is an implementation in progress, not a released tool,
+> and it has not been independently audited. Do not put credentials you care
+> about in it until backup and restore exist.
 
 ## What it is, and is not
 
@@ -36,6 +40,11 @@ cursors. It never receives a vault key, a password wrapper or a password
 verifier. Device enrollment is authenticated by comparing a full transcript
 fingerprint out of band, so a malicious relay cannot substitute its own key
 during pairing.
+
+**The vault is locked by default and expires.** Unlock is explicit. Idle expiry
+is 15 minutes, refreshed by signing and by explicit vault commands but never by
+status polling; hard expiry is 8 hours from password entry and cannot be
+extended. A restarted or crashed daemon comes back locked.
 
 **Host key trust is synchronized and reviewed, not overwritten.** A changed or
 conflicting host key is held as a pending candidate requiring explicit
@@ -78,6 +87,35 @@ Windows is not supported and is not planned for v1 (see the project brief). An
 agent-and-daemon design costs considerably more there than a client that writes
 files, and that tradeoff is deliberate.
 
+## Trying it
+
+Milestone 1 is local only. Nothing leaves the machine.
+
+```sh
+go build -o sshstate ./cmd/sshstate
+
+./sshstate init --kit ~/sshstate-recovery-kit.txt
+./sshstate daemon &                    # or: ./sshstate install --service
+./sshstate unlock
+./sshstate add-key ~/.ssh/id_ed25519
+./sshstate add prod --hostname 10.0.0.5 --user ubuntu --key <record-id>
+./sshstate install                     # adds the Include to ~/.ssh/config
+./sshstate doctor
+ssh prod
+```
+
+`init` prints a recovery kit and asks you to type its checksum back. That is
+deliberate: the kit is the only way into the vault if every device is lost, and
+it is not stored anywhere else.
+
+`uninstall` removes the `Include` and leaves the vault, your keys, your SSH
+config and your `known_hosts` alone. `--purge` is refused until encrypted export
+and restore exist.
+
+On macOS, `install --service` registers a launchd agent using named socket
+activation, so the daemon starts on demand and starts locked. Linux uses
+foreground mode until systemd integration lands.
+
 ## Building
 
 Requires **Go 1.27 or later** — `crypto/mldsa` is not present in Go 1.26.
@@ -85,12 +123,16 @@ Requires **Go 1.27 or later** — `crypto/mldsa` is not present in Go 1.26.
 ```sh
 make check      # gofmt, vet, build, test, test -race
 go build ./...
+
+# Registers a real launchd job in your session; opt-in, and not run by CI.
+SSHSTATE_LAUNCHD_TEST=1 go test ./internal/service/ -run Launchd
 ```
 
 ## Documentation
 
 - [Project brief and milestones](docs/project-brief.md)
 - [Threat model](docs/threat-model.md)
+- [Defects found during implementation](docs/defects.md)
 - [Protocol](docs/protocol.md) — draft, frozen before Milestone 2
 - [Decision records](docs/decisions/)
 
