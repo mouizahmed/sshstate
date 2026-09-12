@@ -17,6 +17,18 @@ import (
 var ErrParentMismatch = errors.New("parent revision or digest does not match the stored head")
 
 func (s *Store) PutRecord(env *protocol.Envelope) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := putRecordTx(tx, env); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func putRecordTx(tx *sql.Tx, env *protocol.Envelope) error {
 	if err := env.Validate(); err != nil {
 		return fmt.Errorf("put record: %w", err)
 	}
@@ -28,12 +40,6 @@ func (s *Store) PutRecord(env *protocol.Envelope) error {
 	if err != nil {
 		return err
 	}
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 
 	var haveRev int64
 	var haveDigest []byte
@@ -49,7 +55,7 @@ func (s *Store) PutRecord(env *protocol.Envelope) error {
 		return err
 	default:
 		if int64(env.Context.Rev) == haveRev && bytes.Equal(digest, haveDigest) {
-			return tx.Commit()
+			return nil
 		}
 		if int64(env.Context.Rev) != haveRev+1 {
 			return fmt.Errorf("put record %s: stored head is rev %d, write is rev %s: %w",
@@ -81,10 +87,7 @@ func (s *Store) PutRecord(env *protocol.Envelope) error {
 		   seq         = excluded.seq`,
 		string(env.Context.RecordID), string(env.Context.RecordType),
 		int64(env.Context.Rev), digest, deleted, string(body), seq)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
+	return err
 }
 
 func (s *Store) Head(id protocol.ID) (*protocol.Envelope, []byte, error) {
@@ -137,11 +140,23 @@ func decodeEnvelope(body string) (*protocol.Envelope, error) {
 }
 
 func (s *Store) EnqueueOutbox(env *protocol.Envelope) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := enqueueOutboxTx(tx, env); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func enqueueOutboxTx(tx *sql.Tx, env *protocol.Envelope) error {
 	body, err := json.Marshal(env)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
+	_, err = tx.Exec(
 		`INSERT INTO outbox (mutation_id, record_id, envelope, created_at) VALUES (?, ?, ?, ?)
 		 ON CONFLICT(mutation_id) DO NOTHING`,
 		string(env.Context.MutationID), string(env.Context.RecordID),
@@ -176,10 +191,27 @@ func (s *Store) DequeueOutbox(mutationID protocol.ID) error {
 }
 
 func (s *Store) ApplyLocal(env *protocol.Envelope) error {
-	if err := s.EnqueueOutbox(env); err != nil {
-		return fmt.Errorf("persist outbound candidate: %w", err)
+	return s.ApplyLocalBatch(env)
+}
+
+func (s *Store) ApplyLocalBatch(envs ...*protocol.Envelope) error {
+	if len(envs) == 0 {
+		return nil
 	}
-	return s.PutRecord(env)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, env := range envs {
+		if err := enqueueOutboxTx(tx, env); err != nil {
+			return fmt.Errorf("persist outbound candidate: %w", err)
+		}
+		if err := putRecordTx(tx, env); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) SetCursor(name, value string) error {

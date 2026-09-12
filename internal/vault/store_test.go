@@ -368,3 +368,57 @@ func TestSchemaVersionMismatchRefusesToOpen(t *testing.T) {
 		t.Fatal("opened a database written by a newer client")
 	}
 }
+
+func TestApplyLocalBatchIsAtomic(t *testing.T) {
+	s := newStore(t)
+	f := newFixture(t)
+
+	good, err := f.writer.Seal(creation(protocol.RecordHost), hostPayload())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := f.writer.Seal(Mutation{
+		RecordID:     protocol.MustNewID(),
+		RecordType:   protocol.RecordHost,
+		Rev:          2,
+		ParentDigest: make([]byte, 32),
+		MutationID:   protocol.MustNewID(),
+	}, hostPayload())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.ApplyLocalBatch(good, bad); !errors.Is(err, ErrParentMismatch) {
+		t.Fatalf("batch: want ErrParentMismatch, got %v", err)
+	}
+	live, err := s.LiveRecords(protocol.RecordHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live) != 0 {
+		t.Fatalf("a failed batch left %d records committed", len(live))
+	}
+	pending, err := s.Outbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("a failed batch left %d outbox candidates", len(pending))
+	}
+
+	if err := s.ApplyLocalBatch(good); err != nil {
+		t.Fatal(err)
+	}
+	live, err = s.LiveRecords(protocol.RecordHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live) != 1 {
+		t.Fatalf("a good batch stored %d records, want 1", len(live))
+	}
+	if pending, err := s.Outbox(); err != nil {
+		t.Fatal(err)
+	} else if len(pending) != 1 {
+		t.Fatalf("a good batch queued %d candidates, want 1", len(pending))
+	}
+}
