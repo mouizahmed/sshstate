@@ -407,9 +407,13 @@ of four, identically on both devices.
 
 All 13 groups are displayed, never elided or collapsed. The user is instructed to
 compare every group; comparing the beginning or end is insufficient. Group
-numbers are presentation only. The final group carries 4 bits of the digest plus
-1 unused bit, which must be zero. The signed transcript and digest bytes are not
-affected by this encoding.
+numbers are presentation only, and are not part of the value — `2` through `7`
+are base32 data characters, so a reader must never try to strip digits. The
+final character encodes 1 bit of the digest and 4 unused bits, which must be
+zero; a reader re-encodes and compares rather than trusting a base32 decoder to
+reject a non-zero remainder, since otherwise 16 distinct strings decode to one
+digest. The signed transcript and digest bytes are not affected by this
+encoding.
 
 This improves readability. It does not eliminate human comparison error.
 
@@ -438,6 +442,27 @@ and the verified transcript supply the latter.
 
 Accepted session IDs and challenges are persisted so a session cannot be
 completed twice.
+
+### 5.4 Confirmation
+
+What each device signs once its user has compared the fingerprint:
+
+```json
+{
+  "domain": "sshstate.pairing-confirm.v1",
+  "format_version": 1,
+  "vault_id": "<id>",
+  "session_id": "<id>",
+  "device_id": "<id>",
+  "transcript_digest": "<sha256-base64url>",
+  "created_at": "2026-09-12T00:00:00Z"
+}
+```
+
+It carries the digest rather than the transcript, so a confirmation cannot be
+lifted onto a differently assembled transcript that happens to share a field.
+Carried as `{"confirmation": {...}, "signature": "<base64url>"}`, signed under
+`sshstate.pairing-confirm.v1`.
 
 ---
 
@@ -744,18 +769,18 @@ Approver request:
     "created_at": "...",
     "expires_at": "..."
   },
-  "transcript_digest": "<sha256-base64url>",
+  "confirmation": { ... },
   "signature": "<base64url>"
 }
 ```
 
-Joiner request: `{"transcript_digest": "<sha256-base64url>", "signature": "<base64url>"}`
+Joiner request: `{"confirmation": {...}, "signature": "<base64url>"}`
 
 Response `200`: the session as in `GET`.
 
-The relay stores both confirmations and checks that the two `transcript_digest`
-values are equal, but it cannot verify the transcript itself and is not trusted
-to. Each device recomputes the transcript from the session and compares the
+The relay stores both confirmations and checks that the two
+`confirmation.transcript_digest` values are equal, but it cannot verify the
+transcript itself and is not trusted to. Each device recomputes the transcript from the session and compares the
 fingerprint the user approved.
 
 ```
