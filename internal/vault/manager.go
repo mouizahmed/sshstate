@@ -4,6 +4,8 @@
 package vault
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"sync"
@@ -20,10 +22,14 @@ const (
 
 const MetaRecoveryConfirmed = "recovery_kit_confirmed"
 
+const RecoveryConfirmDomain = "sshstate.recovery-kit-confirm.v1"
+
+const recoveryChallengeTTL = 2 * time.Minute
+
 var (
 	ErrLocked              = errors.New("vault is locked")
 	ErrNotInitialized      = errors.New("no vault here; run: sshstate init")
-	ErrRecoveryUnconfirmed = errors.New("recovery kit has not been confirmed; run: sshstate init --confirm-recovery")
+	ErrRecoveryUnconfirmed = errors.New("recovery kit has not been confirmed; run: sshstate confirm-recovery --kit <path>")
 )
 
 type session struct {
@@ -41,9 +47,11 @@ type Manager struct {
 	vaultID  protocol.ID
 	deviceID protocol.ID
 
-	mu      sync.Mutex
-	current *session
-	now     func() time.Time
+	mu                      sync.Mutex
+	current                 *session
+	recoveryChallenge       []byte
+	recoveryChallengeExpiry time.Time
+	now                     func() time.Time
 }
 
 func NewManager(store *Store) (*Manager, error) {
@@ -207,6 +215,46 @@ func (m *Manager) ConfirmRecoveryKit(checksum string, kit *Kit) error {
 	}
 	if checksum != kit.Checksum() {
 		return errors.New("that checksum does not match the recovery kit")
+	}
+	return m.store.SetMeta(MetaRecoveryConfirmed, "true")
+}
+
+func (m *Manager) RecoveryChallenge() ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	nonce := make([]byte, 32)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	m.recoveryChallenge = nonce
+	m.recoveryChallengeExpiry = m.clock().Add(recoveryChallengeTTL)
+	return nonce, nil
+}
+
+func (m *Manager) ConfirmRecoveryProof(nonce, signature []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	outstanding := m.recoveryChallenge
+	expiry := m.recoveryChallengeExpiry
+	m.recoveryChallenge = nil
+	m.recoveryChallengeExpiry = time.Time{}
+
+	if len(outstanding) == 0 {
+		return errors.New("no recovery challenge is outstanding")
+	}
+	if m.clock().After(expiry) {
+		return errors.New("the recovery challenge has expired; try again")
+	}
+	if subtle.ConstantTimeCompare(outstanding, nonce) != 1 {
+		return errors.New("that answer is for a different challenge")
+	}
+	vk, err := crypto.VerifyKeyFromBytes(m.genesis.RecoveryVerifyKey)
+	if err != nil {
+		return fmt.Errorf("genesis recovery key: %w", err)
+	}
+	if err := crypto.Verify(vk, RecoveryConfirmDomain, nonce, signature); err != nil {
+		return errors.New("that recovery kit does not belong to this vault")
 	}
 	return m.store.SetMeta(MetaRecoveryConfirmed, "true")
 }

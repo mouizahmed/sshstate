@@ -50,7 +50,7 @@ func New(mgr *vault.Manager, layout paths.Layout, log *slog.Logger) *Daemon {
 }
 
 func (d *Daemon) Run(ctx context.Context) error {
-	release, err := acquireInstanceLock(d.layout.DaemonLock())
+	release, err := AcquireInstanceLock(d.layout.DaemonLock())
 	if err != nil {
 		return err
 	}

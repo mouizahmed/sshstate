@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/mouizahmed/sshstate/internal/control"
+	"github.com/mouizahmed/sshstate/internal/crypto"
+	"github.com/mouizahmed/sshstate/internal/daemon"
 	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/sshconfig"
 	"github.com/mouizahmed/sshstate/internal/vault"
@@ -74,30 +77,172 @@ func runInit(ctx context.Context, env *Env, args []string) error {
 	}
 
 	env.printf("Vault %s created for device %s.\n\n", mgr.VaultID(), mgr.DeviceID())
-	if *kitPath != "" {
-		if err := os.WriteFile(*kitPath, []byte(kit.Marshal()), 0o600); err != nil {
-			return fmt.Errorf("write recovery kit: %w", err)
-		}
-		env.printf("Recovery kit written to %s (mode 0600).\n", *kitPath)
-	} else {
-		env.printf("%s\n", kit.Marshal())
-	}
-	env.printf("\nSave this kit offline now. It is the only way back into this vault\n")
-	env.printf("if you lose every enrolled device, and it is not stored anywhere else.\n\n")
 
+	kitSaved, err := env.saveKit(kit, *kitPath)
+	if err != nil {
+		return env.explainUnfinishedInit(kitSaved, *kitPath, err)
+	}
+	if err := env.confirmKitNow(mgr, kit); err != nil {
+		return env.explainUnfinishedInit(kitSaved, *kitPath, err)
+	}
+	env.printf("\nRecovery kit confirmed. The vault is unlocked and ready.\n")
+	env.printf("Next: sshstate daemon, then sshstate add-key ~/.ssh/id_ed25519\n")
+	return nil
+}
+
+func (e *Env) saveKit(kit *vault.Kit, path string) (bool, error) {
+	if path != "" {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return false, fmt.Errorf("write recovery kit: %w", err)
+		}
+		body := []byte(kit.Marshal())
+		if _, err := f.Write(body); err != nil {
+			_ = f.Close()
+			_ = os.Remove(path)
+			return false, fmt.Errorf("write recovery kit: %w", err)
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			_ = os.Remove(path)
+			return false, fmt.Errorf("sync recovery kit: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			_ = os.Remove(path)
+			return false, fmt.Errorf("close recovery kit: %w", err)
+		}
+		e.printf("Recovery kit written to %s (mode 0600).\n", path)
+	} else {
+		e.printf("%s\n", kit.Marshal())
+	}
+	e.printf("\nSave this kit offline now. It is the only way back into this vault\n")
+	e.printf("if you lose every enrolled device, and it is not stored anywhere else.\n\n")
+	return true, nil
+}
+
+func (e *Env) confirmKitNow(mgr *vault.Manager, kit *vault.Kit) error {
 	for attempt := 0; attempt < 3; attempt++ {
-		answer, err := env.ReadLine(fmt.Sprintf("Type the kit's checksum (%d characters) to confirm you saved it: ", vault.KitChecksumChars))
+		answer, err := e.ReadLine(fmt.Sprintf("Type the kit's checksum (%d characters) to confirm you saved it: ", vault.KitChecksumChars))
+		if err != nil {
+			return fmt.Errorf("read the confirmation: %w", err)
+		}
+		if err := mgr.ConfirmRecoveryKit(strings.TrimSpace(strings.ToUpper(answer)), kit); err == nil {
+			return nil
+		}
+		e.warnf("That does not match. ")
+	}
+	return errors.New("recovery kit not confirmed")
+}
+
+func (e *Env) explainUnfinishedInit(kitSaved bool, kitPath string, cause error) error {
+	e.warnf("\nThe vault at %s was created and is not confirmed, so it refuses changes.\n",
+		e.Layout.Database())
+	if !kitSaved {
+		e.warnf("Its recovery kit was not saved anywhere, so this vault cannot be recovered.\n")
+		e.warnf("Delete %s and run init again.\n", e.Layout.Database())
+		return cause
+	}
+	where := kitPath
+	if where == "" {
+		where = "<the file you saved the kit to>"
+	}
+	e.warnf("Confirm it once the kit is saved:\n")
+	e.warnf("    sshstate confirm-recovery --kit %s\n", where)
+	e.warnf("If you no longer have the kit, delete %s and run init again.\n", e.Layout.Database())
+	return cause
+}
+
+func runConfirmRecovery(ctx context.Context, env *Env, args []string) error {
+	fs := newFlagSet(env, "confirm-recovery")
+	kitPath := fs.String("kit", "", "path to the saved recovery kit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	path := *kitPath
+	if path == "" {
+		answer, err := env.ReadLine("Path to your saved recovery kit: ")
 		if err != nil {
 			return err
 		}
-		if err := mgr.ConfirmRecoveryKit(strings.TrimSpace(strings.ToUpper(answer)), kit); err == nil {
-			env.printf("\nRecovery kit confirmed. The vault is unlocked and ready.\n")
-			env.printf("Next: sshstate daemon, then sshstate add-key ~/.ssh/id_ed25519\n")
-			return nil
-		}
-		env.warnf("That does not match. ")
+		path = strings.TrimSpace(answer)
 	}
-	return errors.New("recovery kit not confirmed; run sshstate init again after saving the kit")
+	if path == "" {
+		return errors.New("no recovery kit path given")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read recovery kit: %w", err)
+	}
+	kit, err := vault.ParseKit(string(data))
+	if err != nil {
+		return err
+	}
+	signing, _, err := kit.Keys()
+	if err != nil {
+		return err
+	}
+
+	confirmed, err := env.confirmRecoveryViaDaemon(ctx, signing)
+	if errors.Is(err, control.ErrDaemonUnavailable) {
+		confirmed, err = env.confirmRecoveryInProcess(signing)
+	}
+	if err != nil {
+		return err
+	}
+	env.printf("Recovery kit confirmed for vault %s. The vault now accepts changes.\n", confirmed)
+	return nil
+}
+
+func (e *Env) confirmRecoveryViaDaemon(ctx context.Context, signing *crypto.SigningKey) (string, error) {
+	challenge, err := e.Client().RecoveryChallenge(ctx)
+	if err != nil {
+		return "", err
+	}
+	nonce, err := base64.RawURLEncoding.DecodeString(challenge.Nonce)
+	if err != nil {
+		return "", err
+	}
+	signature, err := signing.Sign(vault.RecoveryConfirmDomain, nonce)
+	if err != nil {
+		return "", err
+	}
+	st, err := e.Client().RecoveryConfirm(ctx, challenge.Nonce,
+		base64.RawURLEncoding.EncodeToString(signature))
+	if err != nil {
+		return "", hint(err)
+	}
+	return st.VaultID, nil
+}
+
+func (e *Env) confirmRecoveryInProcess(signing *crypto.SigningKey) (string, error) {
+	release, err := daemon.AcquireInstanceLock(e.Layout.DaemonLock())
+	if err != nil {
+		return "", fmt.Errorf("%w\nIf a daemon is running, its control socket is unreachable; "+
+			"restart it and run this again", err)
+	}
+	defer release()
+
+	store, err := vault.OpenStore(e.Layout.Database())
+	if err != nil {
+		return "", err
+	}
+	defer store.Close()
+	mgr, err := vault.NewManager(store)
+	if err != nil {
+		return "", err
+	}
+	nonce, err := mgr.RecoveryChallenge()
+	if err != nil {
+		return "", err
+	}
+	signature, err := signing.Sign(vault.RecoveryConfirmDomain, nonce)
+	if err != nil {
+		return "", err
+	}
+	if err := mgr.ConfirmRecoveryProof(nonce, signature); err != nil {
+		return "", err
+	}
+	return string(mgr.VaultID()), nil
 }
 
 func defaultDeviceLabel() string {

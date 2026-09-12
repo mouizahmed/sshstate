@@ -156,6 +156,17 @@ func (c *Client) TrustImport(ctx context.Context, digests []string) (*TrustImpor
 	return &out, c.do(ctx, http.MethodPost, RouteTrustImport, TrustImportRequest{Digests: digests}, &out)
 }
 
+func (c *Client) RecoveryChallenge(ctx context.Context) (*RecoveryChallengeResponse, error) {
+	var out RecoveryChallengeResponse
+	return &out, c.do(ctx, http.MethodPost, RouteRecoveryChallenge, struct{}{}, &out)
+}
+
+func (c *Client) RecoveryConfirm(ctx context.Context, nonce, signature string) (*StatusResponse, error) {
+	var out StatusResponse
+	return &out, c.do(ctx, http.MethodPost, RouteRecoveryConfirm,
+		RecoveryConfirmRequest{Nonce: nonce, Signature: signature}, &out)
+}
+
 func (c *Client) Shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, RouteShutdown, struct{}{}, nil)
 }

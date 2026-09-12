@@ -15,7 +15,7 @@ import (
 
 func dirOf(path string) string { return filepath.Dir(path) }
 
-func acquireInstanceLock(path string) (func(), error) {
+func AcquireInstanceLock(path string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create lock directory: %w", err)
 	}

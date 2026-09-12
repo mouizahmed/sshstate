@@ -31,6 +31,8 @@ func (d *Daemon) routes() http.Handler {
 	mux.HandleFunc("GET "+control.RouteDoctor, d.handleDoctor)
 	mux.HandleFunc("GET "+control.RouteTrust, d.handleTrustPreview)
 	mux.HandleFunc("POST "+control.RouteTrustImport, d.handleTrustImport)
+	mux.HandleFunc("POST "+control.RouteRecoveryChallenge, d.handleRecoveryChallenge)
+	mux.HandleFunc("POST "+control.RouteRecoveryConfirm, d.handleRecoveryConfirm)
 	mux.HandleFunc("POST "+control.RouteShutdown, d.handleShutdown)
 	return d.logRequests(mux)
 }

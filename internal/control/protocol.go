@@ -10,16 +10,18 @@ const APIVersion = "v1"
 const MaxRequestBytes = 1 << 20
 
 const (
-	RouteStatus      = "/" + APIVersion + "/status"
-	RouteUnlock      = "/" + APIVersion + "/unlock"
-	RouteLock        = "/" + APIVersion + "/lock"
-	RouteHosts       = "/" + APIVersion + "/hosts"
-	RouteKeys        = "/" + APIVersion + "/keys"
-	RouteGenerate    = "/" + APIVersion + "/generate"
-	RouteDoctor      = "/" + APIVersion + "/doctor"
-	RouteShutdown    = "/" + APIVersion + "/shutdown"
-	RouteTrust       = "/" + APIVersion + "/trust"
-	RouteTrustImport = "/" + APIVersion + "/trust/import"
+	RouteStatus            = "/" + APIVersion + "/status"
+	RouteUnlock            = "/" + APIVersion + "/unlock"
+	RouteLock              = "/" + APIVersion + "/lock"
+	RouteHosts             = "/" + APIVersion + "/hosts"
+	RouteKeys              = "/" + APIVersion + "/keys"
+	RouteGenerate          = "/" + APIVersion + "/generate"
+	RouteDoctor            = "/" + APIVersion + "/doctor"
+	RouteShutdown          = "/" + APIVersion + "/shutdown"
+	RouteTrust             = "/" + APIVersion + "/trust"
+	RouteTrustImport       = "/" + APIVersion + "/trust/import"
+	RouteRecoveryChallenge = "/" + APIVersion + "/recovery/challenge"
+	RouteRecoveryConfirm   = "/" + APIVersion + "/recovery/confirm"
 )
 
 type Error struct {
@@ -138,6 +140,15 @@ type TrustImportResponse struct {
 	Pending        int    `json:"pending"`
 	Skipped        int    `json:"skipped"`
 	KnownHostsPath string `json:"known_hosts_path"`
+}
+
+type RecoveryChallengeResponse struct {
+	Nonce string `json:"nonce"`
+}
+
+type RecoveryConfirmRequest struct {
+	Nonce     string `json:"nonce"`
+	Signature string `json:"signature"`
 }
 
 type DoctorFinding struct {

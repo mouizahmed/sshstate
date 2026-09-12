@@ -35,6 +35,7 @@ type Command struct {
 func Commands() []Command {
 	return []Command{
 		{"init", "create a vault on this device", runInit},
+		{"confirm-recovery", "confirm a saved recovery kit for an existing vault", runConfirmRecovery},
 		{"unlock", "unlock the vault for this session", runUnlock},
 		{"lock", "lock the vault and drop keys from memory", runLock},
 		{"status", "show vault and integration status", runStatus},
