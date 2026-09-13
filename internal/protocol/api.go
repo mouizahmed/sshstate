@@ -1,0 +1,142 @@
+// Copyright (C) 2026 Mouiz Ahmed
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package protocol
+
+const APIVersion = "v1"
+
+type ErrorBody struct {
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Detail  map[string]any `json:"detail,omitempty"`
+}
+
+type ErrorResponse struct {
+	Error ErrorBody `json:"error"`
+	Head  *Envelope `json:"head,omitempty"`
+}
+
+type BootstrapRequest struct {
+	Genesis        Genesis               `json:"genesis"`
+	MembershipRoot SignedMembershipEvent `json:"membership_root"`
+}
+
+type BootstrapResponse struct {
+	VaultID ID `json:"vault_id"`
+}
+
+type CreatePairingRequest struct {
+	VaultID   ID           `json:"vault_id"`
+	Offer     PairingOffer `json:"offer"`
+	Signature Bytes        `json:"signature"`
+}
+
+type CreatePairingResponse struct {
+	SessionID ID     `json:"session_id"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+type PairingResponse struct {
+	SessionID            ID                         `json:"session_id"`
+	State                string                     `json:"state"`
+	Offer                *PairingOffer              `json:"offer"`
+	OfferSignature       Bytes                      `json:"offer_signature"`
+	Approver             *PairingApproval           `json:"approver"`
+	ApproverConfirmation *SignedPairingConfirmation `json:"approver_confirmation"`
+	JoinerConfirmation   *SignedPairingConfirmation `json:"joiner_confirmation"`
+	Bundle               Bytes                      `json:"bundle"`
+	Snapshot             Bytes                      `json:"snapshot"`
+	MembershipEvent      *SignedMembershipEvent     `json:"membership_event"`
+	ExpiresAt            string                     `json:"expires_at"`
+}
+
+type ConfirmPairingRequest struct {
+	Approver     *PairingApproval    `json:"approver"`
+	Confirmation PairingConfirmation `json:"confirmation"`
+	Signature    Bytes               `json:"signature"`
+}
+
+type CompletePairingRequest struct {
+	MembershipEvent *SignedMembershipEvent `json:"membership_event"`
+	Bundle          Bytes                  `json:"bundle"`
+	Snapshot        Bytes                  `json:"snapshot"`
+	Acknowledged    bool                   `json:"acknowledged"`
+}
+
+type MembershipResponse struct {
+	Events []SignedMembershipEvent `json:"events"`
+}
+
+type AppendMembershipRequest struct {
+	Event SignedMembershipEvent `json:"event"`
+}
+
+type AppendMembershipResponse struct {
+	ChainSeq   Counter `json:"chain_seq"`
+	HeadDigest Bytes   `json:"head_digest"`
+}
+
+type EnvelopeBody struct {
+	ID                ID            `json:"id"`
+	RecipientDeviceID *ID           `json:"recipient_device_id"`
+	Purpose           BundlePurpose `json:"purpose"`
+	KeyEpoch          Counter       `json:"key_epoch"`
+	Ciphertext        Bytes         `json:"ciphertext"`
+}
+
+type EnvelopesResponse struct {
+	Envelopes []EnvelopeBody `json:"envelopes"`
+}
+
+type RecoveryChallengeRequest struct {
+	VaultID ID `json:"vault_id"`
+}
+
+type RecoveryChallengeResponse struct {
+	Nonce            string   `json:"nonce"`
+	ExpiresAt        string   `json:"expires_at"`
+	Genesis          *Genesis `json:"genesis"`
+	RecoveryEnvelope Bytes    `json:"recovery_envelope"`
+}
+
+type RecoveryAdmission struct {
+	Domain          string `json:"domain"`
+	FormatVersion   int    `json:"format_version"`
+	VaultID         ID     `json:"vault_id"`
+	GenesisDigest   Bytes  `json:"genesis_digest"`
+	Nonce           string `json:"nonce"`
+	DeviceID        ID     `json:"device_id"`
+	DeviceVerifyKey Bytes  `json:"device_verify_key"`
+	DeviceRecipient string `json:"device_recipient"`
+	CreatedAt       string `json:"created_at"`
+}
+
+func (a *RecoveryAdmission) SigningInput() ([]byte, error) { return Canonical(a) }
+
+const (
+	RecoveryAdmitDomain        = "sshstate.recovery-admit.v1"
+	RecoveryAdmitFormatVersion = 1
+)
+
+type RecoveryCompleteRequest struct {
+	Admission RecoveryAdmission `json:"admission"`
+	Signature Bytes             `json:"signature"`
+}
+
+type RecoveryCompleteResponse struct {
+	DeviceID            ID    `json:"device_id"`
+	MembershipHeadDiges Bytes `json:"membership_head_digest"`
+}
+
+type RecordsResponse struct {
+	Changes        []Envelope `json:"changes"`
+	NextCursor     Counter    `json:"next_cursor"`
+	SnapshotCursor Counter    `json:"snapshot_cursor"`
+	HasMore        bool       `json:"has_more"`
+}
+
+type PutRecordResponse struct {
+	Accepted bool    `json:"accepted"`
+	Seq      Counter `json:"seq"`
+	Digest   Bytes   `json:"digest"`
+}
