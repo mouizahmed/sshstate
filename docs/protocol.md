@@ -679,10 +679,13 @@ POST /v1/bootstrap
 ```
 
 Auth: the one-time bootstrap secret, 256 bits, supplied to the relay in an
-operator-mounted secret file. The relay stores only its hash, compares in constant
-time, consumes it atomically when the single account is created, and disables
-bootstrap permanently thereafter. There is no open registration and the secret is
-never written to routine logs.
+operator-mounted secret file. The file and the header carry the same base64 text;
+both base64 alphabets are accepted, padded or not, since the value compared is
+the decoded 256 bits. The relay stores only the hash of those bytes, compares in
+constant time, consumes it atomically when the single account is created, and
+disables bootstrap permanently thereafter. Changing the secret afterwards does
+not reopen registration. There is no open registration and the secret is never
+written to routine logs.
 
 Request: `{"genesis": {...}, "membership_root": {"event": {...}, "signature": "..."}}`
 

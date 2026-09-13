@@ -5,6 +5,7 @@ package relay
 
 import (
 	"bytes"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"sync"
@@ -139,24 +140,36 @@ func TestSettingTheSecretIsIdempotentAndCannotReopenRegistration(t *testing.T) {
 
 func TestReadBootstrapSecret(t *testing.T) {
 	dir := t.TempDir()
+	want := secret(7)
 	path := filepath.Join(dir, "secret")
-	if err := os.WriteFile(path, []byte("s3cr3t\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(EncodeBootstrapSecret(want)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ReadBootstrapSecret(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "s3cr3t" {
-		t.Fatalf("read %q", got)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("read %x", got)
 	}
 
-	empty := filepath.Join(dir, "empty")
-	if err := os.WriteFile(empty, []byte("   \n"), 0o600); err != nil {
+	padded := base64.StdEncoding.EncodeToString(want)
+	standard, err := DecodeBootstrapSecret(padded)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadBootstrapSecret(empty); err == nil {
-		t.Fatal("an empty secret file was accepted")
+	if !bytes.Equal(standard, want) {
+		t.Fatal("padded standard base64 decoded to a different secret")
+	}
+
+	for name, body := range map[string]string{
+		"empty":      "   \n",
+		"not base64": "!!!!",
+		"too short":  base64.RawURLEncoding.EncodeToString([]byte("short")),
+	} {
+		if _, err := DecodeBootstrapSecret(body); err == nil {
+			t.Errorf("a %s secret was accepted", name)
+		}
 	}
 	if _, err := ReadBootstrapSecret(filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("a missing secret file was accepted")
