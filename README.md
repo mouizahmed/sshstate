@@ -10,12 +10,12 @@ while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 > vault, a recovery kit, a daemon with an agent socket, generated configuration,
 > reviewed import of the host-key trust you already have, and a real `ssh` login
 > authenticated by a key that is never written to disk.
-> Milestone 2 is under way: the sync protocol is frozen, the relay serves the
-> API, and the membership chain, pairing transcripts and request signing are
-> implemented and tested. The client cannot sync yet — no pairing flow, no second
-> device, no backup or restore. This is an implementation in progress, not a
-> released tool, and it has not been independently audited. Do not put credentials
-> you care about in it until backup and restore exist.
+> Milestone 2 is largely in place: the sync protocol is frozen, the relay runs,
+> and two machines pair, sync, resolve conflicts, revoke each other and restore
+> from an encrypted backup with the relay unavailable. Not yet done: master-key
+> rotation (specified, ships in M3b), conflict resolution as a command, Linux
+> systemd, and strict SSH config import. This is an implementation in progress,
+> not a released tool, and it has not been independently audited.
 
 ## What it is, and is not
 
@@ -92,7 +92,7 @@ files, and that tradeoff is deliberate.
 
 ## Trying it
 
-Milestone 1 is local only. Nothing leaves the machine.
+One machine, nothing leaving it:
 
 ```sh
 go build -o sshstate ./cmd/sshstate
@@ -105,6 +105,29 @@ go build -o sshstate ./cmd/sshstate
 ./sshstate install                     # adds the Include to ~/.ssh/config
 ./sshstate doctor
 ssh prod
+```
+
+A second machine, through a relay you run (`deploy/README.md` sets one up):
+
+```sh
+# on the first machine
+./sshstate connect https://relay.example.com --bootstrap-secret ./bootstrap.secret
+./sshstate export ~/sshstate-backup.age
+
+# on the second machine
+./sshstate pair https://relay.example.com <vault-id>
+# both screens show the same 13-group fingerprint; compare it out of band,
+# then answer on both. Nothing is transferred before you do.
+
+./sshstate sync
+./sshstate devices
+./sshstate revoke <device-id>          # stops that device on an honest relay
+```
+
+If every device is gone, the kit and a backup are enough, with no relay at all:
+
+```sh
+./sshstate restore ~/sshstate-backup.age --kit ~/sshstate-recovery-kit.txt
 ```
 
 `init` prints a recovery kit and asks you to type its checksum back. That is
@@ -122,8 +145,10 @@ already accepted does not prompt again. Scripts pass `--import-trust` or
 choosing for you.
 
 `uninstall` removes the `Include` and leaves the vault, your keys, your SSH
-config and your `known_hosts` alone. `--purge` is refused until encrypted export
-and restore exist.
+config and your `known_hosts` alone. If the vault is connected to a relay it
+offers to deregister this device first, and says plainly when it could not.
+`--purge` additionally deletes the vault, and only after you have taken a backup
+that is still on disk and typed the vault id back.
 
 On macOS, `install --service` registers a launchd agent using named socket
 activation, so the daemon starts on demand and starts locked. Linux uses
