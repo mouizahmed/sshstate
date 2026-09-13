@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -79,6 +80,24 @@ CREATE TABLE IF NOT EXISTS change_log (
 -- Durable mutation outcomes (§5.3). Rejections are stored too: a retried
 -- candidate must get the same answer, not a fresh evaluation against a head
 -- that has since moved.
+-- The one-time bootstrap secret, by hash only (§4.6). The plaintext lives in an
+-- operator-mounted file and is never written here.
+CREATE TABLE IF NOT EXISTS bootstrap (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    secret_hash BLOB NOT NULL,
+    consumed_at TEXT
+) STRICT;
+
+-- Accepted request nonces, kept until expiry plus tolerance (§4.7).
+CREATE TABLE IF NOT EXISTS request_nonce (
+    device_id  TEXT NOT NULL,
+    nonce      TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (device_id, nonce)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS request_nonce_expiry ON request_nonce (expires_at);
+
 CREATE TABLE IF NOT EXISTS mutation (
     vault_id       TEXT NOT NULL,
     mutation_id    TEXT NOT NULL,
@@ -96,6 +115,14 @@ CREATE TABLE IF NOT EXISTS mutation (
 type Store struct {
 	db   *sql.DB
 	path string
+	Now  func() time.Time
+}
+
+func (s *Store) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
 }
 
 func Open(path string) (*Store, error) {
@@ -183,7 +210,13 @@ func (s *Store) CreateVault(g *protocol.Genesis, root protocol.SignedMembershipE
 		return err
 	}
 	defer tx.Rollback()
+	if err := createVaultTx(tx, g, string(canonGenesis), digest, string(canonRoot), chain.HeadDigest()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
+func createVaultTx(tx *sql.Tx, g *protocol.Genesis, canonGenesis string, digest []byte, canonRoot string, head []byte) error {
 	var existing int
 	if err := tx.QueryRow(`SELECT count(*) FROM vault`).Scan(&existing); err != nil {
 		return err
@@ -193,15 +226,13 @@ func (s *Store) CreateVault(g *protocol.Genesis, root protocol.SignedMembershipE
 	}
 	if _, err := tx.Exec(
 		`INSERT INTO vault (vault_id, genesis, digest, key_epoch, created_at) VALUES (?, ?, ?, 1, ?)`,
-		g.VaultID, string(canonGenesis), digest, g.CreatedAt); err != nil {
+		g.VaultID, canonGenesis, digest, g.CreatedAt); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(
+	_, err := tx.Exec(
 		`INSERT INTO membership (vault_id, chain_seq, event, digest) VALUES (?, 1, ?, ?)`,
-		g.VaultID, string(canonRoot), chain.HeadDigest()); err != nil {
-		return err
-	}
-	return tx.Commit()
+		g.VaultID, canonRoot, head)
+	return err
 }
 
 func (s *Store) Genesis(vaultID protocol.ID) (*protocol.Genesis, error) {
