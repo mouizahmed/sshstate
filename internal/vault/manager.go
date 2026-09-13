@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mouizahmed/sshstate/internal/crypto"
+	"github.com/mouizahmed/sshstate/internal/membership"
 	"github.com/mouizahmed/sshstate/internal/protocol"
 )
 
@@ -179,6 +180,13 @@ func Init(store *Store, opts InitOptions) (*Manager, *Kit, error) {
 		Status:     DeviceActive,
 		EnrolledAt: createdAt,
 	}); err != nil {
+		return nil, nil, err
+	}
+	root, err := membership.Root(g, deviceSigning, time.Now())
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := store.PutMembershipEvents([]protocol.SignedMembershipEvent{root}); err != nil {
 		return nil, nil, err
 	}
 	for k, v := range map[string]string{
@@ -435,3 +443,15 @@ func (m *Manager) VaultID() protocol.ID  { return m.vaultID }
 func (m *Manager) DeviceID() protocol.ID { return m.deviceID }
 
 func (m *Manager) Genesis() *protocol.Genesis { return m.genesis }
+
+func (m *Manager) MembershipSigner() (membership.Signer, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, err := m.session()
+	if err != nil {
+		return membership.Signer{}, err
+	}
+	return membership.Signer{DeviceID: m.deviceID, Key: s.signing}, nil
+}
+
+func (m *Manager) Now() time.Time { return m.clock() }

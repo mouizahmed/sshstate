@@ -69,6 +69,11 @@ func (e *Engine) syncMembership(ctx context.Context) (*membership.Chain, error) 
 	if err != nil {
 		return nil, fmt.Errorf("membership chain from the relay: %w", err)
 	}
+	if chain.Len() >= localChainLength(e.Store) {
+		if err := e.Store.PutMembershipEvents(chain.Events()); err != nil {
+			return nil, err
+		}
+	}
 	for _, d := range chain.Devices() {
 		status := vault.DeviceActive
 		if d.Revoked {
@@ -268,4 +273,12 @@ func (e *Engine) cursor() (protocol.Counter, error) {
 		return 0, fmt.Errorf("stored record cursor: %w", err)
 	}
 	return c, nil
+}
+
+func localChainLength(store *vault.Store) int {
+	events, err := store.MembershipEvents()
+	if err != nil {
+		return 0
+	}
+	return len(events)
 }

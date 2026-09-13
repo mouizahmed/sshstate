@@ -19,6 +19,10 @@ const Magic = "sshstate-export-v1"
 
 const MaxArchiveBytes = crypto.MaxStreamBytes
 
+type Signer interface {
+	Sign(domain string, msg []byte) ([]byte, error)
+}
+
 type Contents struct {
 	Genesis    *protocol.Genesis
 	Membership []protocol.SignedMembershipEvent
@@ -31,7 +35,7 @@ type Archive struct {
 	Contents Contents
 }
 
-func Build(c Contents, checkpoint protocol.Checkpoint, by protocol.ID, signer *crypto.SigningKey, recipient *crypto.Recipient, createdAt string) ([]byte, error) {
+func Build(c Contents, checkpoint protocol.Checkpoint, by protocol.ID, signer Signer, recipient *crypto.Recipient, createdAt string) ([]byte, error) {
 	if c.Genesis == nil {
 		return nil, errors.New("export: no genesis")
 	}

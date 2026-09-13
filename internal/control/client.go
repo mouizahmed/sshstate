@@ -170,3 +170,33 @@ func (c *Client) RecoveryConfirm(ctx context.Context, nonce, signature string) (
 func (c *Client) Shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, RouteShutdown, struct{}{}, nil)
 }
+
+func (c *Client) Connect(ctx context.Context, req ConnectRequest) (*ConnectResponse, error) {
+	var out ConnectResponse
+	return &out, c.do(ctx, http.MethodPost, RouteConnect, req, &out)
+}
+
+func (c *Client) Sync(ctx context.Context) (*SyncResponse, error) {
+	var out SyncResponse
+	return &out, c.do(ctx, http.MethodPost, RouteSync, struct{}{}, &out)
+}
+
+func (c *Client) Devices(ctx context.Context) (*DevicesResponse, error) {
+	var out DevicesResponse
+	return &out, c.do(ctx, http.MethodGet, RouteDevices, nil, &out)
+}
+
+func (c *Client) Revoke(ctx context.Context, req RevokeRequest) (*RevokeResponse, error) {
+	var out RevokeResponse
+	return &out, c.do(ctx, http.MethodPost, RouteRevoke, req, &out)
+}
+
+func (c *Client) Export(ctx context.Context, path string) (*ExportResponse, error) {
+	var out ExportResponse
+	return &out, c.do(ctx, http.MethodPost, RouteExport, ExportRequest{Path: path}, &out)
+}
+
+func (c *Client) Conflicts(ctx context.Context) (*ConflictsResponse, error) {
+	var out ConflictsResponse
+	return &out, c.do(ctx, http.MethodGet, RouteConflicts, nil, &out)
+}

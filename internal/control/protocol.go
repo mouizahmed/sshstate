@@ -22,6 +22,12 @@ const (
 	RouteTrustImport       = "/" + APIVersion + "/trust/import"
 	RouteRecoveryChallenge = "/" + APIVersion + "/recovery/challenge"
 	RouteRecoveryConfirm   = "/" + APIVersion + "/recovery/confirm"
+	RouteConnect           = "/" + APIVersion + "/connect"
+	RouteSync              = "/" + APIVersion + "/sync"
+	RouteDevices           = "/" + APIVersion + "/devices"
+	RouteRevoke            = "/" + APIVersion + "/revoke"
+	RouteExport            = "/" + APIVersion + "/export"
+	RouteConflicts         = "/" + APIVersion + "/conflicts"
 )
 
 type Error struct {
@@ -160,4 +166,73 @@ type DoctorFinding struct {
 
 type DoctorResponse struct {
 	Findings []DoctorFinding `json:"findings"`
+}
+
+type ConnectRequest struct {
+	URL             string `json:"url"`
+	BootstrapSecret string `json:"bootstrap_secret,omitempty"`
+}
+
+type ConnectResponse struct {
+	URL       string `json:"url"`
+	VaultID   string `json:"vault_id"`
+	Uploaded  int    `json:"uploaded"`
+	Bootstrap bool   `json:"bootstrap"`
+}
+
+type SyncResponse struct {
+	Pushed    int    `json:"pushed"`
+	Preserved int    `json:"preserved"`
+	Applied   int    `json:"applied"`
+	Cursor    string `json:"cursor"`
+	Devices   int    `json:"devices"`
+	Complete  bool   `json:"complete"`
+}
+
+type DeviceView struct {
+	DeviceID   string `json:"device_id"`
+	ThisDevice bool   `json:"this_device"`
+	Status     string `json:"status"`
+	EnrolledAt string `json:"enrolled_at"`
+	EnrolledBy string `json:"enrolled_by"`
+	RevokedAt  string `json:"revoked_at,omitempty"`
+	ChainSeq   string `json:"chain_seq"`
+}
+
+type DevicesResponse struct {
+	Devices []DeviceView `json:"devices"`
+}
+
+type RevokeRequest struct {
+	DeviceID string `json:"device_id"`
+	Confirm  bool   `json:"confirm,omitempty"`
+}
+
+type RevokeResponse struct {
+	DeviceID   string `json:"device_id"`
+	ChainSeq   string `json:"chain_seq"`
+	ThisDevice bool   `json:"this_device"`
+}
+
+type ExportRequest struct {
+	Path string `json:"path"`
+}
+
+type ExportResponse struct {
+	Path      string `json:"path"`
+	Bytes     int    `json:"bytes"`
+	Records   int    `json:"records"`
+	Conflicts int    `json:"conflicts"`
+	Seq       string `json:"seq"`
+}
+
+type ConflictView struct {
+	RecordID         string `json:"record_id"`
+	SourceRecordID   string `json:"source_record_id"`
+	SourceRecordType string `json:"source_record_type"`
+	PreservedAt      string `json:"preserved_at"`
+}
+
+type ConflictsResponse struct {
+	Conflicts []ConflictView `json:"conflicts"`
 }

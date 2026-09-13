@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS devices (
 
 -- Current record heads. The envelope is stored whole, exactly as signed, so a
 -- read re-verifies the same bytes a writer signed rather than a reconstruction.
+-- The signed membership chain, stored whole. The devices table above is the
+-- derived view; this is the evidence, and it is what a revocation extends and
+-- an export carries.
+CREATE TABLE IF NOT EXISTS membership (
+    chain_seq INTEGER PRIMARY KEY,
+    event     TEXT NOT NULL,
+    digest    BLOB NOT NULL
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS records (
     record_id   TEXT PRIMARY KEY,
     record_type TEXT NOT NULL,
@@ -324,4 +333,52 @@ func (s *Store) Devices() ([]Device, error) {
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) MembershipEvents() ([]protocol.SignedMembershipEvent, error) {
+	rows, err := s.db.Query(`SELECT event FROM membership ORDER BY chain_seq`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []protocol.SignedMembershipEvent
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		var ev protocol.SignedMembershipEvent
+		if err := protocol.StrictUnmarshal([]byte(body), &ev); err != nil {
+			return nil, fmt.Errorf("stored membership event: %w", err)
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) PutMembershipEvents(events []protocol.SignedMembershipEvent) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM membership`); err != nil {
+		return err
+	}
+	for i := range events {
+		body, err := protocol.Canonical(&events[i])
+		if err != nil {
+			return err
+		}
+		digest, err := events[i].Digest()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO membership (chain_seq, event, digest) VALUES (?, ?, ?)`,
+			int64(events[i].Event.ChainSeq), string(body), digest); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

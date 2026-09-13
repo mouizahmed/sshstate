@@ -18,9 +18,6 @@ func (m *Manager) verifier(device protocol.ID) (*crypto.VerifyKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("not an enrolled device: %w", err)
 	}
-	if d.Status != DeviceActive {
-		return nil, fmt.Errorf("device is %s", d.Status)
-	}
 	return crypto.VerifyKeyFromBytes(d.VerifyKey)
 }
 

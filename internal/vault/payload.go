@@ -4,6 +4,7 @@
 package vault
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -153,4 +154,37 @@ func validateConfigToken(field, value string) error {
 		return fmt.Errorf("%s contains whitespace", field)
 	}
 	return nil
+}
+
+type ConflictPayload struct {
+	FormatVersion      int                 `json:"format_version"`
+	SourceRecordID     protocol.ID         `json:"source_record_id"`
+	SourceRecordType   protocol.RecordType `json:"source_record_type"`
+	SourceMutationID   protocol.ID         `json:"source_mutation_id"`
+	ObservedHeadDigest protocol.Bytes      `json:"observed_head_digest"`
+	PreservedAt        string              `json:"preserved_at"`
+	Candidate          json.RawMessage     `json:"candidate"`
+}
+
+func (p *ConflictPayload) Validate() error {
+	if p.FormatVersion != PayloadFormatVersion {
+		return fmt.Errorf("unsupported conflict payload version %d", p.FormatVersion)
+	}
+	if !p.SourceRecordID.Valid() || !p.SourceMutationID.Valid() {
+		return errors.New("conflict record does not name its source")
+	}
+	if !p.SourceRecordType.Valid() {
+		return fmt.Errorf("unknown source record type %q", p.SourceRecordType)
+	}
+	if len(p.Candidate) == 0 {
+		return errors.New("conflict record preserves nothing")
+	}
+	return nil
+}
+
+func ConflictType(source protocol.RecordType) protocol.RecordType {
+	if source.SecretScoped() {
+		return protocol.RecordConflictSecret
+	}
+	return protocol.RecordConflictMetadata
 }
