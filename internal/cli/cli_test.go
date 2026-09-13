@@ -27,9 +27,32 @@ import (
 
 const password = "correct horse battery staple"
 
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func (s *syncBuffer) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.b.Reset()
+}
+
 type scripted struct {
 	*Env
-	out, errOut *bytes.Buffer
+	out, errOut *syncBuffer
 	secrets     []string
 	lines       []string
 	answer      func(prompt string) (string, error)
@@ -44,7 +67,7 @@ func newScripted(t *testing.T) *scripted {
 	}
 	t.Cleanup(func() { os.RemoveAll(runtime) })
 
-	s := &scripted{out: &bytes.Buffer{}, errOut: &bytes.Buffer{}}
+	s := &scripted{out: &syncBuffer{}, errOut: &syncBuffer{}}
 	s.Env = &Env{
 		Layout: paths.Layout{
 			Data:          filepath.Join(root, "data"),
