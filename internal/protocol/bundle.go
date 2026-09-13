@@ -257,6 +257,7 @@ const (
 	MemberMembership = "membership.jsonl"
 	MemberRecords    = "records.jsonl"
 	MemberConflicts  = "conflicts.jsonl"
+	MemberBundle     = "bundle.json"
 )
 
 type ExportMember struct {
@@ -322,6 +323,7 @@ func (m *ExportManifest) Validate(expectSuite string) error {
 	required := map[string]bool{
 		MemberGenesis: false, MemberMembership: false,
 		MemberRecords: false, MemberConflicts: false,
+		MemberBundle: false,
 	}
 	for i, member := range m.Members {
 		seen, known := required[member.Name]

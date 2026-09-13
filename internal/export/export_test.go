@@ -126,17 +126,46 @@ func (v *vault) checkpoint(records []*protocol.Envelope) protocol.Checkpoint {
 
 func (v *vault) build(t *testing.T, records, conflicts []*protocol.Envelope) []byte {
 	t.Helper()
+	checkpoint := v.checkpoint(records)
 	sealed, err := Build(Contents{
 		Genesis:    v.genesis,
 		Membership: v.chain.Events(),
 		Records:    records,
 		Conflicts:  conflicts,
-	}, v.checkpoint(records), v.first.id, v.first.signing,
+		Bundle:     v.bundle(t, checkpoint, v.first),
+	}, checkpoint, v.first.id, v.first.signing,
 		mustRecipient(t, v.genesis.RecoveryRecipient), stamp)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return sealed
+}
+
+func (v *vault) bundle(t *testing.T, checkpoint protocol.Checkpoint, by identity) *protocol.SignedBundle {
+	t.Helper()
+	b := protocol.Bundle{
+		Domain:        protocol.BundleDomain,
+		FormatVersion: protocol.BundleFormatVersion,
+		Suite:         crypto.SuiteID,
+		VaultID:       v.genesis.VaultID,
+		GenesisDigest: v.digest,
+		Purpose:       protocol.PurposeRecovery,
+		Recipient:     v.genesis.RecoveryRecipient,
+		KeyEpoch:      1,
+		MetadataKey:   bytes.Repeat([]byte{0x10}, protocol.VaultKeyBytes),
+		SecretKey:     bytes.Repeat([]byte{0x20}, protocol.VaultKeyBytes),
+		Checkpoint:    checkpoint,
+		CreatedAt:     stamp,
+	}
+	msg, err := b.SigningInput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := by.signing.Sign(protocol.BundleSignatureDomain, msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &protocol.SignedBundle{Bundle: b, Signature: sig}
 }
 
 func mustRecipient(t *testing.T, s string) *crypto.Recipient {
@@ -188,8 +217,41 @@ func TestEmptyVaultExports(t *testing.T) {
 	if len(archive.Contents.Records) != 0 {
 		t.Fatal("an empty vault exported records")
 	}
-	if len(archive.Manifest.Members) != 4 {
+	if len(archive.Manifest.Members) != 5 {
 		t.Fatalf("the manifest names %d members", len(archive.Manifest.Members))
+	}
+}
+
+func TestExportCarriesTheVaultKeys(t *testing.T) {
+	v := newVault(t)
+	sealed := v.build(t, []*protocol.Envelope{v.record(t, protocol.RecordHost, "prod")}, nil)
+	archive, err := Open(sealed, v.recovery.enc, v.digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.Contents.Bundle == nil {
+		t.Fatal("the archive carries no vault keys")
+	}
+	if len(archive.Contents.Bundle.Bundle.MetadataKey) != protocol.VaultKeyBytes {
+		t.Fatal("the metadata key did not survive the round trip")
+	}
+	if archive.Contents.Bundle.Bundle.Purpose != protocol.PurposeRecovery {
+		t.Fatalf("the bundle is for %s", archive.Contents.Bundle.Bundle.Purpose)
+	}
+
+	impostor := newIdentity(t)
+	checkpoint := v.checkpoint(nil)
+	forged, err := Build(Contents{
+		Genesis:    v.genesis,
+		Membership: v.chain.Events(),
+		Bundle:     v.bundle(t, checkpoint, impostor),
+	}, checkpoint, v.first.id, v.first.signing,
+		mustRecipient(t, v.genesis.RecoveryRecipient), stamp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(forged, v.recovery.enc, v.digest); err == nil {
+		t.Fatal("an archive whose keys were signed by another device was accepted")
 	}
 }
 
@@ -248,10 +310,12 @@ func TestTamperedArchiveIsDetected(t *testing.T) {
 func TestManifestFromAnUnknownDeviceIsRefused(t *testing.T) {
 	v := newVault(t)
 	impostor := newIdentity(t)
+	checkpoint := v.checkpoint(nil)
 	sealed, err := Build(Contents{
 		Genesis:    v.genesis,
 		Membership: v.chain.Events(),
-	}, v.checkpoint(nil), impostor.id, impostor.signing,
+		Bundle:     v.bundle(t, checkpoint, impostor),
+	}, checkpoint, impostor.id, impostor.signing,
 		mustRecipient(t, v.genesis.RecoveryRecipient), stamp)
 	if err != nil {
 		t.Fatal(err)
@@ -274,8 +338,12 @@ func TestRecordWithABadSignatureStopsTheRestore(t *testing.T) {
 func TestExportRefusesAnotherRecipient(t *testing.T) {
 	v := newVault(t)
 	stranger := newIdentity(t)
-	_, err := Build(Contents{Genesis: v.genesis, Membership: v.chain.Events()},
-		v.checkpoint(nil), v.first.id, v.first.signing,
+	checkpoint := v.checkpoint(nil)
+	_, err := Build(Contents{
+		Genesis:    v.genesis,
+		Membership: v.chain.Events(),
+		Bundle:     v.bundle(t, checkpoint, v.first),
+	}, checkpoint, v.first.id, v.first.signing,
 		stranger.enc.Recipient(), stamp)
 	if err == nil {
 		t.Fatal("an export was built for a recipient genesis does not pin")

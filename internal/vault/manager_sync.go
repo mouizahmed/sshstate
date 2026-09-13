@@ -231,3 +231,50 @@ func (m *Manager) RecoveryRecipient() (*crypto.Recipient, error) {
 	}
 	return crypto.ParseRecipient(m.genesis.RecoveryRecipient)
 }
+
+func (m *Manager) RecoveryBundle(checkpoint protocol.Checkpoint) (*protocol.SignedBundle, error) {
+	if m.genesis == nil {
+		return nil, errors.New("recovery bundle: no genesis")
+	}
+	genesisDigest, err := m.genesis.Digest()
+	if err != nil {
+		return nil, err
+	}
+	var out *protocol.SignedBundle
+	err = m.read(func(s *session, r *Reader) error {
+		if s.keys == nil {
+			return ErrLocked
+		}
+		b := protocol.Bundle{
+			Domain:        protocol.BundleDomain,
+			FormatVersion: protocol.BundleFormatVersion,
+			Suite:         crypto.SuiteID,
+			VaultID:       m.vaultID,
+			GenesisDigest: genesisDigest,
+			Purpose:       protocol.PurposeRecovery,
+			Recipient:     m.genesis.RecoveryRecipient,
+			KeyEpoch:      s.keys.Epoch,
+			MetadataKey:   append([]byte(nil), s.keys.Metadata[:]...),
+			SecretKey:     append([]byte(nil), s.keys.Secret[:]...),
+			Checkpoint:    checkpoint,
+			CreatedAt:     stampOf(m.clock()),
+		}
+		if err := b.Validate(crypto.SuiteID); err != nil {
+			return err
+		}
+		msg, err := b.SigningInput()
+		if err != nil {
+			return err
+		}
+		sig, err := s.signing.Sign(protocol.BundleSignatureDomain, msg)
+		if err != nil {
+			return err
+		}
+		out = &protocol.SignedBundle{Bundle: b, Signature: sig}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}

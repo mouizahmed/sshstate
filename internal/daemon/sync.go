@@ -273,11 +273,16 @@ func (d *Daemon) buildExport() ([]byte, *vault.ExportSnapshot, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	bundle, err := d.mgr.RecoveryBundle(checkpoint)
+	if err != nil {
+		return nil, nil, err
+	}
 	sealed, err := export.Build(export.Contents{
 		Genesis:    d.mgr.Genesis(),
 		Membership: chain.Events(),
 		Records:    snapshot.Records,
 		Conflicts:  snapshot.Conflicts,
+		Bundle:     bundle,
 	}, checkpoint, d.mgr.DeviceID(), exportSigner(d.mgr.SignExport), recipient,
 		d.mgr.Now().UTC().Truncate(time.Second).Format(time.RFC3339))
 	if err != nil {

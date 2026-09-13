@@ -418,3 +418,6 @@ is what revealed them. §12 of the brief anticipates exactly this.
 |---|---|
 | `DELETE /v1/rotations/:id` added to the §5.5 route list | §7.1 requires an explicit authenticated abort; the frozen list had no route for it |
 | `epoch_mismatch` (409) added to the §12 error table | a record *creation* has no parent digest to mismatch, so nothing else rejects an old-epoch create |
+
+A third amendment, unrelated to rotation, is recorded in `docs/protocol.md` §8:
+an export carries the vault keys in a `bundle.json` member.

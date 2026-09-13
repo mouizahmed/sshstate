@@ -28,6 +28,7 @@ type Contents struct {
 	Membership []protocol.SignedMembershipEvent
 	Records    []*protocol.Envelope
 	Conflicts  []*protocol.Envelope
+	Bundle     *protocol.SignedBundle
 }
 
 type Archive struct {
@@ -65,15 +66,23 @@ func Build(c Contents, checkpoint protocol.Checkpoint, by protocol.ID, signer Si
 	if err != nil {
 		return nil, err
 	}
+	if c.Bundle == nil {
+		return nil, errors.New("export: no vault keys; the archive would decrypt to nothing")
+	}
+	bundleBody, err := protocol.Canonical(c.Bundle)
+	if err != nil {
+		return nil, err
+	}
 
 	bodies := map[string][]byte{
 		protocol.MemberGenesis:    genesisBody,
 		protocol.MemberMembership: membershipBody,
 		protocol.MemberRecords:    recordsBody,
 		protocol.MemberConflicts:  conflictsBody,
+		protocol.MemberBundle:     bundleBody,
 	}
 	names := []string{
-		protocol.MemberConflicts, protocol.MemberGenesis,
+		protocol.MemberBundle, protocol.MemberConflicts, protocol.MemberGenesis,
 		protocol.MemberMembership, protocol.MemberRecords,
 	}
 	members := make([]protocol.ExportMember, 0, len(names))
@@ -200,6 +209,27 @@ func Open(sealed []byte, kit *crypto.EncryptionKey, genesisDigest []byte) (*Arch
 		return nil, errors.New("open export: the manifest is not signed by the device it names")
 	}
 
+	var bundle protocol.SignedBundle
+	if err := protocol.StrictUnmarshal(bodies[protocol.MemberBundle], &bundle); err != nil {
+		return nil, fmt.Errorf("open export bundle: %w", err)
+	}
+	if err := bundle.Bundle.Validate(crypto.SuiteID); err != nil {
+		return nil, fmt.Errorf("open export bundle: %w", err)
+	}
+	if bundle.Bundle.Purpose != protocol.PurposeRecovery {
+		return nil, fmt.Errorf("open export: the bundle is for %s, not recovery", bundle.Bundle.Purpose)
+	}
+	if bundle.Bundle.Recipient != genesis.RecoveryRecipient {
+		return nil, errors.New("open export: the bundle is addressed to a recipient genesis does not pin")
+	}
+	bundleMsg, err := bundle.Bundle.SigningInput()
+	if err != nil {
+		return nil, err
+	}
+	if err := crypto.Verify(exporter.VerifyKey, protocol.BundleSignatureDomain, bundleMsg, bundle.Signature); err != nil {
+		return nil, errors.New("open export: the vault keys are not signed by the device that exported them")
+	}
+
 	records, err := decodeEnvelopes(bodies[protocol.MemberRecords])
 	if err != nil {
 		return nil, err
@@ -220,6 +250,7 @@ func Open(sealed []byte, kit *crypto.EncryptionKey, genesisDigest []byte) (*Arch
 			Membership: events,
 			Records:    records,
 			Conflicts:  conflicts,
+			Bundle:     &bundle,
 		},
 	}, nil
 }
