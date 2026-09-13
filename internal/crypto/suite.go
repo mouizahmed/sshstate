@@ -175,6 +175,63 @@ func (w envelopeWriter) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
+const MaxStreamBytes = 256 << 20
+
+func SealBounded(plaintext []byte, max int, recipients ...*Recipient) ([]byte, error) {
+	if max <= 0 || max > MaxStreamBytes {
+		max = MaxStreamBytes
+	}
+	if len(plaintext) > max {
+		return nil, fmt.Errorf("seal: payload is %d bytes, the limit is %d", len(plaintext), max)
+	}
+	if len(recipients) == 0 {
+		return nil, errors.New("seal: at least one recipient required")
+	}
+	rs := make([]age.Recipient, 0, len(recipients))
+	for _, r := range recipients {
+		if r == nil || r.r == nil {
+			return nil, errors.New("seal: nil recipient")
+		}
+		rs = append(rs, r.r)
+	}
+	var buf bytes.Buffer
+	w, err := age.Encrypt(&buf, rs...)
+	if err != nil {
+		return nil, fmt.Errorf("seal: %w", err)
+	}
+	if _, err := w.Write(plaintext); err != nil {
+		return nil, fmt.Errorf("seal: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("seal: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func OpenBounded(k *EncryptionKey, ciphertext []byte, max int) ([]byte, error) {
+	if k == nil || k.id == nil {
+		return nil, errors.New("open: nil encryption key")
+	}
+	if max <= 0 || max > MaxStreamBytes {
+		max = MaxStreamBytes
+	}
+	if len(ciphertext) > max+(1<<20) {
+		return nil, fmt.Errorf("open: ciphertext exceeds %d bytes", max)
+	}
+	r, err := age.Decrypt(bytes.NewReader(ciphertext), k.id)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	out, err := io.ReadAll(io.LimitReader(r, int64(max)+1))
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	if len(out) > max {
+		return nil, fmt.Errorf("open: plaintext exceeds %d bytes", max)
+	}
+	return out, nil
+}
+
 func Open(k *EncryptionKey, ciphertext []byte) ([]byte, error) {
 	if k == nil || k.id == nil {
 		return nil, errors.New("open: nil encryption key")

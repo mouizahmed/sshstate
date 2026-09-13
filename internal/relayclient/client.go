@@ -245,3 +245,38 @@ func (c *Client) RecoveryComplete(ctx context.Context, req protocol.RecoveryComp
 	}
 	return &out, nil
 }
+
+func (c *Client) CreatePairing(ctx context.Context, vaultID protocol.ID, offer protocol.SignedPairingOffer) (*protocol.CreatePairingResponse, error) {
+	var out protocol.CreatePairingResponse
+	err := c.call(ctx, http.MethodPost, "/v1/pairings", protocol.CreatePairingRequest{
+		VaultID: vaultID, Offer: offer.Offer, Signature: offer.Signature,
+	}, &out, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) Pairing(ctx context.Context, sessionID protocol.ID) (*protocol.PairingResponse, error) {
+	var out protocol.PairingResponse
+	if err := c.call(ctx, http.MethodGet, "/v1/pairings/"+sessionID.String(), nil, &out, nil); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ConfirmPairing(ctx context.Context, sessionID protocol.ID, req protocol.ConfirmPairingRequest) (*protocol.PairingResponse, error) {
+	var out protocol.PairingResponse
+	if err := c.call(ctx, http.MethodPost, "/v1/pairings/"+sessionID.String()+"/confirm", req, &out, nil); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CompletePairing(ctx context.Context, sessionID protocol.ID, req protocol.CompletePairingRequest) (*protocol.PairingResponse, error) {
+	var out protocol.PairingResponse
+	if err := c.call(ctx, http.MethodPost, "/v1/pairings/"+sessionID.String()+"/complete", req, &out, nil); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
