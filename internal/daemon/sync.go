@@ -357,3 +357,29 @@ func (f exportSigner) Sign(domain string, msg []byte) ([]byte, error) {
 	}
 	return f(msg)
 }
+
+func (d *Daemon) handleResolve(w http.ResponseWriter, r *http.Request) {
+	var req control.ResolveRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	id := protocol.ID(req.RecordID)
+	if !id.Valid() {
+		writeError(w, fmt.Errorf("%q is not a conflict record id", req.RecordID))
+		return
+	}
+	source, err := d.mgr.ResolveConflict(id, req.Resurrect)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := d.regenerate(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, control.ResolveResponse{
+		RecordID:       id.String(),
+		SourceRecordID: source.String(),
+	})
+}

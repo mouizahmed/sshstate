@@ -371,3 +371,67 @@ func (m *Manager) Identity() (protocol.ID, *crypto.SigningKey, *crypto.Encryptio
 	}
 	return m.deviceID, s.signing, s.encryption, nil
 }
+
+var ErrConflictSourceDeleted = errors.New("the record this edit belonged to has been deleted")
+
+func (m *Manager) ResolveConflict(conflictID protocol.ID, resurrect bool) (protocol.ID, error) {
+	var sourceID protocol.ID
+	err := m.mutate(func(s *session, w *Writer, r *Reader) error {
+		conflictEnv, conflictDigest, err := m.store.Head(conflictID)
+		if err != nil {
+			return fmt.Errorf("no such conflict %s: %w", conflictID, err)
+		}
+		if conflictEnv.Context.Deleted {
+			return fmt.Errorf("conflict %s was already resolved", conflictID)
+		}
+		var payload ConflictPayload
+		if err := r.Open(conflictEnv, &payload); err != nil {
+			return err
+		}
+		if err := payload.Validate(); err != nil {
+			return err
+		}
+		sourceID = payload.SourceRecordID
+
+		head, headDigest, err := m.store.Head(payload.SourceRecordID)
+		if err != nil {
+			return fmt.Errorf("the record this edit belonged to is not here: %w", err)
+		}
+		if head.Context.Deleted && !resurrect {
+			return ErrConflictSourceDeleted
+		}
+
+		replacementID, err := protocol.NewID()
+		if err != nil {
+			return err
+		}
+		replacement, err := w.Seal(Mutation{
+			RecordID:     payload.SourceRecordID,
+			RecordType:   payload.SourceRecordType,
+			Rev:          head.Context.Rev + 1,
+			ParentDigest: headDigest,
+			MutationID:   replacementID,
+		}, payload.Candidate)
+		if err != nil {
+			return err
+		}
+
+		retireID, err := protocol.NewID()
+		if err != nil {
+			return err
+		}
+		retire, err := w.Seal(Mutation{
+			RecordID:     conflictID,
+			RecordType:   conflictEnv.Context.RecordType,
+			Rev:          conflictEnv.Context.Rev + 1,
+			ParentDigest: conflictDigest,
+			MutationID:   retireID,
+			Deleted:      true,
+		}, nil)
+		if err != nil {
+			return err
+		}
+		return m.store.ApplyLocalBatch(replacement, retire)
+	})
+	return sourceID, err
+}

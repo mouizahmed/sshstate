@@ -375,3 +375,36 @@ func (e *Env) purgeVault(ctx context.Context, yes bool) error {
 	}
 	return nil
 }
+
+func runResolve(ctx context.Context, env *Env, args []string) error {
+	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	resurrect := fs.Bool("resurrect", false, "apply the edit even though the record has since been deleted")
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return errors.New("usage: sshstate resolve <conflict-record-id> [--resurrect]")
+	}
+	recordID := args[0]
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("usage: sshstate resolve <conflict-record-id> [--resurrect]")
+	}
+	out, err := env.Client().Resolve(ctx, control.ResolveRequest{
+		RecordID:  recordID,
+		Resurrect: *resurrect,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "has been deleted") {
+			return fmt.Errorf("%w\nThat record was deleted on another device.\n"+
+				"To apply this edit anyway and bring it back: sshstate resolve %s --resurrect",
+				hint(err), recordID)
+		}
+		return hint(err)
+	}
+	env.printf("Applied the preserved edit to record %s.\n", out.SourceRecordID)
+	env.printf("\nIt went in as an ordinary change against the current version, so if\n")
+	env.printf("another device edited the same record just now, this becomes a new\n")
+	env.printf("conflict rather than overwriting it. Publish with: sshstate sync\n")
+	return nil
+}

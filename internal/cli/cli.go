@@ -50,6 +50,7 @@ func Commands() []Command {
 		{"export", "write an encrypted backup", runExport},
 		{"restore", "rebuild this vault from an export and the recovery kit", runRestore},
 		{"conflicts", "list edits preserved after a race", runConflicts},
+		{"resolve", "apply a preserved edit to the current version", runResolve},
 		{"install", "activate the managed Include in ~/.ssh/config", runInstall},
 		{"uninstall", "remove the managed Include, preserving vault data", runUninstall},
 		{"doctor", "diagnose SSH integration problems", runDoctor},

@@ -28,6 +28,7 @@ const (
 	RouteRevoke            = "/" + APIVersion + "/revoke"
 	RouteExport            = "/" + APIVersion + "/export"
 	RouteConflicts         = "/" + APIVersion + "/conflicts"
+	RouteResolve           = "/" + APIVersion + "/conflicts/resolve"
 	RoutePairApprove       = "/" + APIVersion + "/pair/approve"
 	RoutePairDeliver       = "/" + APIVersion + "/pair/deliver"
 )
@@ -261,4 +262,14 @@ type PairDeliverRequest struct {
 type PairDeliverResponse struct {
 	DeviceID string `json:"device_id"`
 	Records  int    `json:"records"`
+}
+
+type ResolveRequest struct {
+	RecordID  string `json:"record_id"`
+	Resurrect bool   `json:"resurrect,omitempty"`
+}
+
+type ResolveResponse struct {
+	RecordID       string `json:"record_id"`
+	SourceRecordID string `json:"source_record_id"`
 }

@@ -68,51 +68,51 @@ func isLoopback(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
 }
 
-func (c *Client) send(ctx context.Context, method, path string, in any, headers map[string]string) (int, []byte, error) {
+func (c *Client) send(ctx context.Context, method, path string, in any, headers map[string]string) (int, []byte, *http.Request, error) {
 	var body []byte
 	if in != nil {
 		var err error
 		body, err = json.Marshal(in)
 		if err != nil {
-			return 0, nil, fmt.Errorf("encode request: %w", err)
+			return 0, nil, nil, fmt.Errorf("encode request: %w", err)
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base.String()+path, bytes.NewReader(body))
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 	if c.signer != nil {
 		if err := c.signer.Sign(req, body, c.https); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, nil, fmt.Errorf("reach the relay: %w", err)
+		return 0, nil, nil, fmt.Errorf("reach the relay: %w", err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
 	if err != nil {
-		return 0, nil, fmt.Errorf("read the relay's response: %w", err)
+		return 0, nil, nil, fmt.Errorf("read the relay's response: %w", err)
 	}
 	if len(raw) > MaxResponseBytes {
-		return 0, nil, protocol.Errorf(protocol.CodeBodyTooLarge,
+		return 0, nil, nil, protocol.Errorf(protocol.CodeBodyTooLarge,
 			"the relay returned more than %d bytes", MaxResponseBytes)
 	}
-	return resp.StatusCode, raw, nil
+	return resp.StatusCode, raw, req, nil
 }
 
 func (c *Client) call(ctx context.Context, method, path string, in, out any, headers map[string]string) error {
-	status, raw, err := c.send(ctx, method, path, in, headers)
+	status, raw, req, err := c.send(ctx, method, path, in, headers)
 	if err != nil {
 		return err
 	}
 	if status >= 300 {
-		return decodeError(status, raw)
+		return decodeError(status, raw, signatureBytes(req))
 	}
 	if out == nil {
 		return nil
@@ -123,11 +123,25 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any, hea
 	return nil
 }
 
-func decodeError(status int, raw []byte) error {
+func signatureBytes(r *http.Request) int {
+	if r == nil {
+		return 0
+	}
+	return len(r.Header.Get(httpsig.HeaderSignature))
+}
+
+func decodeError(status int, raw []byte, signatureHeaderBytes int) error {
 	var body protocol.ErrorResponse
 	if err := json.Unmarshal(raw, &body); err != nil || !protocol.KnownCode(body.Error.Code) {
+		hint := ""
+		if status >= 400 && status < 500 && signatureHeaderBytes > 4000 {
+			hint = fmt.Sprintf("\nThe request carried a %d-byte %s header. "+
+				"A reverse proxy in front of the relay is the likely cause: "+
+				"raise its header buffer (nginx: large_client_header_buffers 4 16k).",
+				signatureHeaderBytes, httpsig.HeaderSignature)
+		}
 		return protocol.Errorf(protocol.CodeInternal,
-			"the relay returned HTTP %d with an unrecognized body", status)
+			"the relay returned HTTP %d with an unrecognized body%s", status, hint)
 	}
 	return &protocol.Error{
 		Code:    body.Error.Code,
@@ -188,7 +202,7 @@ type PutResult struct {
 func (c *Client) PutRecord(ctx context.Context, env *protocol.Envelope) (*PutResult, error) {
 	out := *env
 	out.Seq = 0
-	status, raw, err := c.send(ctx, http.MethodPut, "/v1/records/"+env.Context.RecordID.String(), out,
+	status, raw, req, err := c.send(ctx, http.MethodPut, "/v1/records/"+env.Context.RecordID.String(), out,
 		map[string]string{httpsig.HeaderIdempotency: env.Context.MutationID.String()})
 	if err != nil {
 		return nil, err
@@ -203,8 +217,7 @@ func (c *Client) PutRecord(ctx context.Context, env *protocol.Envelope) (*PutRes
 
 	var body protocol.ErrorResponse
 	if err := json.Unmarshal(raw, &body); err != nil || !protocol.KnownCode(body.Error.Code) {
-		return nil, protocol.Errorf(protocol.CodeInternal,
-			"the relay returned HTTP %d with an unrecognized body", status)
+		return nil, decodeError(status, raw, signatureBytes(req))
 	}
 	if body.Error.Code != protocol.CodeParentMismatch {
 		return nil, &protocol.Error{Code: body.Error.Code, Message: body.Error.Message, Detail: body.Error.Detail}

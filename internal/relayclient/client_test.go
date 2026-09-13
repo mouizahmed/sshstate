@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -305,15 +306,33 @@ func TestErrorCodesSurviveTheWire(t *testing.T) {
 }
 
 func TestUnrecognizedResponsesAreNotGuessedAt(t *testing.T) {
-	if got := protocol.CodeOf(decodeError(502, []byte("<html>bad gateway</html>"))); got != protocol.CodeInternal {
+	if got := protocol.CodeOf(decodeError(502, []byte("<html>bad gateway</html>"), 0)); got != protocol.CodeInternal {
 		t.Fatalf("an HTML error page decoded as %s", got)
 	}
-	if got := protocol.CodeOf(decodeError(400, []byte(`{"error":{"code":"invented","message":"x"}}`))); got != protocol.CodeInternal {
+	if got := protocol.CodeOf(decodeError(400, []byte(`{"error":{"code":"invented","message":"x"}}`), 0)); got != protocol.CodeInternal {
 		t.Fatalf("an unknown code was passed through as %s", got)
 	}
-	known := decodeError(409, []byte(`{"error":{"code":"parent_mismatch","message":"x"}}`))
+	known := decodeError(409, []byte(`{"error":{"code":"parent_mismatch","message":"x"}}`), 0)
 	if got := protocol.CodeOf(known); got != protocol.CodeParentMismatch {
 		t.Fatalf("a frozen code decoded as %s", got)
+	}
+}
+
+func TestAProxyHeaderLimitIsNamed(t *testing.T) {
+	err := decodeError(400, []byte("<html>400 Bad Request</html>"), 4423)
+	if !strings.Contains(err.Error(), "large_client_header_buffers") {
+		t.Fatalf("the error does not point at the proxy: %v", err)
+	}
+	if !strings.Contains(err.Error(), "4423-byte") {
+		t.Fatalf("the error does not say how big the header was: %v", err)
+	}
+	quiet := decodeError(400, []byte("<html>400 Bad Request</html>"), 120)
+	if strings.Contains(quiet.Error(), "large_client_header_buffers") {
+		t.Fatalf("a small request was blamed on the proxy: %v", quiet)
+	}
+	upstream := decodeError(502, []byte("<html>502</html>"), 4423)
+	if strings.Contains(upstream.Error(), "large_client_header_buffers") {
+		t.Fatalf("a gateway error was blamed on the proxy's header buffers: %v", upstream)
 	}
 }
 

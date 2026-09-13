@@ -212,3 +212,8 @@ func (c *Client) PairDeliver(ctx context.Context, sessionID string) (*PairDelive
 	return &out, c.do(ctx, http.MethodPost, RoutePairDeliver,
 		PairDeliverRequest{SessionID: sessionID}, &out)
 }
+
+func (c *Client) Resolve(ctx context.Context, req ResolveRequest) (*ResolveResponse, error) {
+	var out ResolveResponse
+	return &out, c.do(ctx, http.MethodPost, RouteResolve, req, &out)
+}

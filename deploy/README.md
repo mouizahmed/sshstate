@@ -33,7 +33,8 @@ cd deploy && docker compose up -d --build
 
 The container runs as UID 65532 with a read-only root filesystem, no
 capabilities, and `no-new-privileges`. It binds `127.0.0.1:8080` on the host,
-not a public interface.
+not a public interface. The built image is about 21 MB: a static binary on
+distroless, with no shell and no package manager inside.
 
 ### 3. Put HTTPS in front of it
 
@@ -41,14 +42,32 @@ The relay speaks plain HTTP and expects a terminating reverse proxy. TLS
 certificate validation is mandatory on the client side, so the relay must be
 reachable over `https://`.
 
-Two proxy settings matter:
+A working nginx location, with the parts that matter marked:
 
-- **Header size.** An ML-DSA-65 `Signature` header is about 4.4 KB, roughly 54%
-  of the 8190-byte single-header limit Apache and nginx commonly deploy. That
-  fits, but verify it against the proxy you actually run rather than trusting
-  the arithmetic. nginx: `large_client_header_buffers 4 16k;`.
-- **Body size.** Requests are capped at 4 MiB by the relay. nginx:
-  `client_max_body_size 4m;`.
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+
+    # REQUIRED. The request signature covers the authority, so the Host the
+    # client signed has to reach the relay unchanged. nginx's default rewrites
+    # it to the upstream name, and every signed request then fails with
+    # "signature does not verify" — which looks like a cryptography problem and
+    # is not one.
+    proxy_set_header Host $http_host;
+
+    proxy_http_version 1.1;
+    client_max_body_size 4m;          # the relay's own body limit
+    # large_client_header_buffers 4 8k is nginx's default and is enough; see below.
+}
+```
+
+**Measured, not assumed.** With this configuration and nginx's default header
+buffers, a real signed request went through: the `Signature` header is **4423
+bytes**, which fits the default 8 KB buffer with room to spare. Dropping to
+`large_client_header_buffers 4 4k` makes nginx answer `400` with its own error
+page before the relay sees anything; the client detects that case and says so,
+but the request does not arrive. Apache's `LimitRequestFieldSize` defaults to
+8190 bytes and is likewise sufficient.
 
 Do not let the proxy rewrite the request path, query, or the `Content-Digest`,
 `Idempotency-Key`, `SSHState-Vault` and `SSHState-Device` headers: all of them
