@@ -149,3 +149,7 @@ func plural(n int, one, many string) string {
 	}
 	return many
 }
+
+func count(n int, one, many string) string {
+	return fmt.Sprintf("%d %s", n, plural(n, one, many))
+}

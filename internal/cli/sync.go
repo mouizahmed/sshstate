@@ -52,7 +52,7 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 	} else {
 		env.printf("Connected to %s.\n", out.URL)
 	}
-	env.printf("Published %s.\n", plural(out.Uploaded, "record", "records"))
+	env.printf("Published %s.\n", count(out.Uploaded, "record", "records"))
 	env.printf("\nOn another machine, enrol it with: sshstate pair\n")
 	return nil
 }
@@ -72,15 +72,15 @@ func runSync(ctx context.Context, env *Env, args []string) error {
 		env.printf("Already up to date.\n")
 	default:
 		if out.Pushed > 0 {
-			env.printf("Published %s.\n", plural(out.Pushed, "change", "changes"))
+			env.printf("Published %s.\n", count(out.Pushed, "change", "changes"))
 		}
 		if out.Applied > 0 {
-			env.printf("Applied %s.\n", plural(out.Applied, "change", "changes"))
+			env.printf("Applied %s.\n", count(out.Applied, "change", "changes"))
 		}
 	}
 	if out.Preserved > 0 {
 		env.printf("\nKept %s that lost a race with another device.\n",
-			plural(out.Preserved, "edit", "edits"))
+			count(out.Preserved, "edit", "edits"))
 		env.printf("Review them with: sshstate conflicts\n")
 	}
 	if !out.Complete {
@@ -173,8 +173,8 @@ func runExport(ctx context.Context, env *Env, args []string) error {
 		return hint(err)
 	}
 	env.printf("Wrote %s (%d bytes, %s, %s).\n", out.Path, out.Bytes,
-		plural(out.Records, "record", "records"),
-		plural(out.Conflicts, "conflict", "conflicts"))
+		count(out.Records, "record", "records"),
+		count(out.Conflicts, "conflict", "conflicts"))
 	env.printf("\nIt is encrypted to your recovery kit and to nothing else, so the kit is\n")
 	env.printf("what opens it. Store them apart from each other.\n")
 	env.printf("\nThis restores access to what it contains. It is not a backup of the\n")
@@ -197,7 +197,7 @@ func runConflicts(ctx context.Context, env *Env, args []string) error {
 		return nil
 	}
 	env.printf("%s preserved because another device's edit was accepted first:\n\n",
-		plural(len(out.Conflicts), "edit", "edits"))
+		count(len(out.Conflicts), "edit", "edits"))
 	for _, c := range out.Conflicts {
 		env.printf("  %s\n", c.RecordID)
 		env.printf("    %s %s, kept %s\n", c.SourceRecordType, c.SourceRecordID, c.PreservedAt)

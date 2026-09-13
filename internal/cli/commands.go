@@ -315,6 +315,11 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 	env.printf("keys         %d\n", st.Keys)
 	env.printf("known hosts  %d\n", st.KnownHosts)
 	env.printf("pending      %d\n", st.Pending)
+	if st.Relay != "" {
+		env.printf("relay        %s\n", st.Relay)
+	} else {
+		env.printf("relay        none (local only)\n")
+	}
 	env.printf("config       %s\n", st.ConfigPath)
 	if st.ConfigInstalled {
 		env.printf("include      active in ~/.ssh/config\n")

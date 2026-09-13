@@ -57,6 +57,7 @@ type StatusResponse struct {
 	Keys              int       `json:"keys"`
 	KnownHosts        int       `json:"known_hosts"`
 	Pending           int       `json:"pending"`
+	Relay             string    `json:"relay,omitempty"`
 	ConfigInstalled   bool      `json:"config_installed"`
 	ConfigPath        string    `json:"config_path"`
 	AgentSocket       string    `json:"agent_socket"`

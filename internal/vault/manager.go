@@ -396,6 +396,7 @@ type Status struct {
 	Keys              int
 	KnownHosts        int
 	Pending           int
+	Relay             string
 }
 
 func (m *Manager) Status() (Status, error) {
@@ -434,6 +435,11 @@ func (m *Manager) Status() (Status, error) {
 		return st, err
 	}
 	st.Pending = len(pending)
+	relay, err := m.RelayURL()
+	if err != nil {
+		return st, err
+	}
+	st.Relay = relay
 	return st, nil
 }
 
