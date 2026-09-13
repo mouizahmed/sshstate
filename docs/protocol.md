@@ -600,13 +600,31 @@ and local password wrappers are excluded.
   "created_at": "2026-09-12T00:00:00Z",
   "checkpoint": { ... },
   "members": [
-    {"name": "genesis.json",   "length": "812",    "digest": "<sha256-base64url>"},
-    {"name": "membership.jsonl","length": "4210",  "digest": "<sha256-base64url>"},
-    {"name": "records.jsonl",  "length": "182344", "digest": "<sha256-base64url>"},
-    {"name": "conflicts.jsonl","length": "0",      "digest": "<sha256-base64url>"}
+    {"name": "bundle.json",     "length": "2043",   "digest": "<sha256-base64url>"},
+    {"name": "conflicts.jsonl", "length": "0",      "digest": "<sha256-base64url>"},
+    {"name": "genesis.json",    "length": "812",    "digest": "<sha256-base64url>"},
+    {"name": "membership.jsonl","length": "4210",   "digest": "<sha256-base64url>"},
+    {"name": "records.jsonl",   "length": "182344", "digest": "<sha256-base64url>"}
   ]
 }
 ```
+
+**Recorded amendment.** `bundle.json` was added to this member set when
+implementing restore showed the archive could not do its job without it. It holds
+a signed recovery-purpose §6.2 bundle carrying the vault keys.
+
+Every record in an export is encrypted under those keys, and the relay's copy of
+them is precisely what is unreachable in the case an export exists for: "explicit
+recovery can use a local export if the relay is unavailable" (§4.6) is not true
+without it. Including them is safe because the archive is sealed to the recovery
+recipient and to nothing else, so they are reachable by exactly the party that
+could already open the relay's copy. The bundle is signed by the exporting
+device, because encryption to a published recipient is not evidence of who
+produced it.
+
+Every member is named even when empty: a missing member and an empty member are
+different statements, and a reader must not have to guess which it is looking
+at.
 
 Signed under `sshstate.export-sig.v1` by an authorized device, binding genesis,
 the checkpoint, and the digest and length of every member. `members` is sorted by
