@@ -32,6 +32,7 @@ const (
 	CodeConflictContent   = "conflict_content_mismatch"
 	CodeChainMismatch     = "chain_mismatch"
 	CodeRotationActive    = "rotation_in_progress"
+	CodeEpochMismatch     = "epoch_mismatch"
 	CodeBodyTooLarge      = "body_too_large"
 	CodeHeaderTooLarge    = "header_too_large"
 	CodeRateLimited       = "rate_limited"
@@ -62,6 +63,7 @@ var statuses = map[string]int{
 	CodeConflictContent:   http.StatusConflict,
 	CodeChainMismatch:     http.StatusConflict,
 	CodeRotationActive:    http.StatusConflict,
+	CodeEpochMismatch:     http.StatusConflict,
 	CodeBodyTooLarge:      http.StatusRequestEntityTooLarge,
 	CodeHeaderTooLarge:    http.StatusRequestHeaderFieldsTooLarge,
 	CodeRateLimited:       http.StatusTooManyRequests,
