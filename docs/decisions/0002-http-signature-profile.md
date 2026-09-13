@@ -86,10 +86,21 @@ as received, before any parsing. A request with a body and no `Content-Digest` i
 **Retries** reuse the persisted mutation ID and the identical body with a *fresh* nonce,
 `created`, `expires` and signature. Idempotency is keyed by mutation ID, not by signature.
 
+**One serialization.** The verifier parses `Signature-Input`, re-serializes it, and rejects
+the request if the result differs from what arrived. This is not belt-and-braces: the
+signature base is rebuilt from the parsed values rather than copied from the received bytes,
+so without the check a `Signature-Input` that parses equivalently but is spelled differently
+— a space before the closing parenthesis is enough — would have the signer covering one
+string and the verifier checking another. Fixing one spelling is what makes rebuilding
+sound, and it removes every parser ambiguity a general RFC 9421 verifier has to reason
+about.
+
 ## Header size
 
 A 4430-byte `Signature` header is roughly 54% of the 8190-byte single-header limit Apache and
-nginx commonly deploy. The policy is explicit rejection, never truncation:
+nginx commonly deploy. Measured on the implementation, the header value is **4423 bytes**
+(`sshstate=:` + 4412 base64 characters + `:`), which `TestMLDSASignatureHeaderSize` asserts
+stays clear of that limit. The policy is explicit rejection, never truncation:
 
 - The relay rejects a `Signature` or `Signature-Input` header above a configured maximum with
   a distinct error code that names the size, so an operator sees a limit rather than a

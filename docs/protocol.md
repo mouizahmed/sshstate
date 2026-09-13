@@ -643,7 +643,10 @@ record 0002. In summary, and normative there:
 
 The verifier computes the expected covered-component list from the request itself
 and compares it to `Signature-Input` before any cryptography, so a signer cannot
-choose to leave a component uncovered.
+choose to leave a component uncovered. It also re-serializes `Signature-Input`
+and rejects anything that is not byte-identical to what arrived: the signature
+base is rebuilt from parsed values, so one spelling per signature is what keeps
+the signer's string and the verifier's string the same one.
 
 Headers: `SSHState-Vault: <vault id>`, `SSHState-Device: <device id>`,
 `Idempotency-Key: <mutation id>` on mutations. `Idempotency-Key` must equal the
