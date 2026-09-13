@@ -77,6 +77,30 @@ CREATE TABLE IF NOT EXISTS change_log (
     PRIMARY KEY (vault_id, seq)
 ) STRICT;
 
+-- Sealed key bundles, addressed to one device or to the recovery recipient.
+-- Ciphertext only: the relay cannot open these and never holds a vault key.
+CREATE TABLE IF NOT EXISTS key_envelope (
+    vault_id            TEXT NOT NULL,
+    envelope_id         TEXT NOT NULL,
+    recipient_device_id TEXT,
+    purpose             TEXT NOT NULL,
+    key_epoch           INTEGER NOT NULL,
+    ciphertext          BLOB NOT NULL,
+    created_at          TEXT NOT NULL,
+    PRIMARY KEY (vault_id, envelope_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS key_envelope_by_recipient
+    ON key_envelope (vault_id, recipient_device_id);
+
+-- Recovery admission challenges. Consumed once, whatever the outcome (§4.6).
+CREATE TABLE IF NOT EXISTS recovery_nonce (
+    vault_id   TEXT NOT NULL,
+    nonce      TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (vault_id, nonce)
+) STRICT;
+
 -- Durable mutation outcomes (§5.3). Rejections are stored too: a retried
 -- candidate must get the same answer, not a fresh evaluation against a head
 -- that has since moved.
