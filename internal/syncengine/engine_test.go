@@ -6,7 +6,9 @@ package syncengine
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -648,4 +650,134 @@ func mustChain(t *testing.T, w *world, d *device) *membership.Chain {
 		t.Fatal(err)
 	}
 	return chain
+}
+
+func TestDeleteEditRacePreservesTheEditWithoutResurrecting(t *testing.T) {
+	w := newWorld(t)
+	a := w.device(w.first)
+	second := newKeys(t)
+	w.enroll(a, second)
+	b := w.device(second)
+
+	prod := protocol.MustNewID()
+	a.write(w.genesis.VaultID, prod, "prod v1", false)
+	a.sync()
+	b.sync()
+
+	a.write(w.genesis.VaultID, prod, "", true)
+	loser := b.write(w.genesis.VaultID, prod, "B's edit", false)
+	a.sync()
+
+	r := b.sync()
+	if r.Preserved != 1 {
+		t.Fatalf("B preserved %d candidates: %+v", r.Preserved, r)
+	}
+
+	head := b.head(prod)
+	if !head.Context.Deleted {
+		t.Fatal("the edit resurrected a deleted record")
+	}
+	live, err := b.store.LiveRecords(protocol.RecordHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range live {
+		if env.Context.RecordID == prod {
+			t.Fatal("a tombstoned record is live again")
+		}
+	}
+
+	conflictID, err := protocol.ConflictID(w.genesis.VaultID, prod, loser.Context.MutationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict := b.head(conflictID)
+	if !bytes.Contains(conflict.Ciphertext, []byte("B's edit")) {
+		t.Fatalf("the preserved candidate is %q", conflict.Ciphertext)
+	}
+}
+
+func TestAShorterMembershipChainIsNotAdopted(t *testing.T) {
+	w := newWorld(t)
+	a := w.device(w.first)
+	second := newKeys(t)
+	w.enroll(a, second)
+	a.sync()
+
+	before, err := a.store.MembershipEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 2 {
+		t.Fatalf("expected the root and the enrolment, got %d", len(before))
+	}
+
+	lying := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(rw).Encode(protocol.MembershipResponse{Events: before[:1]})
+	}))
+	defer lying.Close()
+
+	chain, err := membership.Validate(w.genesis, before[:1])
+	if err != nil {
+		t.Fatalf("the truncated chain does not even validate, so this test proves nothing: %v", err)
+	}
+	if chain.Len() != 1 {
+		t.Fatal("unexpected truncated chain")
+	}
+
+	a.engine.Client = clientFor(t, lying.URL, w.first)
+	if _, err := a.engine.Sync(context.Background()); err != nil {
+		t.Logf("sync against the truncating relay failed: %v", err)
+	}
+	after, err := a.store.MembershipEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) < len(before) {
+		t.Fatalf("the stored chain shrank from %d to %d events", len(before), len(after))
+	}
+	if _, err := a.store.Device(second.id); err != nil {
+		t.Fatalf("the enrolled device vanished from local membership: %v", err)
+	}
+}
+
+func TestRecordRollbackIsRefused(t *testing.T) {
+	w := newWorld(t)
+	a := w.device(w.first)
+	prod := protocol.MustNewID()
+	first := a.write(w.genesis.VaultID, prod, "v1", false)
+	a.sync()
+	a.write(w.genesis.VaultID, prod, "v2", false)
+	a.sync()
+
+	chain := mustChain(t, w, a)
+	old := *first
+	old.Seq = 99
+	page := &protocol.RecordsResponse{
+		Changes:        []protocol.Envelope{old},
+		NextCursor:     99,
+		SnapshotCursor: 99,
+	}
+	if err := a.engine.applyPage(chain, page, &Report{}); err != nil {
+		t.Fatalf("re-serving an old revision should be ignored, not fail: %v", err)
+	}
+	if got := a.head(prod).Context.Rev; got != 2 {
+		t.Fatalf("the head moved back to rev %s", got)
+	}
+	if got := string(a.head(prod).Ciphertext); got != "ciphertext:v2" {
+		t.Fatalf("the head content rolled back to %q", got)
+	}
+}
+
+func clientFor(t *testing.T, url string, k keys) *relayclient.Client {
+	t.Helper()
+	client, err := relayclient.New(relayclient.Options{
+		BaseURL: url,
+		Signer:  &httpsig.Signer{VaultID: protocol.MustNewID(), DeviceID: k.id, Key: k.signing},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
 }

@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -11,9 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mouizahmed/sshstate/internal/control"
+	"github.com/mouizahmed/sshstate/internal/crypto"
 	"github.com/mouizahmed/sshstate/internal/protocol"
+	"github.com/mouizahmed/sshstate/internal/relayclient"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
@@ -406,5 +410,134 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 	env.printf("\nIt went in as an ordinary change against the current version, so if\n")
 	env.printf("another device edited the same record just now, this becomes a new\n")
 	env.printf("conflict rather than overwriting it. Publish with: sshstate sync\n")
+	return nil
+}
+
+func runRecover(ctx context.Context, env *Env, args []string) error {
+	fs := flag.NewFlagSet("recover", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	kitPath := fs.String("kit", "", "path to the recovery kit")
+	label := fs.String("label", defaultDeviceLabel(), "label for this device")
+	if len(args) < 2 || strings.HasPrefix(args[0], "-") {
+		return errors.New("usage: sshstate recover <relay-url> <vault-id> --kit <kit-file>")
+	}
+	relayURL, vaultID := strings.TrimSuffix(args[0], "/"), protocol.ID(args[1])
+	if err := fs.Parse(args[2:]); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || *kitPath == "" {
+		return errors.New("usage: sshstate recover <relay-url> <vault-id> --kit <kit-file>")
+	}
+	if !vaultID.Valid() {
+		return fmt.Errorf("%q is not a vault id", args[1])
+	}
+
+	kitBody, err := os.ReadFile(*kitPath)
+	if err != nil {
+		return fmt.Errorf("read the recovery kit: %w", err)
+	}
+	kit, err := vault.ParseKit(string(kitBody))
+	if err != nil {
+		return fmt.Errorf("%s: %w", *kitPath, err)
+	}
+	if kit.VaultID != vaultID {
+		return fmt.Errorf("that kit is for vault %s, not %s", kit.VaultID, vaultID)
+	}
+
+	store, err := vault.OpenStore(env.Layout.Database())
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if initialized, err := store.Initialized(); err != nil {
+		return err
+	} else if initialized {
+		return fmt.Errorf("a vault already exists at %s; recover onto a machine that has none",
+			env.Layout.Database())
+	}
+
+	client, err := relayclient.New(relayclient.Options{BaseURL: relayURL})
+	if err != nil {
+		return err
+	}
+	challenge, err := client.RecoveryChallenge(ctx, vaultID)
+	if err != nil {
+		return hint(err)
+	}
+	if len(challenge.RecoveryEnvelope) == 0 {
+		return errors.New("that relay holds no recovery material for this vault")
+	}
+	digest, err := challenge.Genesis.Digest()
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(digest, kit.GenesisDigest) {
+		return errors.New("the relay returned a different vault than this kit is for")
+	}
+	recoverySigning, err := crypto.SigningKeyFromSeed(kit.SigningSeed)
+	if err != nil {
+		return err
+	}
+
+	password, err := env.ReadSecret("New device unlock password for this machine: ")
+	if err != nil {
+		return err
+	}
+	defer clear(password)
+	again, err := env.ReadSecret("Repeat password: ")
+	if err != nil {
+		return err
+	}
+	defer clear(again)
+	if string(password) != string(again) {
+		return errors.New("passwords do not match")
+	}
+
+	mgr, res, err := vault.Restore(store, vault.RestoreOptions{
+		Archive:     challenge.RecoveryEnvelope,
+		Kit:         kit,
+		Password:    password,
+		DeviceLabel: *label,
+		Publish: func(ev protocol.SignedMembershipEvent) error {
+			admission := protocol.RecoveryAdmission{
+				Domain:          protocol.RecoveryAdmitDomain,
+				FormatVersion:   protocol.RecoveryAdmitFormatVersion,
+				VaultID:         vaultID,
+				GenesisDigest:   digest,
+				Nonce:           challenge.Nonce,
+				DeviceID:        ev.Event.DeviceID,
+				DeviceVerifyKey: ev.Event.DeviceVerifyKey,
+				DeviceRecipient: *ev.Event.DeviceRecipient,
+				CreatedAt:       time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
+			}
+			msg, err := admission.SigningInput()
+			if err != nil {
+				return err
+			}
+			sig, err := recoverySigning.Sign(protocol.RecoveryAdmitDomain, msg)
+			if err != nil {
+				return err
+			}
+			_, err = client.RecoveryComplete(ctx, protocol.RecoveryCompleteRequest{
+				Admission:       admission,
+				Signature:       sig,
+				MembershipEvent: ev,
+			})
+			return err
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if err := mgr.SetRelayURL(relayURL); err != nil {
+		return err
+	}
+
+	env.printf("Recovered vault %s as new device %s.\n", res.VaultID, res.DeviceID)
+	env.printf("Installed %s from the relay's recovery material.\n",
+		count(res.Records, "record", "records"))
+	env.printf("\nThe kit authorized this device, so it can write. Any device you have\n")
+	env.printf("lost is still authorized: revoke it with sshstate revoke <device-id>.\n")
+	env.printf("\nNext: sshstate daemon, then sshstate sync\n")
 	return nil
 }

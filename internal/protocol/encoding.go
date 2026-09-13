@@ -39,6 +39,9 @@ func (b *Bytes) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("binary field is not unpadded base64url: %w", err)
 	}
+	if base64.RawURLEncoding.EncodeToString(raw) != s {
+		return fmt.Errorf("binary field %q is not canonical base64url", s)
+	}
 	*b = raw
 	return nil
 }

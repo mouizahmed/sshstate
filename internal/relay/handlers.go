@@ -285,7 +285,16 @@ func (s *Server) handleRecoveryComplete(w http.ResponseWriter, r *http.Request, 
 		return protocol.Errorf(protocol.CodeNotAuthorized, "the admission is not signed by the recovery key")
 	}
 
-	chain, err := s.store.Chain(vaultID)
+	ev := body.MembershipEvent
+	if ev.Event.DeviceID != admission.DeviceID {
+		return protocol.Errorf(protocol.CodeIDMismatch,
+			"the enrolment names a different device than the admission")
+	}
+	if ev.Event.Authority != protocol.AuthorityRecovery {
+		return protocol.Errorf(protocol.CodeNotAuthorized,
+			"a recovery enrolment must carry recovery authority")
+	}
+	chain, err := s.store.AppendMembership(vaultID, ev)
 	if err != nil {
 		return err
 	}

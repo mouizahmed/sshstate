@@ -19,6 +19,7 @@ type RestoreOptions struct {
 	Kit         *Kit
 	Password    []byte
 	DeviceLabel string
+	Publish     func(protocol.SignedMembershipEvent) error
 }
 
 type RestoreResult struct {
@@ -99,6 +100,11 @@ func Restore(store *Store, opts RestoreOptions) (*Manager, *RestoreResult, error
 	chain, err = chain.Append(enrol)
 	if err != nil {
 		return nil, nil, fmt.Errorf("restore: %w", err)
+	}
+	if opts.Publish != nil {
+		if err := opts.Publish(enrol); err != nil {
+			return nil, nil, fmt.Errorf("restore: announce the replacement device: %w", err)
+		}
 	}
 
 	if err := store.PutGenesis(genesis); err != nil {

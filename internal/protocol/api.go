@@ -128,8 +128,9 @@ const (
 )
 
 type RecoveryCompleteRequest struct {
-	Admission RecoveryAdmission `json:"admission"`
-	Signature Bytes             `json:"signature"`
+	Admission       RecoveryAdmission     `json:"admission"`
+	Signature       Bytes                 `json:"signature"`
+	MembershipEvent SignedMembershipEvent `json:"membership_event"`
 }
 
 type RecoveryCompleteResponse struct {

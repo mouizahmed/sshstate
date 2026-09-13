@@ -653,3 +653,203 @@ func deviceIDFrom(t *testing.T, s *scripted) string {
 	t.Fatalf("no device id in status:\n%s", s.out)
 	return ""
 }
+
+func TestRecoverFromTheRelayWithOnlyTheKit(t *testing.T) {
+	r := newTestRelay(t)
+	source, kitPath := ready(t)
+	source.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	source.mustRun(t, "add", "staging", "--hostname", "10.0.0.6", "--user", "ubuntu")
+	source.mustRun(t, "sync")
+	vaultID := vaultIDOf(t, source)
+
+	replacement := newScripted(t)
+	replacement.secrets = []string{"recovered password", "recovered password"}
+	replacement.mustRun(t, "recover", r.url, vaultID, "--kit", kitPath)
+	out := replacement.out.String()
+	if !strings.Contains(out, "Recovered vault") {
+		t.Fatalf("recover reported nothing:\n%s", out)
+	}
+	if !strings.Contains(out, "still authorized") {
+		t.Fatalf("recover did not mention the devices it cannot revoke:\n%s", out)
+	}
+
+	replacement.startDaemon(t)
+	replacement.secrets = []string{"recovered password"}
+	replacement.mustRun(t, "unlock")
+	replacement.out.Reset()
+	replacement.mustRun(t, "status")
+	status := replacement.out.String()
+	if !strings.Contains(status, vaultID) {
+		t.Fatalf("the recovered device is in a different vault:\n%s", status)
+	}
+	if !strings.Contains(status, r.url) {
+		t.Fatalf("the recovered device did not record the relay:\n%s", status)
+	}
+
+	replacement.out.Reset()
+	replacement.mustRun(t, "devices")
+	if n := strings.Count(replacement.out.String(), "active"); n != 2 {
+		t.Fatalf("expected the lost device and the replacement:\n%s", replacement.out)
+	}
+	replacement.mustRun(t, "add", "after-recovery", "--hostname", "10.0.0.7", "--user", "ubuntu")
+	replacement.mustRun(t, "sync")
+
+	source.out.Reset()
+	source.mustRun(t, "sync")
+	source.out.Reset()
+	source.mustRun(t, "devices")
+	if n := strings.Count(source.out.String(), "active"); n != 2 {
+		t.Fatalf("the original device did not learn about the replacement:\n%s", source.out)
+	}
+}
+
+func TestRecoverRefusesAnotherVault(t *testing.T) {
+	r := newTestRelay(t)
+	source, _ := ready(t)
+	source.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	vaultID := vaultIDOf(t, source)
+
+	_, otherKit := ready(t)
+	replacement := newScripted(t)
+	replacement.secrets = []string{"pw", "pw"}
+	err := replacement.run(t, "recover", r.url, vaultID, "--kit", otherKit)
+	if err == nil {
+		t.Fatal("another vault's kit recovered this one")
+	}
+	if !strings.Contains(err.Error(), "not") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveRejectsAnUnknownConflict(t *testing.T) {
+	s, _ := ready(t)
+	err := s.run(t, "resolve", protocol.MustNewID().String())
+	if err == nil {
+		t.Fatal("resolve accepted an id that is not a conflict")
+	}
+	if err := s.run(t, "resolve", "not-an-id"); err == nil {
+		t.Fatal("resolve accepted a malformed id")
+	}
+}
+
+func pairSecondDevice(t *testing.T, r *testRelay, a *scripted, vaultID string) *scripted {
+	t.Helper()
+	b := newScripted(t)
+	b.lines = []string{"y"}
+	b.secrets = []string{"second password", "second password"}
+	errCh := make(chan error, 1)
+	go func() { errCh <- b.run(t, "pair", r.url, vaultID) }()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var session string
+	for session == "" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no pairing session appeared:\n%s", b.out)
+		}
+		for _, line := range strings.Split(b.out.String(), "\n") {
+			if strings.HasPrefix(line, "Pairing session ") {
+				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
+			}
+		}
+		if session == "" {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	a.lines = []string{"y"}
+	if err := a.run(t, "approve", session); err != nil {
+		t.Fatalf("approve: %v\n%s", err, a.errOut)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("pair: %v\n%s", err, b.errOut)
+	}
+	b.startDaemon(t)
+	b.secrets = []string{"second password"}
+	b.mustRun(t, "unlock")
+	b.out.Reset()
+	return b
+}
+
+func TestUninstallReportsIncompleteDeregistration(t *testing.T) {
+	r := newTestRelay(t)
+	s, _ := ready(t)
+	s.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	deviceID := deviceIDFrom(t, s)
+
+	s.mustRun(t, "lock")
+	s.out.Reset()
+	s.errOut.Reset()
+	s.mustRun(t, "uninstall", "--yes")
+
+	warning := s.errOut.String()
+	if !strings.Contains(warning, "did not complete") {
+		t.Fatalf("a failed deregistration was not reported:\n%s", warning)
+	}
+	if !strings.Contains(warning, "remains an authorized writer") {
+		t.Fatalf("the warning does not say the device is still authorized:\n%s", warning)
+	}
+	if !strings.Contains(warning, "sshstate revoke "+deviceID) {
+		t.Fatalf("the warning does not say how to revoke it:\n%s", warning)
+	}
+	vaultID, err := r.store.VaultID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := r.store.Membership(vaultID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("the chain changed despite the failure: %d events", len(events))
+	}
+	if got := s.out.String(); !strings.Contains(got, "Preserved: the encrypted vault") {
+		t.Fatalf("the local uninstall did not complete:\n%s", got)
+	}
+}
+
+func TestUninstallWithNoDaemonSaysSo(t *testing.T) {
+	s := newScripted(t)
+	kitPath := filepath.Join(t.TempDir(), "kit.txt")
+	s.secrets = []string{password, password}
+	s.answer = func(string) (string, error) {
+		body, _ := os.ReadFile(kitPath)
+		kit, err := vault.ParseKit(string(body))
+		if err != nil {
+			return "", err
+		}
+		return kit.Checksum(), nil
+	}
+	s.mustRun(t, "init", "--kit", kitPath)
+	s.answer = nil
+	s.errOut.Reset()
+
+	s.mustRun(t, "uninstall", "--yes")
+	warning := s.errOut.String()
+	if !strings.Contains(warning, "not deregistered") {
+		t.Fatalf("uninstall did not say the device was left registered:\n%s", warning)
+	}
+}
+
+func TestUninstallDeregistersWhenItCan(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	vaultID := vaultIDOf(t, a)
+	b := pairSecondDevice(t, r, a, vaultID)
+	deviceB := deviceIDFrom(t, b)
+
+	b.lines = []string{"y", "y"}
+	b.out.Reset()
+	b.errOut.Reset()
+	b.mustRun(t, "uninstall")
+	if got := b.out.String(); !strings.Contains(got, "Deregistered this device") {
+		t.Fatalf("uninstall did not deregister:\n%s\n%s", got, b.errOut)
+	}
+
+	a.mustRun(t, "sync")
+	a.out.Reset()
+	a.mustRun(t, "devices")
+	listing := a.out.String()
+	if !strings.Contains(listing, deviceB) || !strings.Contains(listing, "revoked") {
+		t.Fatalf("the chain does not record the deregistration:\n%s", listing)
+	}
+}

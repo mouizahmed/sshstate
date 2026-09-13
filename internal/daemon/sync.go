@@ -235,7 +235,27 @@ func (d *Daemon) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if _, err := d.engine(client).Sync(r.Context()); err != nil {
+	if self {
+		next, err := chain.Append(ev)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := d.mgr.Store().PutMembershipEvents(next.Events()); err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := d.mgr.Store().PutDevice(vault.Device{
+			ID:         target,
+			VerifyKey:  mustDeviceKey(next, target),
+			Recipient:  mustDeviceRecipient(next, target),
+			Status:     vault.DeviceRevoked,
+			EnrolledAt: mustDeviceEnrolledAt(next, target),
+		}); err != nil {
+			writeError(w, err)
+			return
+		}
+	} else if _, err := d.engine(client).Sync(r.Context()); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -382,4 +402,22 @@ func (d *Daemon) handleResolve(w http.ResponseWriter, r *http.Request) {
 		RecordID:       id.String(),
 		SourceRecordID: source.String(),
 	})
+}
+
+func mustDeviceKey(chain *membership.Chain, id protocol.ID) []byte {
+	d, ok := chain.Device(id)
+	if !ok {
+		return nil
+	}
+	return d.VerifyKey.Bytes()
+}
+
+func mustDeviceRecipient(chain *membership.Chain, id protocol.ID) string {
+	d, _ := chain.Device(id)
+	return d.Recipient
+}
+
+func mustDeviceEnrolledAt(chain *membership.Chain, id protocol.ID) string {
+	d, _ := chain.Device(id)
+	return d.EnrolledAt
 }

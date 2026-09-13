@@ -49,6 +49,7 @@ func Commands() []Command {
 		{"revoke", "withdraw a device's authority", runRevoke},
 		{"export", "write an encrypted backup", runExport},
 		{"restore", "rebuild this vault from an export and the recovery kit", runRestore},
+		{"recover", "rebuild this vault from the relay using the recovery kit", runRecover},
 		{"conflicts", "list edits preserved after a race", runConflicts},
 		{"resolve", "apply a preserved edit to the current version", runResolve},
 		{"install", "activate the managed Include in ~/.ssh/config", runInstall},

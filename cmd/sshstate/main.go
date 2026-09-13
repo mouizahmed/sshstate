@@ -19,7 +19,6 @@ import (
 var laterMilestones = map[string]string{
 	"import":            "strict SSH config import arrives with the known-host milestone",
 	"tui":               "the focused TUI ships after the CLI operations it wraps",
-	"recover":           "recovery through a relay ships with rotation; `restore` works offline today",
 	"rotate-master-key": "master key rotation ships before stable v1",
 	"rotation":          "rotation status and resume ship with rotation",
 }

@@ -64,6 +64,31 @@ jobs:
             GOOS="${t%/*}" GOARCH="${t#*/}" CGO_ENABLED=0 go build -o /dev/null ./...
           done
 
+  fuzz:
+    # `go test` already runs every seed corpus, which is the regression half.
+    # This job is the other half: a short exploratory run per target, so the
+    # parsers that take input from a relay, a peer, or an old known_hosts file
+    # keep being pushed at rather than only replayed against known cases.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      - name: fuzz
+        run: |
+          set -eux
+          fuzz() { go test "$1" -run '^$' -fuzz "^$2\$" -fuzztime 60s; }
+          fuzz ./internal/protocol FuzzStrictUnmarshalEnvelope
+          fuzz ./internal/protocol FuzzStrictUnmarshalMembership
+          fuzz ./internal/protocol FuzzCounterAndBytes
+          fuzz ./internal/protocol FuzzParseFingerprint
+          fuzz ./internal/knownhosts FuzzParseLine
+          fuzz ./internal/knownhosts FuzzParseFile
+          fuzz ./internal/httpsig FuzzParseSignatureParams
+          fuzz ./internal/httpsig FuzzParseByteSequence
+          fuzz ./internal/httpsig FuzzParseDictionaryMember
+
   vuln:
     runs-on: ubuntu-latest
     steps:
