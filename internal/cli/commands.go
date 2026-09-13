@@ -486,15 +486,17 @@ func runInstall(ctx context.Context, env *Env, args []string) error {
 
 func runUninstall(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "uninstall")
-	purge := fs.Bool("purge", false, "also delete vault data (not available until backup and restore are verified)")
+	purge := fs.Bool("purge", false, "also delete vault data (requires a recent export)")
 	yes := fs.Bool("yes", false, "do not prompt")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *purge {
-		return errors.New("--purge is disabled until encrypted export and restore are verified; nothing was deleted")
+		if err := env.purgeVault(ctx, *yes); err != nil {
+			return err
+		}
 	}
-	if !*yes {
+	if !*yes && !*purge {
 		ok, err := env.confirm("Remove the sshstate Include from ~/.ssh/config? Vault data is preserved.")
 		if err != nil {
 			return err
@@ -503,6 +505,9 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 			env.printf("Nothing changed.\n")
 			return nil
 		}
+	}
+	if !*purge {
+		env.OfferDeregistration(ctx, *yes)
 	}
 	if mgr := service.For(); mgr != nil {
 		if installed, err := mgr.Installed(); err == nil && installed {
@@ -524,7 +529,11 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 		}
 		env.printf("Removed the managed Include from %s\n", env.Layout.UserSSHConfig)
 	}
-	env.printf("\nPreserved: the encrypted vault at %s\n", env.Layout.Database())
+	if *purge {
+		env.printf("\nDeleted: the encrypted vault at %s\n", env.Layout.Database())
+	} else {
+		env.printf("\nPreserved: the encrypted vault at %s\n", env.Layout.Database())
+	}
 	env.printf("Preserved: your own SSH keys, config, and known_hosts\n")
 	return nil
 }

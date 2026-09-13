@@ -314,6 +314,10 @@ func (d *Daemon) handleExport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := d.mgr.RecordExport(req.Path); err != nil {
+		writeError(w, err)
+		return
+	}
 	cursor := "0"
 	if raw, err := d.mgr.Store().Cursor(vault.CursorRecords); err == nil {
 		cursor = raw

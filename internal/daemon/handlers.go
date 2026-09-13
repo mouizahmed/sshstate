@@ -121,6 +121,8 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		KnownHosts:        st.KnownHosts,
 		Pending:           st.Pending,
 		Relay:             st.Relay,
+		LastExportPath:    st.LastExportPath,
+		LastExportAt:      st.LastExportAt,
 		ConfigInstalled:   installed,
 		ConfigPath:        d.layout.Config(),
 		AgentSocket:       d.layout.AgentSocket(),

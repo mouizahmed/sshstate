@@ -26,6 +26,28 @@ func (m *Manager) RelayURL() (string, error) {
 	return url, err
 }
 
+const (
+	MetaLastExportAt   = "last_export_at"
+	MetaLastExportPath = "last_export_path"
+)
+
+func (m *Manager) RecordExport(path string) error {
+	if err := m.store.SetMeta(MetaLastExportPath, path); err != nil {
+		return err
+	}
+	return m.store.SetMeta(MetaLastExportAt, stampOf(m.clock()))
+}
+
+func (m *Manager) LastExport() (path, at string) {
+	if p, err := m.store.Meta(MetaLastExportPath); err == nil {
+		path = p
+	}
+	if a, err := m.store.Meta(MetaLastExportAt); err == nil {
+		at = a
+	}
+	return path, at
+}
+
 func (m *Manager) SetRelayURL(url string) error { return m.store.SetMeta(MetaRelayURL, url) }
 
 func (m *Manager) RequestSigner() (*httpsig.Signer, error) {

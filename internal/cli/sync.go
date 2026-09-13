@@ -283,3 +283,95 @@ func runRestore(ctx context.Context, env *Env, args []string) error {
 	}
 	return nil
 }
+
+func (e *Env) deregister(ctx context.Context, st *control.StatusResponse) (done bool, why string) {
+	if st.Relay == "" {
+		return true, ""
+	}
+	if !st.Unlocked {
+		return false, "the vault is locked"
+	}
+	if _, err := e.Client().Revoke(ctx, control.RevokeRequest{
+		DeviceID: st.DeviceID,
+		Confirm:  true,
+	}); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+}
+
+func (e *Env) OfferDeregistration(ctx context.Context, yes bool) {
+	st, err := e.Client().Status(ctx)
+	if err != nil {
+		e.warnf("\nThe daemon is not reachable, so this device was not deregistered.\n")
+		e.warnf("If this vault is connected to a relay, revoke it from another device.\n")
+		return
+	}
+	if st.Relay == "" {
+		return
+	}
+	if !yes {
+		ok, err := e.confirm(fmt.Sprintf(
+			"Also deregister this device from %s, so it is no longer an authorized writer?", st.Relay))
+		if err != nil || !ok {
+			e.printf("Left registered. This device remains an authorized writer on %s.\n", st.Relay)
+			e.printf("Revoke it later with: sshstate revoke %s\n", st.DeviceID)
+			return
+		}
+	}
+	done, why := e.deregister(ctx, st)
+	if done {
+		e.printf("Deregistered this device from %s.\n", st.Relay)
+		return
+	}
+	e.warnf("\nDeregistration did not complete: %s.\n", why)
+	e.warnf("This device remains an authorized writer on %s.\n", st.Relay)
+	e.warnf("Revoke it from another device with: sshstate revoke %s\n", st.DeviceID)
+}
+
+func (e *Env) purgeVault(ctx context.Context, yes bool) error {
+	st, err := e.Client().Status(ctx)
+	if err != nil {
+		return fmt.Errorf("--purge needs the daemon running so it can deregister first: %w.\n"+
+			"Start it with: sshstate daemon\nNothing was deleted", err)
+	}
+	if st.LastExportPath == "" {
+		return errors.New("--purge needs a backup first.\n" +
+			"Run: sshstate export <path>\n" +
+			"Check you can open it, then try again. Nothing was deleted.")
+	}
+	if _, err := os.Stat(st.LastExportPath); err != nil {
+		return fmt.Errorf("the last export (%s) is not there any more.\n"+
+			"Take a new one with: sshstate export <path>\nNothing was deleted", st.LastExportPath)
+	}
+	if !yes {
+		e.printf("This deletes the vault at %s.\n", e.Layout.Database())
+		e.printf("Your most recent backup is %s (%s).\n", st.LastExportPath, st.LastExportAt)
+		e.printf("Without that file and your recovery kit, the contents are gone.\n\n")
+		answer, err := e.ReadLine(fmt.Sprintf("Type the vault id (%s) to delete it: ", st.VaultID))
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(answer) != st.VaultID {
+			return errors.New("that is not this vault's id; nothing was deleted")
+		}
+	}
+
+	done, why := e.deregister(ctx, st)
+	switch {
+	case done && st.Relay != "":
+		e.printf("Deregistered this device from %s.\n", st.Relay)
+	case !done:
+		e.warnf("Deregistration did not complete: %s.\n", why)
+		e.warnf("This device remains an authorized writer on %s.\n", st.Relay)
+		e.warnf("Revoke it from another device with: sshstate revoke %s\n\n", st.DeviceID)
+	}
+
+	if err := e.Client().Shutdown(ctx); err != nil && !errors.Is(err, control.ErrDaemonUnavailable) {
+		return fmt.Errorf("stop the daemon before deleting its database: %w", err)
+	}
+	if err := os.RemoveAll(e.Layout.Data); err != nil {
+		return fmt.Errorf("delete the vault: %w", err)
+	}
+	return nil
+}

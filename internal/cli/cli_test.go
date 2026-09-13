@@ -300,7 +300,7 @@ func TestPurgeIsRefusedWithoutDeletingData(t *testing.T) {
 	if err == nil {
 		t.Fatal("--purge was accepted")
 	}
-	if !strings.Contains(err.Error(), "nothing was deleted") {
+	if !strings.Contains(strings.ToLower(err.Error()), "nothing was deleted") {
 		t.Fatalf("unexpected message: %v", err)
 	}
 	if _, statErr := os.Stat(s.Layout.Database()); statErr != nil {

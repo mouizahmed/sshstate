@@ -396,3 +396,76 @@ func vaultIDOf(t *testing.T, s *scripted) string {
 	t.Fatalf("no vault id in status:\n%s", s.out)
 	return ""
 }
+
+func TestPurgeNeedsABackup(t *testing.T) {
+	s, _ := ready(t)
+	err := s.run(t, "uninstall", "--purge", "--yes")
+	if err == nil {
+		t.Fatal("--purge deleted a vault that had never been backed up")
+	}
+	if !strings.Contains(err.Error(), "backup first") {
+		t.Fatalf("unexpected message: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "nothing was deleted") {
+		t.Fatalf("the refusal does not say the vault survived: %v", err)
+	}
+	if _, statErr := os.Stat(s.Layout.Database()); statErr != nil {
+		t.Fatalf("a refused purge deleted data: %v", statErr)
+	}
+}
+
+func TestPurgeChecksTheBackupIsStillThere(t *testing.T) {
+	s, _ := ready(t)
+	path := filepath.Join(t.TempDir(), "vault.export")
+	s.mustRun(t, "export", path)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	err := s.run(t, "uninstall", "--purge", "--yes")
+	if err == nil {
+		t.Fatal("--purge accepted a backup that is gone")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "nothing was deleted") {
+		t.Fatalf("unexpected message: %v", err)
+	}
+}
+
+func TestPurgeRequiresTheVaultID(t *testing.T) {
+	s, _ := ready(t)
+	path := filepath.Join(t.TempDir(), "vault.export")
+	s.mustRun(t, "export", path)
+
+	s.lines = []string{"yes"}
+	err := s.run(t, "uninstall", "--purge")
+	if err == nil {
+		t.Fatal("--purge accepted a confirmation that was not the vault id")
+	}
+	if !strings.Contains(err.Error(), "not this vault's id") {
+		t.Fatalf("unexpected message: %v", err)
+	}
+	if _, statErr := os.Stat(s.Layout.Database()); statErr != nil {
+		t.Fatalf("a refused purge deleted data: %v", statErr)
+	}
+}
+
+func TestPurgeDeletesTheVaultAfterABackup(t *testing.T) {
+	s, _ := ready(t)
+	path := filepath.Join(t.TempDir(), "vault.export")
+	s.mustRun(t, "export", path)
+	vaultID := vaultIDOf(t, s)
+
+	s.lines = []string{vaultID}
+	s.out.Reset()
+	if err := s.run(t, "uninstall", "--purge"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(s.Layout.Database()); !os.IsNotExist(err) {
+		t.Fatalf("the vault is still there: %v", err)
+	}
+	if got := s.out.String(); !strings.Contains(got, "Deleted:") {
+		t.Fatalf("purge did not report the deletion:\n%s", got)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the purge deleted the backup: %v", err)
+	}
+}

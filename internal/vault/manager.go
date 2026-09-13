@@ -397,6 +397,8 @@ type Status struct {
 	KnownHosts        int
 	Pending           int
 	Relay             string
+	LastExportPath    string
+	LastExportAt      string
 }
 
 func (m *Manager) Status() (Status, error) {
@@ -440,6 +442,7 @@ func (m *Manager) Status() (Status, error) {
 		return st, err
 	}
 	st.Relay = relay
+	st.LastExportPath, st.LastExportAt = m.LastExport()
 	return st, nil
 }
 

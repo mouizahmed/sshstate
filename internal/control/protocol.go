@@ -58,6 +58,8 @@ type StatusResponse struct {
 	KnownHosts        int       `json:"known_hosts"`
 	Pending           int       `json:"pending"`
 	Relay             string    `json:"relay,omitempty"`
+	LastExportPath    string    `json:"last_export_path,omitempty"`
+	LastExportAt      string    `json:"last_export_at,omitempty"`
 	ConfigInstalled   bool      `json:"config_installed"`
 	ConfigPath        string    `json:"config_path"`
 	AgentSocket       string    `json:"agent_socket"`
