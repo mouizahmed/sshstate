@@ -75,6 +75,14 @@ func (c *Counter) UnmarshalJSON(data []byte) error {
 
 func (c Counter) String() string { return strconv.FormatUint(uint64(c), 10) }
 
+func ParseCounter(s string) (Counter, error) {
+	var c Counter
+	if err := c.UnmarshalJSON([]byte(strconv.Quote(s))); err != nil {
+		return 0, err
+	}
+	return c, nil
+}
+
 func Canonical(v any) ([]byte, error) {
 	raw, err := json.Marshal(v)
 	if err != nil {
