@@ -8,8 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mouizahmed/sshstate/internal/crypto"
 	"github.com/mouizahmed/sshstate/internal/export"
@@ -468,4 +471,185 @@ func TestPurgeDeletesTheVaultAfterABackup(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("the purge deleted the backup: %v", err)
 	}
+}
+
+func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	vaultID := vaultIDOf(t, a)
+
+	b := newScripted(t)
+	b.lines = []string{"y"}
+	b.secrets = []string{"b's own password", "b's own password"}
+
+	sessionCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- b.run(t, "pair", r.url, vaultID)
+	}()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var session string
+	for session == "" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no pairing session appeared:\n%s", b.out)
+		}
+		for _, line := range strings.Split(b.out.String(), "\n") {
+			if strings.HasPrefix(line, "Pairing session ") {
+				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
+			}
+		}
+		if session == "" {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	sessionCh <- session
+
+	a.lines = []string{"y"}
+	a.out.Reset()
+	if err := a.run(t, "approve", session); err != nil {
+		t.Fatalf("approve: %v\nstdout:\n%s\nstderr:\n%s", err, a.out, a.errOut)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("pair: %v\nstdout:\n%s\nstderr:\n%s", err, b.out, b.errOut)
+	}
+
+	fpA := fingerprintFrom(t, a.out.String())
+	fpB := fingerprintFrom(t, b.out.String())
+	if fpA != fpB {
+		t.Fatalf("the two machines displayed different fingerprints:\n%s\n%s", fpA, fpB)
+	}
+
+	b.startDaemon(t)
+	b.secrets = []string{"b's own password"}
+	b.mustRun(t, "unlock")
+	b.out.Reset()
+	b.mustRun(t, "status")
+	status := b.out.String()
+	if !strings.Contains(status, vaultID) {
+		t.Fatalf("the joined device is in a different vault:\n%s", status)
+	}
+	if !strings.Contains(status, "hosts        1") {
+		t.Fatalf("the snapshot did not arrive:\n%s", status)
+	}
+
+	b.mustRun(t, "add", "from-b", "--hostname", "10.0.0.9", "--user", "ubuntu")
+	b.mustRun(t, "sync")
+	a.out.Reset()
+	a.mustRun(t, "sync")
+	if got := a.out.String(); !strings.Contains(got, "Applied") {
+		t.Fatalf("the first machine did not receive the second's edit:\n%s", got)
+	}
+	a.out.Reset()
+	a.mustRun(t, "devices")
+	if n := strings.Count(a.out.String(), "active"); n != 2 {
+		t.Fatalf("expected two active devices:\n%s", a.out)
+	}
+
+	deviceB := deviceIDFrom(t, b)
+	a.out.Reset()
+	a.mustRun(t, "revoke", deviceB)
+	b.mustRun(t, "add", "after-revocation", "--hostname", "10.0.0.10", "--user", "ubuntu")
+	if err := b.run(t, "sync"); err == nil {
+		t.Fatal("a revoked device published successfully")
+	}
+}
+
+func TestApproveCancelledSendsNothing(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	vaultID := vaultIDOf(t, a)
+
+	b := newScripted(t)
+	b.lines = []string{"n"}
+	errCh := make(chan error, 1)
+	go func() { errCh <- b.run(t, "pair", r.url, vaultID) }()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var session string
+	for session == "" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no pairing session appeared:\n%s", b.out)
+		}
+		for _, line := range strings.Split(b.out.String(), "\n") {
+			if strings.HasPrefix(line, "Pairing session ") {
+				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
+			}
+		}
+		if session == "" {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	a.lines = []string{"n"}
+	err := a.run(t, "approve", session)
+	if err == nil {
+		t.Fatal("approve succeeded after the user said the fingerprints differed")
+	}
+	if !strings.Contains(err.Error(), "no keys were sent") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case <-errCh:
+	case <-time.After(2 * time.Second):
+	}
+	if _, statErr := os.Stat(b.Layout.Database()); statErr == nil {
+		store, err := vault.OpenStore(b.Layout.Database())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer store.Close()
+		if initialized, err := store.Initialized(); err != nil {
+			t.Fatal(err)
+		} else if initialized {
+			t.Fatal("a vault was installed despite the comparison failing")
+		}
+	}
+
+	a.out.Reset()
+	a.mustRun(t, "devices")
+	if n := strings.Count(a.out.String(), "active"); n != 1 {
+		t.Fatalf("a device was enrolled anyway:\n%s", a.out)
+	}
+}
+
+func fingerprintFrom(t *testing.T, out string) string {
+	t.Helper()
+	group := regexp.MustCompile(`\b(\d{1,2}) ([A-Z2-7]{4})\b`)
+	numbered := map[int]string{}
+	for _, m := range group.FindAllStringSubmatch(out, -1) {
+		n, err := strconv.Atoi(m[1])
+		if err != nil || n < 1 || n > protocol.FingerprintGroupCount {
+			continue
+		}
+		if existing, ok := numbered[n]; ok && existing != m[2] {
+			t.Fatalf("group %d appeared twice with different values", n)
+		}
+		numbered[n] = m[2]
+	}
+	if len(numbered) != protocol.FingerprintGroupCount {
+		t.Fatalf("found %d of %d groups in the output:\n%s",
+			len(numbered), protocol.FingerprintGroupCount, out)
+	}
+	var b strings.Builder
+	for i := 1; i <= protocol.FingerprintGroupCount; i++ {
+		b.WriteString(numbered[i])
+	}
+	return b.String()
+}
+
+func deviceIDFrom(t *testing.T, s *scripted) string {
+	t.Helper()
+	s.out.Reset()
+	s.mustRun(t, "status")
+	for _, line := range strings.Split(s.out.String(), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "device" {
+			return fields[1]
+		}
+	}
+	t.Fatalf("no device id in status:\n%s", s.out)
+	return ""
 }

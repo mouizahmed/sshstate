@@ -164,3 +164,103 @@ func Restore(store *Store, opts RestoreOptions) (*Manager, *RestoreResult, error
 		Seq:      archive.Manifest.Checkpoint.Seq,
 	}, nil
 }
+
+type JoinOptions struct {
+	Genesis     *protocol.Genesis
+	Bundle      *protocol.Bundle
+	Membership  []protocol.SignedMembershipEvent
+	Records     []*protocol.Envelope
+	DeviceID    protocol.ID
+	Signing     *crypto.SigningKey
+	Encryption  *crypto.EncryptionKey
+	Password    []byte
+	DeviceLabel string
+}
+
+func Join(store *Store, opts JoinOptions) (*Manager, error) {
+	if opts.Genesis == nil || opts.Bundle == nil {
+		return nil, errors.New("join: incomplete enrollment")
+	}
+	if len(opts.Password) == 0 {
+		return nil, errors.New("join: a device unlock password is required")
+	}
+	initialized, err := store.Initialized()
+	if err != nil {
+		return nil, err
+	}
+	if initialized {
+		return nil, errors.New("a vault already exists here; refusing to replace it")
+	}
+
+	metadata, err := crypto.SymmetricKeyFromBytes(opts.Bundle.MetadataKey)
+	if err != nil {
+		return nil, fmt.Errorf("join: metadata key: %w", err)
+	}
+	secret, err := crypto.SymmetricKeyFromBytes(opts.Bundle.SecretKey)
+	if err != nil {
+		return nil, fmt.Errorf("join: secret key: %w", err)
+	}
+	keys := &Keys{Epoch: opts.Bundle.KeyEpoch, Metadata: metadata, Secret: secret}
+
+	chain, err := membership.Validate(opts.Genesis, opts.Membership)
+	if err != nil {
+		return nil, fmt.Errorf("join: membership chain: %w", err)
+	}
+	if !chain.Authorized(opts.DeviceID) {
+		return nil, errors.New("join: the chain does not authorize this device")
+	}
+
+	if err := store.PutGenesis(opts.Genesis); err != nil {
+		return nil, err
+	}
+	for purpose, material := range map[string][]byte{
+		crypto.PurposeDeviceSigningKey:    opts.Signing.Seed(),
+		crypto.PurposeDeviceEncryptionKey: []byte(opts.Encryption.ExportSecret()),
+		crypto.PurposeVaultMetadataKey:    metadata[:],
+		crypto.PurposeVaultSecretKey:      secret[:],
+	} {
+		w, err := crypto.Wrap(opts.Password, opts.Genesis.VaultID, opts.DeviceID, purpose, material)
+		if err != nil {
+			return nil, fmt.Errorf("join: wrap %s: %w", purpose, err)
+		}
+		if err := store.PutWrapper(purpose, w); err != nil {
+			return nil, err
+		}
+	}
+	if err := store.PutMembershipEvents(chain.Events()); err != nil {
+		return nil, err
+	}
+	for _, d := range chain.Devices() {
+		status := DeviceActive
+		if d.Revoked {
+			status = DeviceRevoked
+		}
+		if err := store.PutDevice(Device{
+			ID:         d.ID,
+			VerifyKey:  d.VerifyKey.Bytes(),
+			Recipient:  d.Recipient,
+			Status:     status,
+			EnrolledAt: d.EnrolledAt,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if err := store.ApplyRemoteBatch(opts.Bundle.Checkpoint.Seq.String(), opts.Records); err != nil {
+		return nil, fmt.Errorf("join: install the snapshot: %w", err)
+	}
+	for k, v := range map[string]string{
+		MetaVaultID:           string(opts.Genesis.VaultID),
+		MetaDeviceID:          string(opts.DeviceID),
+		MetaKeyEpoch:          opts.Bundle.KeyEpoch.String(),
+		MetaDeviceLabel:       opts.DeviceLabel,
+		MetaRecoveryConfirmed: "true",
+	} {
+		if err := store.SetMeta(k, v); err != nil {
+			return nil, err
+		}
+	}
+
+	m := &Manager{store: store, genesis: opts.Genesis, vaultID: opts.Genesis.VaultID, deviceID: opts.DeviceID}
+	m.current = m.newSession(keys, opts.Signing, opts.Encryption)
+	return m, nil
+}

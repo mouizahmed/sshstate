@@ -19,14 +19,19 @@ import (
 	"github.com/mouizahmed/sshstate/internal/activation"
 	"github.com/mouizahmed/sshstate/internal/agentsrv"
 	"github.com/mouizahmed/sshstate/internal/control"
+	"github.com/mouizahmed/sshstate/internal/enroll"
 	"github.com/mouizahmed/sshstate/internal/paths"
 	"github.com/mouizahmed/sshstate/internal/peercred"
+	"github.com/mouizahmed/sshstate/internal/protocol"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
 const socketPerm os.FileMode = 0o600
 
 type Daemon struct {
+	approvalsMu sync.Mutex
+	approvals   map[protocol.ID]*enroll.Approver
+
 	mgr    *vault.Manager
 	layout paths.Layout
 	agent  *agentsrv.Agent

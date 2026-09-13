@@ -153,7 +153,7 @@ func pair(t *testing.T, w *world, joiner Identity, snapshot []byte) (*Delivery, 
 	t.Helper()
 	ctx := context.Background()
 
-	j, err := Begin(ctx, w.signed(joiner), w.genesis, joiner, w.clock())
+	j, err := Begin(ctx, w.signed(joiner), w.genesis.VaultID, joiner, w.clock())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestNoKeysBeforeBothConfirmations(t *testing.T) {
 	joiner := newIdentity(t)
 	ctx := context.Background()
 
-	j, err := Begin(ctx, w.signed(joiner), w.genesis, joiner, w.clock())
+	j, err := Begin(ctx, w.signed(joiner), w.genesis.VaultID, joiner, w.clock())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func TestKeySubstitutionChangesTheFingerprint(t *testing.T) {
 	attacker := newIdentity(t)
 	ctx := context.Background()
 
-	j, err := Begin(ctx, w.signed(joiner), w.genesis, joiner, w.clock())
+	j, err := Begin(ctx, w.signed(joiner), w.genesis.VaultID, joiner, w.clock())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func TestJoinerRefusesAConfirmationOverAnotherTranscript(t *testing.T) {
 	attacker := newIdentity(t)
 	ctx := context.Background()
 
-	j, err := Begin(ctx, w.signed(joiner), w.genesis, joiner, w.clock())
+	j, err := Begin(ctx, w.signed(joiner), w.genesis.VaultID, joiner, w.clock())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestPairingExpires(t *testing.T) {
 	joiner := newIdentity(t)
 	ctx := context.Background()
 
-	j, err := Begin(ctx, w.signed(joiner), w.genesis, joiner, w.clock())
+	j, err := Begin(ctx, w.signed(joiner), w.genesis.VaultID, joiner, w.clock())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -594,7 +594,7 @@ func TestFingerprintIsShownInFull(t *testing.T) {
 	joiner := newIdentity(t)
 	ctx := context.Background()
 
-	j, err := Begin(ctx, w.signed(joiner), w.genesis, joiner, w.clock())
+	j, err := Begin(ctx, w.signed(joiner), w.genesis.VaultID, joiner, w.clock())
 	if err != nil {
 		t.Fatal(err)
 	}

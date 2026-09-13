@@ -41,6 +41,26 @@ func SealBundle(b *protocol.Bundle, signer *crypto.SigningKey, recipient *crypto
 	return crypto.Seal(body, recipient)
 }
 
+func SealSignedBundle(sb *protocol.SignedBundle, recipient *crypto.Recipient) ([]byte, error) {
+	if sb == nil || len(sb.Signature) == 0 {
+		return nil, errors.New("bundle: unsigned")
+	}
+	if recipient == nil {
+		return nil, errors.New("bundle: no recipient")
+	}
+	if recipient.String() != sb.Bundle.Recipient {
+		return nil, errors.New("bundle: the recipient it names is not the one it is sealed to")
+	}
+	if err := sb.Bundle.Validate(crypto.SuiteID); err != nil {
+		return nil, fmt.Errorf("bundle: %w", err)
+	}
+	body, err := protocol.Canonical(sb)
+	if err != nil {
+		return nil, err
+	}
+	return crypto.Seal(body, recipient)
+}
+
 func OpenBundle(sealed []byte, identity *crypto.EncryptionKey, expectSender *crypto.VerifyKey) (*protocol.Bundle, error) {
 	raw, err := crypto.Open(identity, sealed)
 	if err != nil {

@@ -141,7 +141,7 @@ func TestPairingRunsToCompletion(t *testing.T) {
 	}
 
 	ev := h.enrolment(joiner, digest)
-	session, err := h.store.Complete(session.SessionID, ev, []byte("sealed-bundle"), []byte("sealed-snapshot"))
+	session, err := h.store.Complete(session.SessionID, ev, []byte("sealed-bundle"), []byte("sealed-snapshot"), h.genesis)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,12 +175,12 @@ func TestNoBundleBeforeBothConfirmations(t *testing.T) {
 
 	session, _ := h.pairThrough(joiner, PairingOffered)
 	ev := h.enrolment(joiner, bytes.Repeat([]byte{7}, 32))
-	_, err := h.store.Complete(session.SessionID, ev, []byte("bundle"), nil)
+	_, err := h.store.Complete(session.SessionID, ev, []byte("bundle"), nil, h.genesis)
 	mustCode(t, err, protocol.CodePairingIncomplete)
 
 	session, digest := h.pairThrough(newDevice(t), PairingConfirming)
 	_ = digest
-	_, err = h.store.Complete(session.SessionID, ev, []byte("bundle"), nil)
+	_, err = h.store.Complete(session.SessionID, ev, []byte("bundle"), nil, h.genesis)
 	mustCode(t, err, protocol.CodePairingIncomplete)
 }
 
@@ -310,10 +310,10 @@ func TestCompleteChecksTheEnrolmentMatches(t *testing.T) {
 
 	elsewhere := newDevice(t)
 	wrongDevice := h.enrolment(elsewhere, digest)
-	_, err := h.store.Complete(session.SessionID, wrongDevice, []byte("bundle"), nil)
+	_, err := h.store.Complete(session.SessionID, wrongDevice, []byte("bundle"), nil, h.genesis)
 	mustCode(t, err, protocol.CodeIDMismatch)
 
 	wrongTranscript := h.enrolment(joiner, bytes.Repeat([]byte{9}, 32))
-	_, err = h.store.Complete(session.SessionID, wrongTranscript, []byte("bundle"), nil)
+	_, err = h.store.Complete(session.SessionID, wrongTranscript, []byte("bundle"), nil, h.genesis)
 	mustCode(t, err, protocol.CodeInvalidRequest)
 }

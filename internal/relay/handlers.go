@@ -77,6 +77,7 @@ func pairingResponse(p *PairingSession) protocol.PairingResponse {
 		Bundle:               p.Bundle,
 		Snapshot:             p.Snapshot,
 		MembershipEvent:      p.MembershipEvent,
+		Genesis:              p.Genesis,
 		ExpiresAt:            stampOf(p.ExpiresAt),
 	}
 }
@@ -119,7 +120,7 @@ func (s *Server) handleCompletePairing(w http.ResponseWriter, r *http.Request, r
 	var session *PairingSession
 	switch {
 	case body.MembershipEvent != nil:
-		session, err = s.store.Complete(id, *body.MembershipEvent, body.Bundle, body.Snapshot)
+		session, err = s.store.Complete(id, *body.MembershipEvent, body.Bundle, body.Snapshot, body.Genesis)
 	case body.Acknowledged:
 		session, err = s.store.Acknowledge(id)
 	default:

@@ -200,3 +200,15 @@ func (c *Client) Conflicts(ctx context.Context) (*ConflictsResponse, error) {
 	var out ConflictsResponse
 	return &out, c.do(ctx, http.MethodGet, RouteConflicts, nil, &out)
 }
+
+func (c *Client) PairApprove(ctx context.Context, sessionID string) (*PairApproveResponse, error) {
+	var out PairApproveResponse
+	return &out, c.do(ctx, http.MethodPost, RoutePairApprove,
+		PairApproveRequest{SessionID: sessionID}, &out)
+}
+
+func (c *Client) PairDeliver(ctx context.Context, sessionID string) (*PairDeliverResponse, error) {
+	var out PairDeliverResponse
+	return &out, c.do(ctx, http.MethodPost, RoutePairDeliver,
+		PairDeliverRequest{SessionID: sessionID}, &out)
+}

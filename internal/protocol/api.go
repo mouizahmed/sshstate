@@ -54,6 +54,7 @@ type PairingResponse struct {
 	Bundle               Bytes                      `json:"bundle"`
 	Snapshot             Bytes                      `json:"snapshot"`
 	MembershipEvent      *SignedMembershipEvent     `json:"membership_event"`
+	Genesis              *Genesis                   `json:"genesis"`
 	ExpiresAt            string                     `json:"expires_at"`
 }
 
@@ -67,6 +68,7 @@ type CompletePairingRequest struct {
 	MembershipEvent *SignedMembershipEvent `json:"membership_event"`
 	Bundle          Bytes                  `json:"bundle"`
 	Snapshot        Bytes                  `json:"snapshot"`
+	Genesis         *Genesis               `json:"genesis,omitempty"`
 	Acknowledged    bool                   `json:"acknowledged"`
 }
 

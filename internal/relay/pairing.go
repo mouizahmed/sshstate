@@ -34,6 +34,7 @@ type PairingSession struct {
 	ApproverConfirmation *protocol.SignedPairingConfirmation `json:"approver_confirmation"`
 	JoinerConfirmation   *protocol.SignedPairingConfirmation `json:"joiner_confirmation"`
 	MembershipEvent      *protocol.SignedMembershipEvent     `json:"membership_event"`
+	Genesis              *protocol.Genesis                   `json:"genesis"`
 	ExpiresAt            time.Time                           `json:"expires_at"`
 	Bundle               []byte                              `json:"-"`
 	Snapshot             []byte                              `json:"-"`
@@ -222,7 +223,7 @@ func (s *Store) ConfirmJoiner(sessionID protocol.ID, conf protocol.SignedPairing
 	})
 }
 
-func (s *Store) Complete(sessionID protocol.ID, ev protocol.SignedMembershipEvent, bundle, snapshot []byte) (*PairingSession, error) {
+func (s *Store) Complete(sessionID protocol.ID, ev protocol.SignedMembershipEvent, bundle, snapshot []byte, genesis *protocol.Genesis) (*PairingSession, error) {
 	return s.advance(sessionID, func(p *PairingSession, chain *membership.Chain) error {
 		if p.State != PairingConfirmed {
 			return protocol.Errorf(protocol.CodePairingIncomplete,
@@ -244,6 +245,7 @@ func (s *Store) Complete(sessionID protocol.ID, ev protocol.SignedMembershipEven
 		p.MembershipEvent = &ev
 		p.Bundle = bundle
 		p.Snapshot = snapshot
+		p.Genesis = genesis
 		return nil
 	})
 }

@@ -44,7 +44,7 @@ func stamp(t time.Time) string { return t.UTC().Truncate(time.Second).Format(tim
 type Joiner struct {
 	client  *relayclient.Client
 	id      Identity
-	genesis *protocol.Genesis
+	vaultID protocol.ID
 	now     func() time.Time
 
 	sessionID  protocol.ID
@@ -52,7 +52,7 @@ type Joiner struct {
 	transcript *protocol.PairingTranscript
 }
 
-func Begin(ctx context.Context, client *relayclient.Client, g *protocol.Genesis, id Identity, now func() time.Time) (*Joiner, error) {
+func Begin(ctx context.Context, client *relayclient.Client, vaultID protocol.ID, id Identity, now func() time.Time) (*Joiner, error) {
 	if now == nil {
 		now = time.Now
 	}
@@ -64,7 +64,7 @@ func Begin(ctx context.Context, client *relayclient.Client, g *protocol.Genesis,
 		Domain:          protocol.PairingOfferDomain,
 		FormatVersion:   protocol.PairingFormatVersion,
 		Suite:           crypto.SuiteID,
-		VaultID:         g.VaultID,
+		VaultID:         vaultID,
 		JoinerDeviceID:  id.DeviceID,
 		JoinerVerifyKey: id.Signing.Verifier().Bytes(),
 		JoinerRecipient: id.Encryption.Recipient().String(),
@@ -80,12 +80,12 @@ func Begin(ctx context.Context, client *relayclient.Client, g *protocol.Genesis,
 		return nil, err
 	}
 	signed := protocol.SignedPairingOffer{Offer: offer, Signature: sig}
-	out, err := client.CreatePairing(ctx, g.VaultID, signed)
+	out, err := client.CreatePairing(ctx, vaultID, signed)
 	if err != nil {
 		return nil, err
 	}
 	return &Joiner{
-		client: client, id: id, genesis: g, now: now,
+		client: client, id: id, vaultID: vaultID, now: now,
 		sessionID: out.SessionID, offer: signed,
 	}, nil
 }
@@ -147,9 +147,11 @@ func (j *Joiner) Confirm(ctx context.Context) error {
 }
 
 type Delivery struct {
-	Bundle   *protocol.Bundle
-	Snapshot []*protocol.Envelope
-	Event    protocol.SignedMembershipEvent
+	Genesis    *protocol.Genesis
+	Bundle     *protocol.Bundle
+	Snapshot   []*protocol.Envelope
+	Event      protocol.SignedMembershipEvent
+	Membership []protocol.SignedMembershipEvent
 }
 
 func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
@@ -166,6 +168,16 @@ func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 	if session.MembershipEvent == nil || len(session.Bundle) == 0 {
 		return nil, errors.New("the approving device has not delivered the keys yet")
 	}
+	if session.Genesis == nil {
+		return nil, errors.New("the delivery carries no genesis document")
+	}
+	genesis := session.Genesis
+	if err := genesis.Validate(crypto.SuiteID); err != nil {
+		return nil, fmt.Errorf("delivered genesis: %w", err)
+	}
+	if genesis.VaultID != j.vaultID {
+		return nil, errors.New("the delivery is for a different vault")
+	}
 	digest, err := j.transcript.Digest()
 	if err != nil {
 		return nil, err
@@ -175,7 +187,7 @@ func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 	if err != nil {
 		return nil, err
 	}
-	chain, err := membership.Validate(j.genesis, events)
+	chain, err := membership.Validate(genesis, events)
 	if err != nil {
 		return nil, fmt.Errorf("membership chain: %w", err)
 	}
@@ -215,7 +227,7 @@ func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 	if bundle.RecipientDeviceID == nil || *bundle.RecipientDeviceID != j.id.DeviceID {
 		return nil, errors.New("the bundle is addressed to a different device")
 	}
-	genesisDigest, err := j.genesis.Digest()
+	genesisDigest, err := genesis.Digest()
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +235,12 @@ func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 		return nil, errors.New("the bundle pins a different vault")
 	}
 
-	delivery := &Delivery{Bundle: bundle, Event: ev}
+	delivery := &Delivery{
+		Genesis:    genesis,
+		Bundle:     bundle,
+		Event:      ev,
+		Membership: extended.Events(),
+	}
 	if bundle.SnapshotDigest != nil {
 		if len(session.Snapshot) == 0 {
 			return nil, errors.New("the bundle binds a snapshot that was not delivered")
@@ -334,6 +351,10 @@ func (a *Approver) JoinerKeys() membership.DeviceKeys {
 	}
 }
 
+func (a *Approver) JoinerRecipient() (*crypto.Recipient, error) {
+	return crypto.ParseRecipient(a.session.Offer.JoinerRecipient)
+}
+
 func (a *Approver) Confirm(ctx context.Context) error {
 	if a.transcript.Expired(a.now()) {
 		return protocol.Errorf(protocol.CodePairingExpired, "this pairing session has expired")
@@ -385,6 +406,7 @@ func (a *Approver) Deliver(ctx context.Context, ev protocol.SignedMembershipEven
 		MembershipEvent: &ev,
 		Bundle:          bundle,
 		Snapshot:        snapshot,
+		Genesis:         a.genesis,
 	}); err != nil {
 		return err
 	}

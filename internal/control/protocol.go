@@ -28,6 +28,8 @@ const (
 	RouteRevoke            = "/" + APIVersion + "/revoke"
 	RouteExport            = "/" + APIVersion + "/export"
 	RouteConflicts         = "/" + APIVersion + "/conflicts"
+	RoutePairApprove       = "/" + APIVersion + "/pair/approve"
+	RoutePairDeliver       = "/" + APIVersion + "/pair/deliver"
 )
 
 type Error struct {
@@ -238,4 +240,25 @@ type ConflictView struct {
 
 type ConflictsResponse struct {
 	Conflicts []ConflictView `json:"conflicts"`
+}
+
+type PairApproveRequest struct {
+	SessionID string `json:"session_id"`
+}
+
+type PairApproveResponse struct {
+	SessionID      string   `json:"session_id"`
+	JoinerDeviceID string   `json:"joiner_device_id"`
+	Fingerprint    string   `json:"fingerprint"`
+	Groups         []string `json:"groups"`
+	ExpiresAt      string   `json:"expires_at"`
+}
+
+type PairDeliverRequest struct {
+	SessionID string `json:"session_id"`
+}
+
+type PairDeliverResponse struct {
+	DeviceID string `json:"device_id"`
+	Records  int    `json:"records"`
 }

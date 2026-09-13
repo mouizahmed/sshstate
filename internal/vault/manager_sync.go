@@ -300,3 +300,74 @@ func (m *Manager) RecoveryBundle(checkpoint protocol.Checkpoint) (*protocol.Sign
 	}
 	return out, nil
 }
+
+func (m *Manager) EnrollmentBundle(recipientID protocol.ID, recipient string, transcriptDigest, snapshotDigest []byte, snapshotLength protocol.Counter, membershipDigest []byte, seq protocol.Counter) (*protocol.SignedBundle, error) {
+	if m.genesis == nil {
+		return nil, errors.New("enrollment bundle: no genesis")
+	}
+	genesisDigest, err := m.genesis.Digest()
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := m.Snapshot(true)
+	if err != nil {
+		return nil, err
+	}
+	checkpoint, err := m.Checkpoint(membershipDigest, seq, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	var out *protocol.SignedBundle
+	err = m.read(func(s *session, r *Reader) error {
+		if s.keys == nil {
+			return ErrLocked
+		}
+		id := recipientID
+		length := snapshotLength
+		b := protocol.Bundle{
+			Domain:            protocol.BundleDomain,
+			FormatVersion:     protocol.BundleFormatVersion,
+			Suite:             crypto.SuiteID,
+			VaultID:           m.vaultID,
+			GenesisDigest:     genesisDigest,
+			Purpose:           protocol.PurposeEnrollment,
+			RecipientDeviceID: &id,
+			Recipient:         recipient,
+			KeyEpoch:          s.keys.Epoch,
+			MetadataKey:       append([]byte(nil), s.keys.Metadata[:]...),
+			SecretKey:         append([]byte(nil), s.keys.Secret[:]...),
+			TranscriptDigest:  transcriptDigest,
+			Checkpoint:        checkpoint,
+			SnapshotDigest:    snapshotDigest,
+			SnapshotLength:    &length,
+			CreatedAt:         stampOf(m.clock()),
+		}
+		if err := b.Validate(crypto.SuiteID); err != nil {
+			return err
+		}
+		msg, err := b.SigningInput()
+		if err != nil {
+			return err
+		}
+		sig, err := s.signing.Sign(protocol.BundleSignatureDomain, msg)
+		if err != nil {
+			return err
+		}
+		out = &protocol.SignedBundle{Bundle: b, Signature: sig}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (m *Manager) Identity() (protocol.ID, *crypto.SigningKey, *crypto.EncryptionKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, err := m.session()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return m.deviceID, s.signing, s.encryption, nil
+}
