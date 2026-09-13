@@ -245,3 +245,104 @@ func (b *Bundle) validatePurpose() error {
 	}
 	return nil
 }
+
+const (
+	ExportDomain          = "sshstate.export.v1"
+	ExportSignatureDomain = "sshstate.export-sig.v1"
+	ExportFormatVersion   = 1
+)
+
+const (
+	MemberGenesis    = "genesis.json"
+	MemberMembership = "membership.jsonl"
+	MemberRecords    = "records.jsonl"
+	MemberConflicts  = "conflicts.jsonl"
+)
+
+type ExportMember struct {
+	Name   string  `json:"name"`
+	Length Counter `json:"length"`
+	Digest Bytes   `json:"digest"`
+}
+
+type ExportManifest struct {
+	Domain        string         `json:"domain"`
+	FormatVersion int            `json:"format_version"`
+	Suite         string         `json:"suite"`
+	VaultID       ID             `json:"vault_id"`
+	GenesisDigest Bytes          `json:"genesis_digest"`
+	KeyEpoch      Counter        `json:"key_epoch"`
+	ExportedBy    ID             `json:"exported_by"`
+	CreatedAt     string         `json:"created_at"`
+	Checkpoint    Checkpoint     `json:"checkpoint"`
+	Members       []ExportMember `json:"members"`
+}
+
+type SignedExportManifest struct {
+	Manifest  ExportManifest `json:"manifest"`
+	Signature Bytes          `json:"signature"`
+}
+
+func (m *ExportManifest) SigningInput() ([]byte, error) { return Canonical(m) }
+
+func (m *ExportManifest) Validate(expectSuite string) error {
+	if m.Domain != ExportDomain {
+		return fmt.Errorf("export domain %q is not %q", m.Domain, ExportDomain)
+	}
+	if m.FormatVersion != ExportFormatVersion {
+		return fmt.Errorf("unsupported export format version %d", m.FormatVersion)
+	}
+	if m.Suite != expectSuite {
+		return fmt.Errorf("export uses suite %q, this build implements %q", m.Suite, expectSuite)
+	}
+	if err := m.VaultID.check("vault_id"); err != nil {
+		return err
+	}
+	if err := m.ExportedBy.check("exported_by"); err != nil {
+		return err
+	}
+	if len(m.GenesisDigest) != sha256.Size {
+		return fmt.Errorf("genesis_digest must be %d bytes", sha256.Size)
+	}
+	if m.KeyEpoch < 1 {
+		return errors.New("key_epoch starts at 1")
+	}
+	if _, err := time.Parse(time.RFC3339, m.CreatedAt); err != nil {
+		return fmt.Errorf("export created_at is not RFC 3339: %w", err)
+	}
+	if err := m.Checkpoint.Validate(); err != nil {
+		return fmt.Errorf("export checkpoint: %w", err)
+	}
+	if m.Checkpoint.VaultID != m.VaultID {
+		return errors.New("the export's checkpoint names another vault")
+	}
+	if m.Checkpoint.KeyEpoch != m.KeyEpoch {
+		return errors.New("the export's checkpoint is at another epoch")
+	}
+	required := map[string]bool{
+		MemberGenesis: false, MemberMembership: false,
+		MemberRecords: false, MemberConflicts: false,
+	}
+	for i, member := range m.Members {
+		seen, known := required[member.Name]
+		if !known {
+			return fmt.Errorf("unknown export member %q", member.Name)
+		}
+		if seen {
+			return fmt.Errorf("export member %q is named twice", member.Name)
+		}
+		required[member.Name] = true
+		if i > 0 && !(m.Members[i-1].Name < member.Name) {
+			return fmt.Errorf("export members are not sorted: %q follows %q", member.Name, m.Members[i-1].Name)
+		}
+		if len(member.Digest) != sha256.Size {
+			return fmt.Errorf("export member %q has a %d-byte digest", member.Name, len(member.Digest))
+		}
+	}
+	for name, seen := range required {
+		if !seen {
+			return fmt.Errorf("the export does not name %q", name)
+		}
+	}
+	return nil
+}
