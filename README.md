@@ -10,10 +10,12 @@ while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 > vault, a recovery kit, a daemon with an agent socket, generated configuration,
 > reviewed import of the host-key trust you already have, and a real `ssh` login
 > authenticated by a key that is never written to disk.
-> There is no synchronization yet — no relay, no pairing, no second device, no
-> backup or restore. This is an implementation in progress, not a released tool,
-> and it has not been independently audited. Do not put credentials you care
-> about in it until backup and restore exist.
+> Milestone 2 is under way: the sync protocol is frozen, the relay serves the
+> API, and the membership chain, pairing transcripts and request signing are
+> implemented and tested. The client cannot sync yet — no pairing flow, no second
+> device, no backup or restore. This is an implementation in progress, not a
+> released tool, and it has not been independently audited. Do not put credentials
+> you care about in it until backup and restore exist.
 
 ## What it is, and is not
 

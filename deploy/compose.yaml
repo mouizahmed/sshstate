@@ -1,0 +1,33 @@
+# Self-hosted sshstate relay: one non-root container, one persistent volume, no
+# telemetry. Put an HTTPS reverse proxy in front of it (project brief §9).
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: sshstate-server:local
+    restart: unless-stopped
+    read_only: true
+    user: "65532:65532"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Published on loopback only. Terminate TLS in a reverse proxy and forward
+    # to this port; clients must reach the relay over HTTPS, and the container
+    # is left with -public-http unset so signatures are verified against the
+    # https authority.
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - relay-data:/var/lib/sshstate
+    secrets:
+      - sshstate_bootstrap
+
+volumes:
+  relay-data:
+
+secrets:
+  sshstate_bootstrap:
+    # Create with:  head -c 32 /dev/urandom | base64 > bootstrap.secret
+    file: ./bootstrap.secret

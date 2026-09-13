@@ -3,3 +3,6 @@
 *.test
 *.out
 .DS_Store
+
+# Operator secrets are never committed.
+deploy/bootstrap.secret
