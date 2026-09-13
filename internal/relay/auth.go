@@ -7,11 +7,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/mouizahmed/sshstate/internal/crypto"
@@ -19,36 +17,19 @@ import (
 	"github.com/mouizahmed/sshstate/internal/protocol"
 )
 
-const BootstrapSecretBytes = 32
+const BootstrapSecretBytes = protocol.BootstrapSecretBytes
 
-func EncodeBootstrapSecret(secret []byte) string {
-	return base64.RawURLEncoding.EncodeToString(secret)
-}
-
-func DecodeBootstrapSecret(text string) ([]byte, error) {
-	text = strings.TrimSpace(text)
-	text = strings.TrimRight(text, "=")
-	text = strings.NewReplacer("+", "-", "/", "_").Replace(text)
-	if text == "" {
-		return nil, errors.New("the bootstrap secret is empty")
-	}
-	secret, err := base64.RawURLEncoding.DecodeString(text)
-	if err != nil {
-		return nil, fmt.Errorf("the bootstrap secret is not base64: %w", err)
-	}
-	if len(secret) != BootstrapSecretBytes {
-		return nil, fmt.Errorf("the bootstrap secret must be %d bytes, got %d",
-			BootstrapSecretBytes, len(secret))
-	}
-	return secret, nil
-}
+var (
+	EncodeBootstrapSecret = protocol.EncodeBootstrapSecret
+	DecodeBootstrapSecret = protocol.DecodeBootstrapSecret
+)
 
 func ReadBootstrapSecret(path string) ([]byte, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read bootstrap secret: %w", err)
 	}
-	return DecodeBootstrapSecret(string(raw))
+	return protocol.DecodeBootstrapSecret(string(raw))
 }
 
 func (s *Store) SetBootstrapSecret(secret []byte) error {

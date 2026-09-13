@@ -3,6 +3,13 @@
 
 package protocol
 
+import (
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"strings"
+)
+
 const APIVersion = "v1"
 
 type ErrorBody struct {
@@ -139,4 +146,28 @@ type PutRecordResponse struct {
 	Accepted bool    `json:"accepted"`
 	Seq      Counter `json:"seq"`
 	Digest   Bytes   `json:"digest"`
+}
+
+const BootstrapSecretBytes = 32
+
+func EncodeBootstrapSecret(secret []byte) string {
+	return base64.RawURLEncoding.EncodeToString(secret)
+}
+
+func DecodeBootstrapSecret(text string) ([]byte, error) {
+	text = strings.TrimSpace(text)
+	text = strings.TrimRight(text, "=")
+	text = strings.NewReplacer("+", "-", "/", "_").Replace(text)
+	if text == "" {
+		return nil, errors.New("the bootstrap secret is empty")
+	}
+	secret, err := base64.RawURLEncoding.DecodeString(text)
+	if err != nil {
+		return nil, fmt.Errorf("the bootstrap secret is not base64: %w", err)
+	}
+	if len(secret) != BootstrapSecretBytes {
+		return nil, fmt.Errorf("the bootstrap secret must be %d bytes, got %d",
+			BootstrapSecretBytes, len(secret))
+	}
+	return secret, nil
 }
