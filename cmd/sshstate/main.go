@@ -20,6 +20,7 @@ var laterMilestones = map[string]string{
 	"import":            "strict SSH config import arrives with the known-host milestone",
 	"tui":               "the focused TUI ships after the CLI operations it wraps",
 	"pair":              "device pairing arrives with the enrollment CLI",
+	"recover":           "recovery through a relay arrives with the enrollment CLI; `restore` works offline today",
 	"resolve":           "conflict resolution arrives with the enrollment CLI",
 	"rotate-master-key": "master key rotation ships before stable v1",
 	"rotation":          "rotation status and resume ship with rotation",
