@@ -292,3 +292,107 @@ func TestConflictsIsEmptyOnAQuietVault(t *testing.T) {
 		t.Fatalf("unexpected output:\n%s", got)
 	}
 }
+
+func TestRestoreFromAnExportWithNoRelay(t *testing.T) {
+	source, kitPath := ready(t)
+	source.mustRun(t, "add", "staging", "--hostname", "10.0.0.6", "--user", "ubuntu")
+
+	archivePath := filepath.Join(t.TempDir(), "vault.export")
+	source.mustRun(t, "export", archivePath)
+
+	replacement := newScripted(t)
+	replacement.secrets = []string{"a different password", "a different password"}
+	replacement.mustRun(t, "restore", archivePath, "--kit", kitPath)
+
+	out := replacement.out.String()
+	if !strings.Contains(out, "Restored vault") {
+		t.Fatalf("restore reported nothing:\n%s", out)
+	}
+	if !strings.Contains(out, "authorized by the recovery kit") {
+		t.Fatalf("restore did not say how the device is authorized:\n%s", out)
+	}
+
+	replacement.startDaemon(t)
+	replacement.secrets = []string{"a different password"}
+	replacement.mustRun(t, "unlock")
+	replacement.out.Reset()
+	replacement.mustRun(t, "status")
+	status := replacement.out.String()
+	if !strings.Contains(status, "hosts        2") {
+		t.Fatalf("the restored vault does not hold both hosts:\n%s", status)
+	}
+	if !strings.Contains(status, "relay        none") {
+		t.Fatalf("the restored vault claims a relay it never had:\n%s", status)
+	}
+
+	sourceVault := vaultIDOf(t, source)
+	if !strings.Contains(status, sourceVault) {
+		t.Fatalf("the restored vault has a different id:\n%s", status)
+	}
+	replacement.out.Reset()
+	replacement.mustRun(t, "devices")
+	devices := replacement.out.String()
+	if strings.Count(devices, "active") != 2 {
+		t.Fatalf("expected the original device and the replacement:\n%s", devices)
+	}
+
+	replacement.mustRun(t, "add", "third", "--hostname", "10.0.0.7", "--user", "ubuntu")
+}
+
+func TestRestoreNeedsItsOwnPassword(t *testing.T) {
+	source, kitPath := ready(t)
+	archivePath := filepath.Join(t.TempDir(), "vault.export")
+	source.mustRun(t, "export", archivePath)
+
+	replacement := newScripted(t)
+	replacement.secrets = []string{"a different password", "a different password"}
+	replacement.mustRun(t, "restore", archivePath, "--kit", kitPath)
+
+	replacement.startDaemon(t)
+	replacement.secrets = []string{password}
+	if err := replacement.run(t, "unlock"); err == nil {
+		t.Fatal("the exporting device's password unlocked the restored vault")
+	}
+}
+
+func TestRestoreRefusesToOverwriteAVault(t *testing.T) {
+	source, kitPath := ready(t)
+	archivePath := filepath.Join(t.TempDir(), "vault.export")
+	source.mustRun(t, "export", archivePath)
+
+	source.secrets = []string{"another", "another"}
+	err := source.run(t, "restore", archivePath, "--kit", kitPath)
+	if err == nil {
+		t.Fatal("restore overwrote an existing vault")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRestoreRefusesAnotherVaultsKit(t *testing.T) {
+	source, _ := ready(t)
+	archivePath := filepath.Join(t.TempDir(), "vault.export")
+	source.mustRun(t, "export", archivePath)
+
+	_, otherKit := ready(t)
+	replacement := newScripted(t)
+	replacement.secrets = []string{"pw", "pw"}
+	if err := replacement.run(t, "restore", archivePath, "--kit", otherKit); err == nil {
+		t.Fatal("another vault's kit opened this archive")
+	}
+}
+
+func vaultIDOf(t *testing.T, s *scripted) string {
+	t.Helper()
+	s.out.Reset()
+	s.mustRun(t, "status")
+	for _, line := range strings.Split(s.out.String(), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "vault" {
+			return fields[1]
+		}
+	}
+	t.Fatalf("no vault id in status:\n%s", s.out)
+	return ""
+}

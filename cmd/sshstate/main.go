@@ -21,7 +21,6 @@ var laterMilestones = map[string]string{
 	"tui":               "the focused TUI ships after the CLI operations it wraps",
 	"pair":              "device pairing arrives with the enrollment CLI",
 	"resolve":           "conflict resolution arrives with the enrollment CLI",
-	"restore":           "restore arrives with the enrollment CLI",
 	"recover":           "recovery arrives with the enrollment CLI",
 	"rotate-master-key": "master key rotation ships before stable v1",
 	"rotation":          "rotation status and resume ship with rotation",
