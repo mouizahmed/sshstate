@@ -93,6 +93,7 @@ different kind of object.
 | Key bundle | `sshstate.bundle-sig.v1` |
 | Export manifest | `sshstate.export-sig.v1` |
 | Recovery admission | `sshstate.recovery-admit.v1` |
+| Rotation transition manifest | `sshstate.rotation-sig.v1` |
 | Recovery kit confirmation (local) | `sshstate.recovery-kit-confirm.v1` |
 | HTTP request | `sshstate.request.v1` |
 
@@ -919,18 +920,26 @@ and stores the idempotency outcome.
 ### 10.7 Rotation
 
 ```
-POST /v1/rotations
-GET  /v1/rotations/:id
-PUT  /v1/rotations/:id/staged/:item
-POST /v1/rotations/:id/commit
+POST   /v1/rotations
+GET    /v1/rotations/:id
+PUT    /v1/rotations/:id/staged/:item
+POST   /v1/rotations/:id/commit
+DELETE /v1/rotations/:id
 ```
 
-Reserved. The staged transition, transition manifest, freeze semantics, timeouts
-and crash-recovery state machine are specified separately before implementation
-(§7.1); the routes are listed here so the relay's storage and the sync reader are
-built to accommodate them. A relay that does not implement rotation returns
-`not_implemented` and must still reject old-epoch writes once an epoch has
-advanced.
+Specified in `docs/rotation.md` and implemented in Milestone 3b. The routes are
+listed here so the relay's storage and the sync reader are built to accommodate
+them from the start; a transition that has to be atomic cannot be bolted onto
+storage that never anticipated it. A relay that does not implement rotation
+returns `not_implemented`, and must still reject old-epoch writes once an epoch
+has advanced.
+
+`DELETE /v1/rotations/:id` is an amendment to this list. §7.1 requires an
+explicit authenticated abort that discards staging and releases the write freeze,
+and the list as frozen had no route for it. It is a new method on an existing
+path, accepted from any currently authorized device — §7.1 requires a remaining
+device to be able to clear a rotation stranded by a lost initiator, which is
+exactly the case where the initiator cannot ask.
 
 ---
 
@@ -1007,11 +1016,18 @@ responses carry additional top-level fields, as noted above for
 | `conflict_content_mismatch` | 409 | A conflict ID exists with differing content |
 | `chain_mismatch` | 409 | Membership `chain_seq` or `parent_digest` is not the head |
 | `rotation_in_progress` | 409 | Writes are frozen during staging |
+| `epoch_mismatch` | 409 | `key_epoch` is not the vault's current epoch |
 | `body_too_large` | 413 | Body above 4 MiB, or an envelope above 1 MiB |
 | `header_too_large` | 431 | `Signature` or `Signature-Input` above the configured bound |
 | `rate_limited` | 429 | Honest-relay throttling |
 | `not_implemented` | 501 | A reserved route this relay does not serve |
 | `internal` | 500 | Unexpected failure; no detail is disclosed |
+
+`epoch_mismatch` is an amendment to this table, added while specifying rotation.
+Most stale writes are already caught as `parent_mismatch`, because rotation
+advances every record's `rev`. A record *creation* has no parent digest to
+mismatch, so without this code an old-epoch create would be accepted into a vault
+that had moved on, and would be undecryptable to every migrated device.
 
 A 431 is deliberately distinct from a 401. An ML-DSA-65 `Signature` header is
 4430 bytes, roughly 54% of the 8190-byte single-header limit Apache and nginx
