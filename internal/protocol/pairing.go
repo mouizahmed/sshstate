@@ -186,6 +186,11 @@ type PairingConfirmation struct {
 	CreatedAt        string `json:"created_at"`
 }
 
+type SignedPairingConfirmation struct {
+	Confirmation PairingConfirmation `json:"confirmation"`
+	Signature    Bytes               `json:"signature"`
+}
+
 func (c *PairingConfirmation) SigningInput() ([]byte, error) { return Canonical(c) }
 
 func (c *PairingConfirmation) Validate() error {

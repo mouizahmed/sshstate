@@ -93,6 +93,21 @@ CREATE TABLE IF NOT EXISTS key_envelope (
 CREATE INDEX IF NOT EXISTS key_envelope_by_recipient
     ON key_envelope (vault_id, recipient_device_id);
 
+-- Pairing sessions. The bundle and snapshot are separate columns because a
+-- snapshot can be far larger than the 1 MiB bound on a parsed JSON object.
+CREATE TABLE IF NOT EXISTS pairing (
+    session_id       TEXT PRIMARY KEY,
+    vault_id         TEXT NOT NULL,
+    joiner_device_id TEXT NOT NULL,
+    state            TEXT NOT NULL,
+    session          TEXT NOT NULL,
+    bundle           BLOB,
+    snapshot         BLOB,
+    expires_at       INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS pairing_active ON pairing (vault_id, joiner_device_id, state);
+
 -- Recovery admission challenges. Consumed once, whatever the outcome (§4.6).
 CREATE TABLE IF NOT EXISTS recovery_nonce (
     vault_id   TEXT NOT NULL,

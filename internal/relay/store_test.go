@@ -539,3 +539,7 @@ func TestStoreCreatesRestrictivePermissions(t *testing.T) {
 		}
 	}
 }
+
+func signerFor(d device) membership.Signer {
+	return membership.Signer{DeviceID: d.id, Key: d.signing}
+}
