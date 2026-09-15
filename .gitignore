@@ -6,3 +6,5 @@
 
 # Operator secrets are never committed.
 deploy/bootstrap.secret
+/sshstate
+/sshstate-server
