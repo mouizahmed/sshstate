@@ -375,3 +375,50 @@ Mutation-checked: moving the boundary back to before the pull fails the
 three-device test with the original error. Note that changing only the *value*
 passed does not fail it — after a complete pull the local cursor equals the
 bound — so it is the ordering, not the argument, that carries the fix.
+
+---
+
+## D8 — A foreground daemon silently broke socket activation
+
+- Found: Milestone 3a, by running both on the Linux VM to answer "what if I run both?"
+- Severity: on-demand start stopped working, and the error told the user to repeat the mistake
+- Fixed in: `internal/cli/daemon.go`
+
+Two daemons can never serve at once: the second fails on the exclusive instance
+lock. That guard works and is tested. It is also not the interesting case.
+
+The service starts on demand, so most of the time it is *not running* — the
+sockets exist, created by systemd or launchd, with nothing behind them. A
+`sshstate daemon` started then takes the lock unopposed, finds no activated
+descriptors, and falls through to binding the paths itself. Binding unlinks the
+existing socket files, so the service manager is left watching descriptors on
+inodes nothing can reach.
+
+Observed on the VM: socket inodes 1181709 and 1181714 became 1181717 and
+1181718. The next activation attempt failed with `sshstate.service: Failed with
+result 'exit-code'` because the manual daemon held the lock. When that daemon
+exited it unlinked its own sockets, leaving the socket unit reporting `active`
+with no file on disk. Every command then reported:
+
+    the sshstate daemon is not running (socket .../control.sock)
+    start it with: sshstate daemon
+
+which is advice to do the thing that caused it. Recovery needs
+`systemctl --user restart` on both socket units, or `sshstate install --service`
+again — neither of which that message suggests.
+
+### Why the instance lock did not cover it
+
+The lock answers "are two daemons running", and the answer was no. Nothing asked
+"does something else own these socket paths", which is a different question and
+the one that mattered. The activation test starts the daemon *through* the
+service manager, so it never exercises a foreground start on a machine where a
+service is registered.
+
+### Fix
+
+`sshstate daemon` refuses when a service definition is installed and this
+process was not started by the service manager. The two ways forward are named:
+use the service, or `sshstate uninstall` to unregister it first. A daemon that
+was activated has descriptors passed to it and is allowed through, as is one
+given an explicit `--runtime` directory, which is not the service's.
