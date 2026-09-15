@@ -17,10 +17,12 @@ import (
 )
 
 var laterMilestones = map[string]string{
-	"import":            "strict SSH config import arrives with the known-host milestone",
-	"tui":               "the focused TUI ships after the CLI operations it wraps",
 	"rotate-master-key": "master key rotation ships before stable v1",
 	"rotation":          "rotation status and resume ship with rotation",
+}
+
+var withdrawn = map[string]string{
+	"tui": "withdrawn from v1 scope; the CLI is the interface",
 }
 
 func usage(env *cli.Env) string {
@@ -83,6 +85,9 @@ func run() error {
 	}
 	if reason, ok := laterMilestones[name]; ok {
 		return fmt.Errorf("%q is not implemented yet: %s", name, reason)
+	}
+	if reason, ok := withdrawn[name]; ok {
+		return fmt.Errorf("%q will not ship: %s", name, reason)
 	}
 	fmt.Fprintf(os.Stderr, "sshstate: unknown command %q\n\n%s", name, usage(env))
 	os.Exit(2)
