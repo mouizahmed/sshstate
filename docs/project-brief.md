@@ -39,7 +39,6 @@ sshstate import /path/to/config --dry-run
 sshstate install
 sshstate status
 sshstate doctor
-sshstate tui
 sshstate lock
 
 sshstate server connect https://sync.example.com
@@ -63,7 +62,7 @@ These are the command boundaries; individual flags are specified alongside imple
 
 The post-v1 Git integration adds `sshstate git-sign -- <ssh-keygen arguments>` (§3.5).
 
-`sshstate tui` ships in v1 after the corresponding CLI operations work. It provides host browsing, ordered key references and public fingerprints, lock/sync status, conflict review/resolution, and rotation progress. It uses the same versioned daemon control API as the CLI, with no direct SQLite access, separate crypto implementation, or duplicated business logic. Never display private-key material by default. Mutations follow the same validation and confirmation rules as CLI commands; cancelling a screen must not silently cancel a committed daemon operation. Commands remain available for scripts and headless use. Rich editing, themes, and GUI features are deferred.
+**Withdrawn on 2026-09-15: `sshstate tui`.** A focused TUI was a v1 requirement (R11). It is now out of v1 scope entirely, not deferred pending a frontend: the CLI is the interface. Everything the TUI was to provide — host browsing, key references and fingerprints, lock and sync status, conflict review and resolution, rotation progress — must therefore be legible from the CLI, which is where that obligation now sits.
 
 ### 3.2 Config ownership, generation, and import
 
@@ -378,7 +377,7 @@ Restore into a new local store and generate fresh device keys and a new local pa
 
 ### 7.3 Deferred features
 
-Automatic TTY/desktop prompts, OS keychain unlock, per-signature confirmation, forwarding constraints, periodic sync, automatic remote host-key rotation, capture-file compaction, rich TUI editing/theming, broad config import, the Git signing helper, Windows, Linux distribution package repositories and OS package signing, GUI/mobile, teams, and field-level merging are deferred. A focused TUI and resumable vault master-key rotation are v1 requirements. Post-quantum implementation follows the mandatory early assessment in §4.8. Scoped agent sessions for autonomous tooling are a post-v1 direction recorded in §13 and are not v1 scope.
+Automatic TTY/desktop prompts, OS keychain unlock, per-signature confirmation, forwarding constraints, periodic sync, automatic remote host-key rotation, capture-file compaction, any TUI, broad config import, the Git signing helper, Windows, Linux distribution package repositories and OS package signing, GUI/mobile, teams, and field-level merging are out of v1 scope. Resumable vault master-key rotation is a v1 requirement. Post-quantum implementation follows the mandatory early assessment in §4.8. Scoped agent sessions for autonomous tooling are a post-v1 direction recorded in §13 and are not v1 scope.
 
 Metadata-only clients are deferred. The two-key split limits the secrets they can decrypt, but a maliciously served browser can still steal metadata. Read-only UI and metadata-only encryption do not make server-delivered JavaScript trustworthy.
 
@@ -412,9 +411,9 @@ Finish strict SSH-config import and known-host capture/reconciliation/trust reso
 
 Ship client distribution in this milestone; a tool installed on every machine a user owns needs an install path that is not `go build`. Publish tagged GitHub releases built by pinned-toolchain CI, covering darwin/arm64, darwin/amd64, linux/amd64, and linux/arm64, with per-artifact checksums and a documented verification step. Provide a Homebrew tap for macOS and Linux. Publish the server container image alongside. Linux distribution package repositories, OS package signing infrastructure, and Windows packaging are out of v1 scope (§7.3); state that rather than implying broader coverage.
 
-### Milestone 3b — rotation and focused TUI; stable v1
+### Milestone 3b — rotation; stable v1
 
-Implement the M2 rotation state machine and prove interruption/resumption, atomic publication, revoked-recipient exclusion, offline-device catch-up, pending-edit migration, and recovery from a post-rotation export. Ship the focused TUI over the already working daemon API for hosts, key references, status, conflicts, and rotation progress. Verify both frontends produce the same daemon-side behavior and TUI cancellation cannot corrupt or silently discard an operation. Complete three-machine dogfooding and release documentation before declaring stable v1.
+Implement the M2 rotation state machine and prove interruption/resumption, atomic publication, revoked-recipient exclusion, offline-device catch-up, pending-edit migration, and recovery from a post-rotation export. Rotation progress must be readable from the CLI while it runs, since there is no second frontend to show it. Complete three-machine dogfooding and release documentation before declaring stable v1.
 
 Post-v1 refinements include the Git helper and additional container/deployment convenience. Capture compaction and automatic remote host-key rotation remain separately deferred; they are distinct from the required vault master-key rotation. Backup/restore, revocation, and a usable server container are already delivered by M2.
 
@@ -433,7 +432,6 @@ Post-v1 refinements include the Git helper and additional container/deployment c
 - Release artifacts build reproducibly from the pinned toolchain, checksums verify, and the documented install path works on a clean macOS and Linux machine.
 - Rotation crash/retry tests around every staging, commit, and local-finalization boundary; no mixed-epoch publication, no new envelope for a revoked device, and no loss of offline pending edits.
 - Recovery from a post-rotation export and offline-device catch-up across multiple committed epochs; stale writes and epoch regressions are rejected.
-- TUI/CLI parity through the shared control API, terminal restoration on exit, cancellation semantics, and no private-key disclosure in status/screens.
 - Post-quantum suite: mixed hybrid/classical recipient sets are rejected, recipient coverage includes recovery and backup envelopes, unknown suite identifiers fail closed, key/signature/envelope parsing is bounded to the fixed sizes of the selected parameter sets, and an ML-DSA-65 `Signature` header is rejected explicitly rather than truncated when a proxy limit is exceeded.
 
 CI runs formatting checks, build, vet, tests, race checks where supported, and dependency vulnerability checks. Fuzz bounded config, record, and control-message parsers. Validate each milestone in proportion to its risks; do not substitute mocks for the native SSH demo.
@@ -464,7 +462,7 @@ All entries below are accepted on 2026-09-12 with the delivery conditions shown.
 | R8: memory | Go, bounded secret lifetime, best-effort owned-buffer wiping and core-dump controls | Make achievable protections explicit without promising complete erasure |
 | R9: setup | One repo/two binaries; macOS-first with doctor/install/uninstall in M1; recovery/revocation/container in M2; Linux and three-machine workflow in M3; supported Go and AGPLv3 | Spread release requirements across working milestones |
 | R10: master-key rotation | Required in v1; staged atomic epoch transition, durable resume, new envelopes only for remaining devices/recovery | Make revocation and ongoing vault maintenance practical without losing offline work |
-| R11: TUI | Focused v1 frontend over the existing daemon control API, after CLI functionality | Make browsing, conflicts, and progress easier without duplicating logic |
+| R11: TUI | ~~Focused v1 frontend over the daemon control API~~ — **withdrawn 2026-09-15**; no TUI in v1, and the CLI carries what it was to show | A second frontend is cost this project does not need to pay to be usable |
 | R12: post-quantum devices | Assessment complete and passed; adopt age hybrid ML-KEM-768+X25519 and ML-DSA-65 from genesis, per decision record 0001 | Stdlib and upstream support, library-enforced downgrade rejection, short recovery secrets, acceptable sizes; claim scoped to metadata rather than SSH keys |
 | R13: device lifecycle | `devices` and `revoke` verbs in M2; uninstall performs server-side deregistration or reports the device still authorized; refuse revoking the last device | Make the specified revocation invocable and stop uninstall from leaving an authorized writer in the chain |
 | R14: distribution | Signed multi-arch release artifacts and a Homebrew tap for macOS/Linux in M3a; distribution repositories and Windows packaging stay deferred | A tool installed on every machine needs a real install path; scope it to what M3a can verify |
