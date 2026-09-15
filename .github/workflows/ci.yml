@@ -90,14 +90,10 @@ jobs:
           fuzz ./internal/httpsig FuzzParseDictionaryMember
 
   native-ssh:
-    # The end-to-end claim, on a machine nobody prepared: a real sshd, real
-    # OpenSSH, and a private key that exists only inside the vault. It is not
-    # folded into the `check` matrix because it needs an sshd binary, and a
-    # test that skipped silently there would look like coverage it is not.
-    #
-    # systemd socket activation is the one Linux integration CI still cannot
-    # cover: GitHub's runners have no per-user systemd instance to register
-    # units with. That is exercised by hand on a Linux VM instead.
+    # A real sshd, real OpenSSH, and a private key that exists only in the
+    # vault. Separate from the `check` matrix because it needs an sshd binary,
+    # and a silent skip there would look like coverage it is not. Systemd
+    # activation stays uncovered here: the runners have no user manager.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
