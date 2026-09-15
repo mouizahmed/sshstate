@@ -537,7 +537,20 @@ func runInstall(ctx context.Context, env *Env, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	registered := false
+	if *withService {
+		if err := installService(env); err != nil {
+			return err
+		}
+		registered = true
+	}
 	if _, err := env.Client().Generate(ctx); err != nil {
+		if registered && isLocked(err) {
+			env.printf("\nThe service is registered, but the vault it starts is locked, so the\n")
+			env.printf("configuration was not generated. Finish with:\n")
+			env.printf("  sshstate unlock\n  sshstate install\n")
+			return errors.New("installation is incomplete")
+		}
 		return hint(err)
 	}
 	if err := env.resolveTrust(ctx, *importTrust, *skipTrust); err != nil {
@@ -555,11 +568,6 @@ func runInstall(ctx context.Context, env *Env, args []string) error {
 		env.printf("Backed up your SSH config to %s\n", res.BackupPath)
 	}
 	env.printf("Installed: %s\n", sshconfig.DescribeInclude(env.Layout))
-	if *withService {
-		if err := installService(env); err != nil {
-			return err
-		}
-	}
 	env.printf("\nManaged hosts now resolve through OpenSSH. Check with: sshstate doctor\n")
 	return nil
 }

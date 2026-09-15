@@ -136,3 +136,8 @@ func DefaultEnv() (*Env, error) {
 		Interactive: term.IsTerminal(int(os.Stdin.Fd())),
 	}, nil
 }
+
+func isLocked(err error) bool {
+	var api *control.APIError
+	return errors.As(err, &api) && api.Code == control.CodeLocked
+}
