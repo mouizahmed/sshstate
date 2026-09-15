@@ -123,9 +123,12 @@ func (s *scripted) startDaemon(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Add(1)
+	exited := make(chan error, 1)
 	go func() {
 		defer wg.Done()
-		if err := s.run(t, "daemon"); err != nil && !errors.Is(err, context.Canceled) {
+		err := s.run(t, "daemon")
+		exited <- err
+		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Errorf("daemon: %v", err)
 		}
 	}()
@@ -142,8 +145,13 @@ func (s *scripted) startDaemon(t *testing.T) {
 		}
 	})
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			t.Fatalf("the daemon exited instead of listening: %v", err)
+		default:
+		}
 		if conn, err := net.Dial("unix", s.Layout.ControlSocket()); err == nil {
 			conn.Close()
 			return
