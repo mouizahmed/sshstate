@@ -89,6 +89,26 @@ jobs:
           fuzz ./internal/httpsig FuzzParseByteSequence
           fuzz ./internal/httpsig FuzzParseDictionaryMember
 
+  native-ssh:
+    # The end-to-end claim, on a machine nobody prepared: a real sshd, real
+    # OpenSSH, and a private key that exists only inside the vault. It is not
+    # folded into the `check` matrix because it needs an sshd binary, and a
+    # test that skipped silently there would look like coverage it is not.
+    #
+    # systemd socket activation is the one Linux integration CI still cannot
+    # cover: GitHub's runners have no per-user systemd instance to register
+    # units with. That is exercised by hand on a Linux VM instead.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      - name: sshd is present
+        run: test -x /usr/sbin/sshd
+      - name: native ssh login
+        run: SSHSTATE_SSHD_TEST=1 go test ./internal/cli/ -run NativeSSH -v
+
   vuln:
     runs-on: ubuntu-latest
     steps:

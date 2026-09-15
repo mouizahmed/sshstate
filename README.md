@@ -168,6 +168,9 @@ go build ./...
 # Register a real service in your own session; opt-in, and not run by CI.
 SSHSTATE_LAUNCHD_TEST=1 go test ./internal/service/ -run Launchd   # macOS
 SSHSTATE_SYSTEMD_TEST=1 go test ./internal/service/ -run Systemd   # Linux
+
+# Start a real sshd and log into it with native OpenSSH. CI runs this on Linux.
+SSHSTATE_SSHD_TEST=1 go test ./internal/cli/ -run NativeSSH
 ```
 
 ## Documentation
