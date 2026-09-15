@@ -12,8 +12,12 @@ import (
 	"golang.org/x/term"
 )
 
-func readSecret(prompt string) ([]byte, error) {
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+func readSecret(prompt string) ([]byte, error) { return readSecretFrom(ttyPath, prompt) }
+
+const ttyPath = "/dev/tty"
+
+func readSecretFrom(path, prompt string) ([]byte, error) {
+	tty, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return nil, fmt.Errorf("no terminal available to read a password: %w", err)
 	}

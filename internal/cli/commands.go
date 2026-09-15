@@ -261,7 +261,11 @@ func defaultDeviceLabel() string {
 
 func runUnlock(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "unlock")
+	passwordFD := fs.Int("password-fd", -1, "read the password from this file descriptor instead of the terminal")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := applySecretFD(env, *passwordFD); err != nil {
 		return err
 	}
 	password, err := env.ReadSecret("Device unlock password: ")
