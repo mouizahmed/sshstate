@@ -5,6 +5,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -852,4 +853,143 @@ func TestUninstallDeregistersWhenItCan(t *testing.T) {
 	if !strings.Contains(listing, deviceB) || !strings.Contains(listing, "revoked") {
 		t.Fatalf("the chain does not record the deregistration:\n%s", listing)
 	}
+}
+
+func pairInto(t *testing.T, relayURL string, approver *scripted, vaultID, password string) *scripted {
+	t.Helper()
+	joiner := newScripted(t)
+	joiner.lines = []string{"y"}
+	joiner.secrets = []string{password, password}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- joiner.run(t, "pair", relayURL, vaultID) }()
+
+	deadline := time.Now().Add(20 * time.Second)
+	var session string
+	for session == "" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no pairing session appeared:\n%s", joiner.out)
+		}
+		for _, line := range strings.Split(joiner.out.String(), "\n") {
+			if strings.HasPrefix(line, "Pairing session ") {
+				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
+			}
+		}
+		if session == "" {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	approver.lines = []string{"y"}
+	approver.out.Reset()
+	if err := approver.run(t, "approve", session); err != nil {
+		t.Fatalf("approve: %v\nstdout:\n%s\nstderr:\n%s", err, approver.out, approver.errOut)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("pair: %v\nstdout:\n%s\nstderr:\n%s", err, joiner.out, joiner.errOut)
+	}
+
+	joiner.startDaemon(t)
+	joiner.secrets = []string{password}
+	joiner.mustRun(t, "unlock")
+	joiner.out.Reset()
+	joiner.errOut.Reset()
+	return joiner
+}
+
+func hostAliases(t *testing.T, s *scripted) map[string]bool {
+	t.Helper()
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, h := range hosts {
+		out[h.Alias] = true
+	}
+	return out
+}
+
+func TestThreeDevicesShareOneVault(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	vaultID := vaultIDOf(t, a)
+
+	b := pairInto(t, r.url, a, vaultID, "b's own password")
+	c := pairInto(t, r.url, a, vaultID, "c's own password")
+
+	a.out.Reset()
+	a.mustRun(t, "devices")
+	if n := strings.Count(a.out.String(), "active"); n != 3 {
+		t.Fatalf("expected three active devices:\n%s", a.out)
+	}
+
+	c.mustRun(t, "add", "from-c", "--hostname", "10.0.0.30", "--user", "ubuntu")
+	c.mustRun(t, "sync")
+	a.mustRun(t, "sync")
+	b.mustRun(t, "sync")
+
+	for name, s := range map[string]*scripted{"a": a, "b": b, "c": c} {
+		if !hostAliases(t, s)["from-c"] {
+			t.Fatalf("device %s never saw the host device c added", name)
+		}
+	}
+
+	b.mustRun(t, "add", "from-b", "--hostname", "10.0.0.20", "--user", "ubuntu")
+	b.mustRun(t, "sync")
+	c.mustRun(t, "sync")
+	if !hostAliases(t, c)["from-b"] {
+		t.Fatal("device c never saw the host device b added")
+	}
+
+	deviceB := deviceIDFrom(t, b)
+	a.out.Reset()
+	a.mustRun(t, "revoke", deviceB)
+
+	b.mustRun(t, "add", "after-revocation", "--hostname", "10.0.0.21", "--user", "ubuntu")
+	if err := b.run(t, "sync"); err == nil {
+		t.Fatal("a revoked device published successfully")
+	}
+
+	c.mustRun(t, "add", "from-c-again", "--hostname", "10.0.0.31", "--user", "ubuntu")
+	c.mustRun(t, "sync")
+	a.mustRun(t, "sync")
+	if !hostAliases(t, a)["from-c-again"] {
+		t.Fatal("revoking b stopped c from publishing")
+	}
+	if hostAliases(t, a)["after-revocation"] {
+		t.Fatal("a revoked device's edit reached another device")
+	}
+
+	a.out.Reset()
+	a.mustRun(t, "devices")
+	var active, revoked int
+	for _, line := range strings.Split(a.out.String(), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		switch {
+		case contains(fields, "active"):
+			active++
+		case contains(fields, "revoked") && len(fields) > 2:
+			revoked++
+		}
+	}
+	if active != 2 || revoked != 1 {
+		t.Fatalf("expected two active devices and one revoked, got %d and %d:\n%s", active, revoked, a.out)
+	}
+	if !strings.Contains(a.out.String(), deviceB) {
+		t.Fatalf("the revoked device left the chain:\n%s", a.out)
+	}
+}
+
+func contains(fields []string, want string) bool {
+	for _, f := range fields {
+		if f == want {
+			return true
+		}
+	}
+	return false
 }
