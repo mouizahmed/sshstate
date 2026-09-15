@@ -5,10 +5,14 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mouizahmed/sshstate/internal/control"
 
 	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/vault"
@@ -153,5 +157,69 @@ func TestSetupNeedsNoArguments(t *testing.T) {
 	s := newScripted(t)
 	if err := s.run(t, "setup", "extra"); err == nil {
 		t.Fatal("a positional argument was accepted")
+	}
+}
+
+func TestIsLockedMatchesOnlyTheLockedCode(t *testing.T) {
+	if !isLocked(&control.APIError{Code: control.CodeLocked}) {
+		t.Fatal("a locked API error was not recognised")
+	}
+	if isLocked(&control.APIError{Code: control.CodeBadRequest}) {
+		t.Fatal("an unrelated code was treated as locked")
+	}
+	if isLocked(errors.New("plain")) {
+		t.Fatal("a plain error was treated as locked")
+	}
+	if isLocked(fmt.Errorf("wrapped: %w", &control.APIError{Code: control.CodeLocked})) != true {
+		t.Fatal("a wrapped locked error was not recognised")
+	}
+}
+
+func TestReadLineTakesALineFromStdin(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = old; r.Close() })
+
+	if _, err := w.WriteString("  yes  \r\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	got, err := readLine("prompt: ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "  yes  " {
+		t.Fatalf("readLine returned %q; it must strip the terminator and nothing else", got)
+	}
+}
+
+func TestDefaultEnvResolvesFromTheEnvironment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "")
+
+	env, err := DefaultEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.Layout.Data == "" || env.Layout.SSH == "" {
+		t.Fatalf("the layout is empty: %+v", env.Layout)
+	}
+	if !strings.HasPrefix(env.Layout.SSH, home) {
+		t.Fatalf("the ssh directory %s is not under HOME %s", env.Layout.SSH, home)
+	}
+	if env.Stdout == nil || env.Stderr == nil {
+		t.Fatal("DefaultEnv left a nil stream")
+	}
+	if env.ReadSecret == nil || env.ReadLine == nil {
+		t.Fatal("DefaultEnv left a nil prompt")
+	}
+	if env.Client() == nil {
+		t.Fatal("DefaultEnv produced an env with no control client")
 	}
 }

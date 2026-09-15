@@ -457,3 +457,47 @@ func TestInstallUninstallThroughCLIPaths(t *testing.T) {
 		t.Fatalf("uninstall did not restore the user's config exactly: %q", body)
 	}
 }
+
+func TestAgentSignsAndListsThroughTheExportedAgent(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	if _, err := h.client.Unlock(ctx, testPassword); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.client.AddKey(ctx, control.AddKeyRequest{
+		PrivateKey: string(testKeyPEM(t, "agent-direct")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	a := h.daemon.Agent()
+	if a == nil {
+		t.Fatal("the daemon exposes no agent")
+	}
+	signers, err := a.Signers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(signers) != 1 {
+		t.Fatalf("Signers returned %d signers", len(signers))
+	}
+
+	data := []byte("the message to sign")
+	sig, err := a.Sign(signers[0].PublicKey(), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := signers[0].PublicKey().Verify(data, sig); err != nil {
+		t.Fatalf("the signature does not verify: %v", err)
+	}
+
+	if _, err := h.client.Lock(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Signers(); err == nil {
+		t.Fatal("Signers answered while locked")
+	}
+	if _, err := a.Sign(signers[0].PublicKey(), data); err == nil {
+		t.Fatal("Sign answered while locked")
+	}
+}
