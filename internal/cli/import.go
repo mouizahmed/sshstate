@@ -22,6 +22,7 @@ import (
 func runImport(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "import")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
+	withKeys := fs.Bool("with-keys", false, "also import the private keys the config's IdentityFile lines name")
 	positional, rest := splitPositional(args, 1)
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -44,6 +45,11 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 		return fmt.Errorf("%s declares no Host blocks", path)
 	}
 
+	if *withKeys && !*dryRun {
+		if err := adoptIdentityFiles(ctx, env, hosts); err != nil {
+			return err
+		}
+	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
 		return hint(err)
@@ -60,6 +66,7 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 
 	req := control.ImportRequest{DryRun: *dryRun}
 	var unresolved []sshconfig.ImportProblem
+	missingKeys := map[string]string{}
 	for _, h := range hosts {
 		if err := vault.ValidateAlias(h.Alias); err != nil {
 			unresolved = append(unresolved, sshconfig.ImportProblem{Line: h.Line, Text: err.Error()})
@@ -84,8 +91,12 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 			}
 			id, ok := byFingerprint[fingerprint]
 			if !ok {
+				if *dryRun && *withKeys {
+					missingKeys[file] = fingerprint
+					continue
+				}
 				unresolved = append(unresolved, sshconfig.ImportProblem{Line: h.Line,
-					Text: fmt.Sprintf("host %q: %s is not in the vault; add it first with: sshstate add-key %s", h.Alias, fingerprint, file)})
+					Text: fmt.Sprintf("host %q: %s is not in the vault (%s)", h.Alias, fingerprint, file)})
 				continue
 			}
 			entry.KeyIDs = append(entry.KeyIDs, id)
@@ -93,6 +104,9 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 		req.Hosts = append(req.Hosts, entry)
 	}
 	if len(unresolved) > 0 {
+		if !*withKeys {
+			env.warnf("Import those keys in the same pass with: sshstate import %s --with-keys\n\n", path)
+		}
 		return importRefusal(env, path, unresolved)
 	}
 
@@ -101,6 +115,9 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 		return hint(err)
 	}
 
+	for file, fingerprint := range missingKeys {
+		env.printf("  key       %s  %s\n", fingerprint, file)
+	}
 	counts := map[string]int{}
 	for _, o := range res.Outcomes {
 		counts[o.Action]++
@@ -120,6 +137,9 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 		counts[string(vault.ImportUnchanged)],
 		counts[string(vault.ImportConflict)])
 	if res.DryRun {
+		if len(missingKeys) > 0 {
+			env.printf("%s would be imported as well.\n", count(len(missingKeys), "key", "keys"))
+		}
 		env.printf("\nNothing was written. Run it again without --dry-run to apply.\n")
 		return nil
 	}

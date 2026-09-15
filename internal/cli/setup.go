@@ -63,10 +63,7 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 
 	env.printf("\nStep 4 of 4: your hosts.\n\n")
 	if *importFrom != "" {
-		if err := adoptIdentityFiles(ctx, env, *importFrom); err != nil {
-			return err
-		}
-		if err := runImport(ctx, env, []string{*importFrom}); err != nil {
+		if err := runImport(ctx, env, []string{*importFrom, "--with-keys"}); err != nil {
 			return err
 		}
 		if err := runInstall(ctx, env, nil); err != nil {
@@ -128,18 +125,10 @@ func runService(ctx context.Context, env *Env, args []string) error {
 	return nil
 }
 
-func adoptIdentityFiles(ctx context.Context, env *Env, configPath string) error {
-	body, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", configPath, err)
-	}
-	parsed, problems := sshconfig.ParseImport(string(body))
-	if len(problems) > 0 {
-		return importRefusal(env, configPath, problems)
-	}
+func adoptIdentityFiles(ctx context.Context, env *Env, hosts []sshconfig.ImportedHost) error {
 	seen := map[string]bool{}
 	var paths []string
-	for _, h := range parsed {
+	for _, h := range hosts {
 		for _, file := range h.IdentityFiles {
 			if !seen[file] {
 				seen[file] = true
