@@ -22,6 +22,8 @@ const (
 	RouteShutdown          = "/" + APIVersion + "/shutdown"
 	RouteTrust             = "/" + APIVersion + "/trust"
 	RouteTrustImport       = "/" + APIVersion + "/trust/import"
+	RouteTrustList         = "/" + APIVersion + "/trust/list"
+	RouteTrustApprove      = "/" + APIVersion + "/trust/approve"
 	RouteRecoveryChallenge = "/" + APIVersion + "/recovery/challenge"
 	RouteRecoveryConfirm   = "/" + APIVersion + "/recovery/confirm"
 	RouteConnect           = "/" + APIVersion + "/connect"
@@ -122,6 +124,28 @@ type ImportOutcome struct {
 type ImportResponse struct {
 	DryRun   bool            `json:"dry_run"`
 	Outcomes []ImportOutcome `json:"outcomes"`
+}
+
+type TrustEntry struct {
+	RecordID    string `json:"record_id"`
+	Line        string `json:"line"`
+	KeyType     string `json:"key_type"`
+	Fingerprint string `json:"fingerprint"`
+	Marker      string `json:"marker,omitempty"`
+	Status      string `json:"status"`
+}
+
+type TrustListResponse struct {
+	Entries []TrustEntry `json:"entries"`
+}
+
+type TrustApproveRequest struct {
+	RecordIDs []string `json:"record_ids,omitempty"`
+	All       bool     `json:"all,omitempty"`
+}
+
+type TrustApproveResponse struct {
+	Approved int `json:"approved"`
 }
 
 type HostResponse struct {

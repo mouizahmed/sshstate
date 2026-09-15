@@ -146,6 +146,16 @@ func (c *Client) Import(ctx context.Context, req ImportRequest) (*ImportResponse
 	return &out, c.do(ctx, http.MethodPost, RouteImport, req, &out)
 }
 
+func (c *Client) TrustList(ctx context.Context) (*TrustListResponse, error) {
+	var out TrustListResponse
+	return &out, c.do(ctx, http.MethodGet, RouteTrustList, nil, &out)
+}
+
+func (c *Client) TrustApprove(ctx context.Context, req TrustApproveRequest) (*TrustApproveResponse, error) {
+	var out TrustApproveResponse
+	return &out, c.do(ctx, http.MethodPost, RouteTrustApprove, req, &out)
+}
+
 func (c *Client) Generate(ctx context.Context) (*GenerateResponse, error) {
 	var out GenerateResponse
 	return &out, c.do(ctx, http.MethodPost, RouteGenerate, struct{}{}, &out)

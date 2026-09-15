@@ -4,8 +4,14 @@
 package daemon
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"strings"
+
+	"github.com/mouizahmed/sshstate/internal/control"
+	"github.com/mouizahmed/sshstate/internal/protocol"
 
 	"github.com/mouizahmed/sshstate/internal/knownhosts"
 	"github.com/mouizahmed/sshstate/internal/vault"
@@ -134,4 +140,71 @@ func disagreesWithApproved(e knownhosts.Entry, dest string, approved []vault.Kno
 		}
 	}
 	return false
+}
+
+func (d *Daemon) handleTrustList(w http.ResponseWriter, r *http.Request) {
+	if _, err := d.reconcileCapture(); err != nil {
+		d.log.Warn("capture reconciliation failed before listing trust", "error", err)
+	}
+	views, err := d.mgr.KnownHosts()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := control.TrustListResponse{}
+	for _, v := range views {
+		out.Entries = append(out.Entries, control.TrustEntry{
+			RecordID:    v.RecordID.String(),
+			Line:        v.Line,
+			KeyType:     v.KeyType,
+			Fingerprint: v.Fingerprint,
+			Marker:      v.Marker,
+			Status:      string(v.Status),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (d *Daemon) handleTrustApprove(w http.ResponseWriter, r *http.Request) {
+	var req control.TrustApproveRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	var ids []protocol.ID
+	if req.All {
+		views, err := d.mgr.KnownHosts()
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		for _, v := range views {
+			if v.Status == vault.TrustPending && v.Marker != "@revoked" {
+				ids = append(ids, v.RecordID)
+			}
+		}
+	}
+	for _, raw := range req.RecordIDs {
+		id := protocol.ID(raw)
+		if !id.Valid() {
+			writeError(w, fmt.Errorf("%q is not a record id", raw))
+			return
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		writeError(w, errors.New("nothing to approve"))
+		return
+	}
+	for _, id := range ids {
+		if err := d.mgr.ApproveKnownHost(id); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if _, err := d.regenerate(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, control.TrustApproveResponse{Approved: len(ids)})
 }
