@@ -38,6 +38,10 @@ func splitPositional(args []string, n int) (positional, rest []string) {
 }
 
 func runInit(ctx context.Context, env *Env, args []string) error {
+	return initVault(ctx, env, args, true)
+}
+
+func initVault(ctx context.Context, env *Env, args []string, showNext bool) error {
 	fs := newFlagSet(env, "init")
 	kitPath := fs.String("kit", "", "write the recovery kit to this path instead of printing it")
 	label := fs.String("label", defaultDeviceLabel(), "label for this device")
@@ -85,8 +89,10 @@ func runInit(ctx context.Context, env *Env, args []string) error {
 	if err := env.confirmKitNow(mgr, kit); err != nil {
 		return env.explainUnfinishedInit(kitSaved, *kitPath, err)
 	}
-	env.printf("\nRecovery kit confirmed. The vault is unlocked and ready.\n")
-	env.printf("Next: sshstate daemon, then sshstate add-key ~/.ssh/id_ed25519\n")
+	env.printf("\nRecovery kit confirmed.\n")
+	if showNext {
+		env.printf("Next: sshstate service, then sshstate unlock\n")
+	}
 	return nil
 }
 

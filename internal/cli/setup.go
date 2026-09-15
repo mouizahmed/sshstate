@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/mouizahmed/sshstate/internal/service"
+	"github.com/mouizahmed/sshstate/internal/sshconfig"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
@@ -40,7 +41,7 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 	}
 
 	env.printf("Step 1 of 4: creating the vault.\n\n")
-	if err := runInit(ctx, env, []string{"--kit", *kitPath, "--label", *label}); err != nil {
+	if err := initVault(ctx, env, []string{"--kit", *kitPath, "--label", *label}, false); err != nil {
 		return err
 	}
 
@@ -62,6 +63,9 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 
 	env.printf("\nStep 4 of 4: your hosts.\n\n")
 	if *importFrom != "" {
+		if err := adoptIdentityFiles(ctx, env, *importFrom); err != nil {
+			return err
+		}
 		if err := runImport(ctx, env, []string{*importFrom}); err != nil {
 			return err
 		}
@@ -120,6 +124,58 @@ func runService(ctx context.Context, env *Env, args []string) error {
 	}
 	if err := installService(env); err != nil {
 		return err
+	}
+	return nil
+}
+
+func adoptIdentityFiles(ctx context.Context, env *Env, configPath string) error {
+	body, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", configPath, err)
+	}
+	parsed, problems := sshconfig.ParseImport(string(body))
+	if len(problems) > 0 {
+		return importRefusal(env, configPath, problems)
+	}
+	seen := map[string]bool{}
+	var paths []string
+	for _, h := range parsed {
+		for _, file := range h.IdentityFiles {
+			if !seen[file] {
+				seen[file] = true
+				paths = append(paths, file)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	keys, err := env.Client().Keys(ctx)
+	if err != nil {
+		return hint(err)
+	}
+	have := map[string]bool{}
+	for _, k := range keys {
+		have[k.Fingerprint] = true
+	}
+	for _, file := range paths {
+		fingerprint, err := identityFingerprint(file)
+		if err != nil {
+			env.warnf("skipping IdentityFile %s: %v\n", file, err)
+			continue
+		}
+		if have[fingerprint] {
+			continue
+		}
+		expanded, err := expandHome(file)
+		if err != nil {
+			return err
+		}
+		env.printf("Importing the key %s references.\n", file)
+		if err := runAddKey(ctx, env, []string{expanded}); err != nil {
+			return err
+		}
+		have[fingerprint] = true
 	}
 	return nil
 }
