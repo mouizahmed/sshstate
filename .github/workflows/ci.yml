@@ -44,8 +44,12 @@ jobs:
         run: go build ./...
       - name: test
         run: go test ./...
+      # Every vault test pays argon2id twice, once to create and once to unlock.
+      # Under -race on a hosted runner that pushes internal/cli and
+      # internal/daemon past Go's default 10-minute per-package limit, which
+      # reports as a timeout panic rather than as slowness.
       - name: test -race
-        run: go test -race ./...
+        run: go test -race -timeout 30m ./...
 
   cross-build:
     runs-on: ubuntu-latest
