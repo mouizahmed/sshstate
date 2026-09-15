@@ -15,6 +15,7 @@ import (
 
 	"github.com/mouizahmed/sshstate/internal/control"
 	"github.com/mouizahmed/sshstate/internal/paths"
+	"github.com/mouizahmed/sshstate/internal/service"
 )
 
 type Env struct {
@@ -72,11 +73,23 @@ func (e *Env) warnf(format string, args ...any) {
 	fmt.Fprintf(e.Stderr, format, args...)
 }
 
+func daemonAdvice() string {
+	mgr := service.For()
+	if mgr == nil {
+		return "start it with: sshstate daemon"
+	}
+	if installed, err := mgr.Installed(); err != nil || !installed {
+		return "start it with: sshstate daemon"
+	}
+	return fmt.Sprintf(`the %s service is registered, so it should have started on demand.
+Its sockets are missing or unreachable; re-register it with: sshstate install --service`, mgr.Name())
+}
+
 func hint(err error) error {
 	var api *control.APIError
 	if !errors.As(err, &api) {
 		if errors.Is(err, control.ErrDaemonUnavailable) {
-			return fmt.Errorf("%w\nstart it with: sshstate daemon", err)
+			return fmt.Errorf("%w\n%s", err, daemonAdvice())
 		}
 		return err
 	}
