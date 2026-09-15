@@ -411,3 +411,115 @@ func TestGeneratedPublicKeysAreNotWorldReadable(t *testing.T) {
 		}
 	}
 }
+
+const supersededNote = "superseded by sshstate"
+
+func TestCommentSourceCommentsRatherThanDeletes(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+
+	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "Host keepme\n HostName 10.0.0.9\n\nHost prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n\n# a trailing note\n"
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--with-keys", "--comment-source")
+
+	after, err := os.ReadFile(s.Layout.UserSSHConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(after)
+	if strings.Contains(text, "\nHost prod") {
+		t.Fatalf("the prod block is still active:\n%s", text)
+	}
+	if !strings.Contains(text, "# Host prod") {
+		t.Fatalf("the prod block was not commented:\n%s", text)
+	}
+	if !strings.Contains(text, "#  IdentityFile "+key) {
+		t.Fatalf("the IdentityFile line survived uncommented:\n%s", text)
+	}
+	if strings.Count(text, supersededNote) != 2 {
+		t.Fatalf("each commented block needs its own explanation:\n%s", text)
+	}
+	if !strings.Contains(text, "# a trailing note") {
+		t.Fatalf("an unrelated comment was lost:\n%s", text)
+	}
+	if !strings.Contains(text, "# Host keepme") {
+		t.Fatalf("keepme was imported but left active, so it still shadows the generated block:\n%s", text)
+	}
+	if strings.Contains(text, "\nHost keepme") {
+		t.Fatalf("keepme is still an active block:\n%s", text)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "#" {
+			t.Fatalf("a blank separator line was commented:\n%s", text)
+		}
+	}
+
+	out := s.out.String()
+	if !strings.Contains(out, "Backed up your SSH config to") {
+		t.Fatalf("no backup was reported:\n%s", out)
+	}
+	var backup string
+	for _, f := range strings.Fields(out) {
+		if strings.Contains(f, "sshstate-backup-") {
+			backup = f
+		}
+	}
+	saved, err := os.ReadFile(backup)
+	if err != nil {
+		t.Fatalf("the reported backup is not readable: %v", err)
+	}
+	if string(saved) != body {
+		t.Fatal("the backup is not the file as it was")
+	}
+}
+
+func TestCommentSourceRefusesAConfigThatIsNotYours(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n")
+
+	err := s.run(t, "import", path, "--with-keys", "--comment-source")
+	if err == nil {
+		t.Fatal("--comment-source edited a file that is not the user's own config")
+	}
+	if !strings.Contains(err.Error(), s.Layout.UserSSHConfig) {
+		t.Fatalf("the refusal does not name the only file it will edit: %v", err)
+	}
+}
+
+func TestCommentSourceWritesNothingOnADryRun(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--with-keys", "--comment-source", "--dry-run")
+
+	after, err := os.ReadFile(s.Layout.UserSSHConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != body {
+		t.Fatalf("--dry-run edited the config:\n%s", after)
+	}
+	if !strings.Contains(s.out.String(), "would be commented out") {
+		t.Fatalf("the dry run did not say what it would do:\n%s", s.out)
+	}
+}
