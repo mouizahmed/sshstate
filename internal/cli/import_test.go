@@ -237,8 +237,12 @@ func TestImportNamesAnIdentityFileTheVaultDoesNotHave(t *testing.T) {
 	if err == nil {
 		t.Fatal("a host referencing an unknown key was imported")
 	}
-	if !strings.Contains(s.errOut.String(), "add-key") {
-		t.Fatalf("the diagnostic does not say how to fix it:\n%s", s.errOut)
+	out := s.errOut.String()
+	if !strings.Contains(out, "--with-keys") {
+		t.Fatalf("the diagnostic does not say how to fix it:\n%s", out)
+	}
+	if !strings.Contains(out, stray) {
+		t.Fatalf("the diagnostic does not name the file that is missing:\n%s", out)
 	}
 }
 
@@ -250,5 +254,95 @@ func TestImportRejectsAnUppercaseAlias(t *testing.T) {
 	}
 	if !strings.Contains(s.errOut.String(), "lowercase") {
 		t.Fatalf("the diagnostic does not explain the alias rule:\n%s", s.errOut)
+	}
+}
+
+func TestImportWithKeysAdoptsTheKeysTheConfigNames(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n")
+
+	if err := s.run(t, "import", path); err == nil {
+		t.Fatal("import took a host whose key is not in the vault")
+	}
+	if !strings.Contains(s.errOut.String(), "--with-keys") {
+		t.Fatalf("the refusal does not mention the flag that fixes it:\n%s", s.errOut)
+	}
+	s.errOut.Reset()
+	s.out.Reset()
+
+	s.mustRun(t, "import", path, "--with-keys")
+
+	keys, err := s.Env.Client().Keys(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].Comment != "laptop@home" {
+		t.Fatalf("the key was not adopted: %+v", keys)
+	}
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 || len(hosts[0].KeyIDs) != 1 || hosts[0].KeyIDs[0] != keys[0].RecordID {
+		t.Fatalf("the host does not reference the adopted key: %+v", hosts)
+	}
+}
+
+func TestImportDryRunPreviewsTheKeysToo(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n")
+
+	s.mustRun(t, "import", path, "--with-keys", "--dry-run")
+
+	out := s.out.String()
+	if !strings.Contains(out, "key       SHA256:") {
+		t.Fatalf("the preview did not list the key it would import:\n%s", out)
+	}
+	if !strings.Contains(out, "new       prod") {
+		t.Fatalf("the preview did not list the host:\n%s", out)
+	}
+	keys, err := s.Env.Client().Keys(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("--dry-run imported %d keys", len(keys))
+	}
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 0 {
+		t.Fatalf("--dry-run imported %d hosts", len(hosts))
+	}
+}
+
+func TestImportWithKeysIsIdempotent(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n")
+
+	s.mustRun(t, "import", path, "--with-keys")
+	s.out.Reset()
+	s.mustRun(t, "import", path, "--with-keys")
+
+	if !strings.Contains(s.out.String(), "unchanged") {
+		t.Fatalf("a repeat import was not a no-op:\n%s", s.out)
+	}
+	keys, err := s.Env.Client().Keys(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("the key was imported %d times", len(keys))
 	}
 }
