@@ -437,3 +437,72 @@ func appendOrFail(t *testing.T, c *Chain, ev protocol.SignedMembershipEvent) *Ch
 	}
 	return next
 }
+
+func TestRecoveryAuthorityCanRevoke(t *testing.T) {
+	v := newVault(t)
+	c := v.rooted(t)
+	replacement := newDevice(t)
+
+	enrol, err := c.RecoveryEnroll(v.recovery, replacement.keys(), v.tick())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = c.Append(enrol)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revoke := recoveryRevoke(t, c, v, v.first.id, v.tick())
+	next, err := c.Append(revoke)
+	if err != nil {
+		t.Fatalf("the verifier refused a recovery-signed revocation: %v", err)
+	}
+	if next.Authorized(v.first.id) {
+		t.Fatal("the revoked device is still authorized")
+	}
+	if !next.Authorized(replacement.id) {
+		t.Fatal("the replacement lost its authority")
+	}
+
+	forged := resign(t, revoke, replacement.signing, func(*protocol.MembershipEvent) {})
+	if _, err := c.Append(forged); err == nil {
+		t.Fatal("a device forged a recovery-authorized revocation")
+	}
+}
+
+func TestRecoveryAuthorityCannotRevokeTheLastDevice(t *testing.T) {
+	v := newVault(t)
+	c := v.rooted(t)
+
+	revoke := recoveryRevoke(t, c, v, v.first.id, v.tick())
+	if _, err := c.Append(revoke); err == nil {
+		t.Fatal("the recovery kit revoked the only authorized device")
+	}
+}
+
+func recoveryRevoke(t *testing.T, c *Chain, v *vault, target protocol.ID, now time.Time) protocol.SignedMembershipEvent {
+	t.Helper()
+	ev := protocol.MembershipEvent{
+		Domain:        protocol.MembershipDomain,
+		FormatVersion: protocol.MembershipFormatVersion,
+		Suite:         crypto.SuiteID,
+		VaultID:       v.genesis.VaultID,
+		ChainSeq:      protocol.Counter(c.Len() + 1),
+		ParentDigest:  c.HeadDigest(),
+		Action:        protocol.ActionRevoke,
+		DeviceID:      target,
+		Authority:     protocol.AuthorityRecovery,
+		AuthorizedBy:  v.genesis.VaultID,
+		CreatedAt:     now.UTC().Format("2006-01-02T15:04:05Z"),
+		EventID:       protocol.MustNewID(),
+	}
+	msg, err := ev.SigningInput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := v.recovery.Sign(protocol.MembershipSignatureDomain, msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return protocol.SignedMembershipEvent{Event: ev, Signature: sig}
+}
