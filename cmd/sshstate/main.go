@@ -18,7 +18,8 @@ import (
 
 var laterMilestones = map[string]string{
 	"rotate-master-key": "master key rotation ships before stable v1",
-	"rotation":          "rotation status and resume ship with rotation",
+	"rotation-status":   "ships with rotation",
+	"rotation-resume":   "ships with rotation",
 }
 
 var withdrawn = map[string]string{
