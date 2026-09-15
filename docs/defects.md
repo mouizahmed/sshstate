@@ -331,3 +331,47 @@ false, the test reports that a connection from another user was accepted.
 The skip stays — CI has no second account and a test that failed there would be
 noise — but the refusal is now something that has actually been observed:
 `peer runs as uid 1001, this daemon serves uid 1000`.
+
+---
+
+## D7 — Revoking a device made another device's earlier work unreadable
+
+- Found: Milestone 3a, by `internal/cli.TestThreeDevicesShareOneVault`
+- Severity: a routine revocation could wedge sync permanently on the device that performed it
+- Fixed in: `internal/syncengine/engine.go`
+
+A revoked device's writes are refused from the point the local device learned of
+the revocation; its earlier writes stay valid, because they are history every
+device already accepted. The position of that boundary was taken from the local
+record cursor at the moment the membership chain was applied — which is before
+the pull that fetches the records the boundary is meant to divide.
+
+So on a device that was behind, the boundary landed below records the revoked
+device had legitimately published earlier. Those records arrived on the very next
+page and were refused as writes from a revoked device. The refusal failed the
+whole pull, the cursor never advanced, and every later sync failed the same way
+at the same record.
+
+With three devices the window is wide enough to hit on a first attempt: B adds a
+host, C adds a host, then A revokes B without having pulled B's host first. A's
+`revoke` failed reporting a record it had itself just asked for.
+
+### Why two devices never showed it
+
+With two devices the revoker is almost always the only other writer, so it has
+already pulled everything the revoked device published. The two-device test
+revokes immediately after a sync, so its cursor is at the head and the boundary
+is correct by accident. Nothing in it can distinguish a boundary taken before
+the pull from one taken after.
+
+### Fix
+
+The boundary is recorded after the pull completes, from the snapshot bound the
+relay reported, and only when the pull reached that bound. Everything at or
+below it was on the relay when the revocation was observed and is accepted;
+anything above it is a write from after and is refused.
+
+Mutation-checked: moving the boundary back to before the pull fails the
+three-device test with the original error. Note that changing only the *value*
+passed does not fail it — after a complete pull the local cursor equals the
+bound — so it is the ordering, not the argument, that carries the fix.
