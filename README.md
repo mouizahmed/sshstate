@@ -107,6 +107,7 @@ go build -o sshstate ./cmd/sshstate
 ./sshstate install                     # adds the Include to ~/.ssh/config
 ./sshstate doctor
 ssh prod
+./sshstate trust                           # host keys ssh captured, and what is pending
 ```
 
 A second machine, through a relay you run (`deploy/README.md` sets one up):

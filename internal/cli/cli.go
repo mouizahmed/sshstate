@@ -43,6 +43,7 @@ func Commands() []Command {
 		{"add", "add a managed host", runAdd},
 		{"edit", "change a managed host", runEdit},
 		{"import", "import hosts from an existing SSH config", runImport},
+		{"trust", "review and approve host-key observations", runTrust},
 		{"connect", "point this vault at a sync relay", runConnect},
 		{"pair", "enrol this machine into an existing vault", runPair},
 		{"approve", "authorize another machine to join this vault", runApprove},
