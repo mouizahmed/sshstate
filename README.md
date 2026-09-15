@@ -150,9 +150,12 @@ offers to deregister this device first, and says plainly when it could not.
 `--purge` additionally deletes the vault, and only after you have taken a backup
 that is still on disk and typed the vault id back.
 
-On macOS, `install --service` registers a launchd agent using named socket
-activation, so the daemon starts on demand and starts locked. Linux uses
-foreground mode until systemd integration lands.
+`install --service` registers the daemon with the platform's service manager,
+so it starts on demand when SSH or the CLI connects, and starts locked. On macOS
+that is a launchd agent; on Linux it is three systemd user units — one service
+and one socket unit per socket, because systemd names every descriptor in a
+socket unit alike and the daemon adopts its two sockets by name, never by
+position. Everywhere else, run `sshstate daemon` in the foreground.
 
 ## Building
 
@@ -162,8 +165,9 @@ Requires **Go 1.27 or later** — `crypto/mldsa` is not present in Go 1.26.
 make check      # gofmt, vet, build, test, test -race
 go build ./...
 
-# Registers a real launchd job in your session; opt-in, and not run by CI.
-SSHSTATE_LAUNCHD_TEST=1 go test ./internal/service/ -run Launchd
+# Register a real service in your own session; opt-in, and not run by CI.
+SSHSTATE_LAUNCHD_TEST=1 go test ./internal/service/ -run Launchd   # macOS
+SSHSTATE_SYSTEMD_TEST=1 go test ./internal/service/ -run Systemd   # Linux
 ```
 
 ## Documentation
