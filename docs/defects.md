@@ -291,3 +291,43 @@ adds a host, which is the property that actually matters.
 `TestConfirmRecoveryRejectsAnotherVaultsKit`, `TestRecoveryChallengeIsSingleUse`,
 `TestRecoveryChallengeExpires` and `TestRecoveryProofIsDomainSeparated` cover the
 proof itself.
+
+---
+
+## D6 — The cross-user socket test had never once run
+
+- Found: Milestone 3a, by running it on a Linux VM with a second account
+- Severity: the agent socket's only real guard had no evidence behind it
+- Fixed in: `internal/peercred/peercred_test.go`
+
+`TestCrossUserConnectionIsRefused` is the test for the check that stops another
+user on the machine from asking the agent to sign with keys they cannot read.
+It needs a second uid, so it skips when one is not configured. It had skipped
+every time it had ever been run, on every machine, and the package still
+reported `ok`.
+
+Given a second account it failed twice before it passed. `go test` builds the
+test binary into a 0700 directory, so `sudo -u other <binary>` could not find a
+file it was not allowed to traverse to — reported as a skip, because the test
+treats "could not run as that user" as an environment problem. Once the binary
+was copied somewhere reachable, sudo's default `env_reset` stripped
+`SSHSTATE_PEER_SOCKET`, so the helper skipped, connected to nothing, and the
+listener timed out.
+
+### Why it survived until a second uid existed
+
+A skip is not a failure. The test was written carefully, reviewed, and committed
+in a package whose other three tests pass, and nothing in `go test` output
+distinguishes a guard that was proven from a guard that was never exercised.
+Two machines had run it; neither had a second account.
+
+### Fix
+
+The binary is copied to the world-traversable directory the test already
+creates, and the socket path is passed through `env(1)` rather than an
+environment sudo will not forward. Mutation-checked: with `uid != self` forced
+false, the test reports that a connection from another user was accepted.
+
+The skip stays — CI has no second account and a test that failed there would be
+noise — but the refusal is now something that has actually been observed:
+`peer runs as uid 1001, this daemon serves uid 1000`.

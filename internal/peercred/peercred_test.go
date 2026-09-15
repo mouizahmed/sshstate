@@ -166,9 +166,16 @@ func TestCrossUserConnectionIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sudo", "-n", "-u", peer, self,
-		"-test.run", "^TestConnectAsPeerHelper$", "-test.v")
-	cmd.Env = append(os.Environ(), "SSHSTATE_PEER_SOCKET="+path)
+	helper := filepath.Join(filepath.Dir(path), "helper")
+	body, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(helper, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sudo", "-n", "-u", peer, "env", "SSHSTATE_PEER_SOCKET="+path,
+		helper, "-test.run", "^TestConnectAsPeerHelper$", "-test.v")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Skipf("could not run the test binary as %q (%v):\n%s", peer, err, out)
