@@ -6,12 +6,15 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/mouizahmed/sshstate/internal/activation"
 	"github.com/mouizahmed/sshstate/internal/daemon"
+	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
@@ -36,6 +39,10 @@ func runDaemon(ctx context.Context, env *Env, args []string) error {
 	}
 	if *userConfig != "" {
 		env.Layout.UserSSHConfig = *userConfig
+	}
+
+	if err := refuseIfServiceOwnsTheSockets(*runtimeDir); err != nil {
+		return err
 	}
 
 	store, err := vault.OpenStore(env.Layout.Database())
@@ -65,4 +72,25 @@ func runDaemon(ctx context.Context, env *Env, args []string) error {
 
 	env.printf("sshstate daemon running. Vault is locked; run: sshstate unlock\n")
 	return d.Run(ctx)
+}
+
+func refuseIfServiceOwnsTheSockets(runtimeOverride string) error {
+	if activation.Available() || runtimeOverride != "" {
+		return nil
+	}
+	mgr := service.For()
+	if mgr == nil {
+		return nil
+	}
+	installed, err := mgr.Installed()
+	if err != nil || !installed {
+		return nil
+	}
+	return fmt.Errorf(`the %s service owns this vault's sockets, and a foreground daemon would replace them
+
+That breaks on-demand start: the service would keep watching sockets this
+process had unlinked, and ssh would find nothing there.
+
+  sshstate status     to use the service, which starts on demand
+  sshstate uninstall  to unregister it and run in the foreground instead`, mgr.Name())
 }
