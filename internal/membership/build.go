@@ -118,29 +118,6 @@ func (c *Chain) Revoke(by Signer, target protocol.ID, now time.Time) (protocol.S
 	return sign(ev, by.Key)
 }
 
-func (c *Chain) RecoveryRevoke(recovery *crypto.SigningKey, target protocol.ID, now time.Time) (protocol.SignedMembershipEvent, error) {
-	if !c.Authorized(target) {
-		return protocol.SignedMembershipEvent{}, fmt.Errorf("device %s is not currently authorized", target)
-	}
-	if c.AuthorizedCount() == 1 {
-		return protocol.SignedMembershipEvent{}, errors.New("this is the last authorized device; enrol the replacement before revoking it")
-	}
-	ev := protocol.MembershipEvent{
-		Domain:        protocol.MembershipDomain,
-		FormatVersion: protocol.MembershipFormatVersion,
-		Suite:         crypto.SuiteID,
-		VaultID:       c.genesis.VaultID,
-		ChainSeq:      protocol.Counter(len(c.events) + 1),
-		ParentDigest:  c.HeadDigest(),
-		Action:        protocol.ActionRevoke,
-		DeviceID:      target,
-		Authority:     protocol.AuthorityRecovery,
-		AuthorizedBy:  c.genesis.VaultID,
-		CreatedAt:     stamp(now),
-	}
-	return sign(ev, recovery)
-}
-
 func sign(ev protocol.MembershipEvent, key *crypto.SigningKey) (protocol.SignedMembershipEvent, error) {
 	id, err := protocol.NewID()
 	if err != nil {
