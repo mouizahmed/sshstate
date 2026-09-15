@@ -26,6 +26,7 @@ func (d *Daemon) routes() http.Handler {
 	mux.HandleFunc("GET "+control.RouteHosts, d.handleListHosts)
 	mux.HandleFunc("POST "+control.RouteHosts, d.handleAddHost)
 	mux.HandleFunc("POST "+control.RouteHostEdit, d.handleEditHost)
+	mux.HandleFunc("POST "+control.RouteImport, d.handleImport)
 	mux.HandleFunc("GET "+control.RouteKeys, d.handleListKeys)
 	mux.HandleFunc("POST "+control.RouteKeys, d.handleAddKey)
 	mux.HandleFunc("POST "+control.RouteGenerate, d.handleGenerate)
@@ -344,6 +345,59 @@ func (d *Daemon) handleEditHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeError(w, errors.New("host was edited but could not be read back"))
+}
+
+func (d *Daemon) handleImport(w http.ResponseWriter, r *http.Request) {
+	var req control.ImportRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(req.Hosts) == 0 {
+		writeError(w, errors.New("the import names no hosts"))
+		return
+	}
+	specs := make([]vault.HostSpec, 0, len(req.Hosts))
+	for _, h := range req.Hosts {
+		ids := make([]protocol.ID, 0, len(h.KeyIDs))
+		for _, raw := range h.KeyIDs {
+			id := protocol.ID(raw)
+			if !id.Valid() {
+				writeError(w, fmt.Errorf("key id %q is malformed", raw))
+				return
+			}
+			ids = append(ids, id)
+		}
+		specs = append(specs, vault.HostSpec{
+			Alias:     strings.TrimSpace(h.Alias),
+			HostName:  strings.TrimSpace(h.HostName),
+			User:      strings.TrimSpace(h.User),
+			Port:      h.Port,
+			ProxyJump: h.ProxyJump,
+			KeyIDs:    ids,
+		})
+	}
+	outcomes, err := d.mgr.ImportHosts(specs, req.DryRun)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !req.DryRun {
+		if _, err := d.regenerate(); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	out := control.ImportResponse{DryRun: req.DryRun}
+	for _, o := range outcomes {
+		out.Outcomes = append(out.Outcomes, control.ImportOutcome{
+			Alias:    o.Alias,
+			Action:   string(o.Action),
+			RecordID: o.RecordID.String(),
+			Detail:   o.Detail,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func trimmed(s string) *string {

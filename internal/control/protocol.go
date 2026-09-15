@@ -15,6 +15,7 @@ const (
 	RouteLock              = "/" + APIVersion + "/lock"
 	RouteHosts             = "/" + APIVersion + "/hosts"
 	RouteHostEdit          = "/" + APIVersion + "/hosts/edit"
+	RouteImport            = "/" + APIVersion + "/hosts/import"
 	RouteKeys              = "/" + APIVersion + "/keys"
 	RouteGenerate          = "/" + APIVersion + "/generate"
 	RouteDoctor            = "/" + APIVersion + "/doctor"
@@ -104,6 +105,23 @@ type EditHostRequest struct {
 	Port      *int      `json:"port,omitempty"`
 	ProxyJump *string   `json:"proxy_jump,omitempty"`
 	KeyIDs    *[]string `json:"key_ids,omitempty"`
+}
+
+type ImportRequest struct {
+	Hosts  []AddHostRequest `json:"hosts"`
+	DryRun bool             `json:"dry_run,omitempty"`
+}
+
+type ImportOutcome struct {
+	Alias    string `json:"alias"`
+	Action   string `json:"action"`
+	RecordID string `json:"record_id,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+}
+
+type ImportResponse struct {
+	DryRun   bool            `json:"dry_run"`
+	Outcomes []ImportOutcome `json:"outcomes"`
 }
 
 type HostResponse struct {
