@@ -6,6 +6,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/mouizahmed/sshstate/internal/control"
@@ -13,19 +14,32 @@ import (
 
 func runTrust(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "trust")
-	approve := fs.String("approve", "", "comma-separated observation record ids to approve")
-	approveAll := fs.Bool("approve-all", false, "approve every pending observation")
-	if err := fs.Parse(args); err != nil {
+	approveAll := fs.Bool("all", false, "approve every pending observation")
+	subjects, rest := splitPositional(args, len(args))
+	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate trust [--approve id,...] [--approve-all]")
+	subjects = append(subjects, fs.Args()...)
+	if len(subjects) > 0 && *approveAll {
+		return errors.New("give record ids or --all, not both")
 	}
 
-	if *approve != "" || *approveAll {
+	if len(subjects) > 0 || *approveAll {
 		req := control.TrustApproveRequest{All: *approveAll}
-		for _, id := range strings.Split(*approve, ",") {
-			if id = strings.TrimSpace(id); id != "" {
+		if len(subjects) > 0 {
+			listed, err := env.Client().TrustList(ctx)
+			if err != nil {
+				return hint(err)
+			}
+			ids := make([]string, 0, len(listed.Entries))
+			for _, e := range listed.Entries {
+				ids = append(ids, e.RecordID)
+			}
+			for _, want := range subjects {
+				id, err := resolveRecordID(ids, want, "observation")
+				if err != nil {
+					return fmt.Errorf("%w; see: sshstate trust", err)
+				}
 				req.RecordIDs = append(req.RecordIDs, id)
 			}
 		}
@@ -61,7 +75,7 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 	if pending > 0 {
 		env.printf("\n%s pending review, and not trusted until approved.\n",
 			count(pending, "observation is", "observations are"))
-		env.printf("Approve with: sshstate trust --approve <record-id>\n")
+		env.printf("Approve with: sshstate trust <record-id>, or: sshstate trust --all\n")
 	}
 	return nil
 }

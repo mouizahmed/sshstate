@@ -130,12 +130,23 @@ func runRevoke(ctx context.Context, env *Env, args []string) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return errors.New("usage: sshstate revoke <device-id> [--yes]")
 	}
-	deviceID := args[0]
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return errors.New("usage: sshstate revoke <device-id> [--yes]")
+	}
+	devices, err := env.Client().Devices(ctx)
+	if err != nil {
+		return hint(err)
+	}
+	ids := make([]string, 0, len(devices.Devices))
+	for _, d := range devices.Devices {
+		ids = append(ids, d.DeviceID)
+	}
+	deviceID, err := resolveRecordID(ids, args[0], "device")
+	if err != nil {
+		return fmt.Errorf("%w; see: sshstate devices", err)
 	}
 	out, err := env.Client().Revoke(ctx, control.RevokeRequest{
 		DeviceID: deviceID,
@@ -387,12 +398,23 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return errors.New("usage: sshstate resolve <conflict-record-id> [--resurrect]")
 	}
-	recordID := args[0]
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
 		return errors.New("usage: sshstate resolve <conflict-record-id> [--resurrect]")
+	}
+	listed, err := env.Client().Conflicts(ctx)
+	if err != nil {
+		return hint(err)
+	}
+	ids := make([]string, 0, len(listed.Conflicts))
+	for _, c := range listed.Conflicts {
+		ids = append(ids, c.RecordID)
+	}
+	recordID, err := resolveRecordID(ids, args[0], "conflict")
+	if err != nil {
+		return fmt.Errorf("%w; see: sshstate conflicts", err)
 	}
 	out, err := env.Client().Resolve(ctx, control.ResolveRequest{
 		RecordID:  recordID,
