@@ -45,7 +45,7 @@ func (e *Engine) Sync(ctx context.Context) (*Report, error) {
 	}
 	report := &Report{}
 
-	chain, err := e.syncMembership(ctx)
+	chain, newlyRevoked, err := e.syncMembership(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -54,26 +54,35 @@ func (e *Engine) Sync(ctx context.Context) (*Report, error) {
 	if err := e.push(ctx, report); err != nil {
 		return nil, err
 	}
-	if err := e.pull(ctx, chain, report); err != nil {
+	through, err := e.pull(ctx, chain, report)
+	if err != nil {
 		return nil, err
+	}
+	if report.Complete {
+		for _, id := range newlyRevoked {
+			if err := e.noteRevocation(id, through); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return report, nil
 }
 
-func (e *Engine) syncMembership(ctx context.Context) (*membership.Chain, error) {
+func (e *Engine) syncMembership(ctx context.Context) (*membership.Chain, []protocol.ID, error) {
 	events, err := e.Client.Membership(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	chain, err := membership.Validate(e.Genesis, events)
 	if err != nil {
-		return nil, fmt.Errorf("membership chain from the relay: %w", err)
+		return nil, nil, fmt.Errorf("membership chain from the relay: %w", err)
 	}
 	if chain.Len() >= localChainLength(e.Store) {
 		if err := e.Store.PutMembershipEvents(chain.Events()); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
+	var newlyRevoked []protocol.ID
 	for _, d := range chain.Devices() {
 		status := vault.DeviceActive
 		if d.Revoked {
@@ -86,26 +95,38 @@ func (e *Engine) syncMembership(ctx context.Context) (*membership.Chain, error) 
 			Status:     status,
 			EnrolledAt: d.EnrolledAt,
 		}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if d.Revoked {
-			if err := e.noteRevocation(d.ID); err != nil {
-				return nil, err
-			}
+		if !d.Revoked {
+			continue
+		}
+		noted, err := e.revocationNoted(d.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !noted {
+			newlyRevoked = append(newlyRevoked, d.ID)
 		}
 	}
-	return chain, nil
+	return chain, newlyRevoked, nil
 }
 
-func (e *Engine) noteRevocation(id protocol.ID) error {
+func (e *Engine) revocationNoted(id protocol.ID) (bool, error) {
+	_, err := e.Store.Cursor(vault.CursorRevokedAtPrefix + id.String())
+	if errors.Is(err, vault.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (e *Engine) noteRevocation(id protocol.ID, at protocol.Counter) error {
 	key := vault.CursorRevokedAtPrefix + id.String()
 	if _, err := e.Store.Cursor(key); err == nil {
 		return nil
 	} else if !errors.Is(err, vault.ErrNotFound) {
-		return err
-	}
-	at, err := e.cursor()
-	if err != nil {
 		return err
 	}
 	return e.Store.SetCursor(key, at.String())
@@ -140,20 +161,20 @@ func (e *Engine) push(ctx context.Context, report *Report) error {
 	return nil
 }
 
-func (e *Engine) pull(ctx context.Context, chain *membership.Chain, report *Report) error {
+func (e *Engine) pull(ctx context.Context, chain *membership.Chain, report *Report) (protocol.Counter, error) {
 	since, err := e.cursor()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var through protocol.Counter
 	for {
 		page, err := e.Client.Records(ctx, since, through, PageLimit)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		through = page.SnapshotCursor
 		if err := e.applyPage(chain, page, report); err != nil {
-			return err
+			return 0, err
 		}
 		since = page.NextCursor
 		if !page.HasMore {
@@ -162,7 +183,7 @@ func (e *Engine) pull(ctx context.Context, chain *membership.Chain, report *Repo
 	}
 	report.Cursor = since
 	report.Complete = since >= through
-	return nil
+	return through, nil
 }
 
 func (e *Engine) applyPage(chain *membership.Chain, page *protocol.RecordsResponse, report *Report) error {
