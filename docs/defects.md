@@ -473,3 +473,44 @@ compares the effective configuration and reports extra identities.
 
 `import` still does not edit the user's config. §3.2 permits exactly one managed
 edit to that file, the Include, and removing blocks the user wrote is not it.
+
+---
+
+## D10 — Reading a password from a file descriptor closed the caller's file
+
+- Found: Milestone 3a, by `internal/cli.TestSetupRefusesAnExistingVault` failing as `locking protocol (15)`
+- Severity: an unrelated open file, including the vault database, could be closed underneath its owner
+- Fixed in: `internal/cli/secretfd.go`
+
+`unlock --password-fd N` wrapped the caller's descriptor with `os.NewFile`.
+That constructor attaches a finalizer, so when the wrapper became unreachable
+the runtime closed the descriptor — one this program never opened and does not
+own. The number is then free for the next `open` to reuse.
+
+It surfaced as a SQLite error in a test that has nothing to do with passwords:
+
+    init: locking protocol (15)
+
+The test suite opens many descriptors, one of them SQLite's. A garbage
+collection between the password read and the next database call closed it, and
+SQLite saw its own file vanish. It passed in isolation and failed in the full
+run, which is what a use-after-close looks like.
+
+### Why it was not obvious
+
+Every test of the feature passed. The read returns the right bytes, refuses an
+empty secret, strips only the terminator, and takes one line rather than the
+whole stream. None of that touches ownership. The damage happens later, to
+something else, when the collector runs — so the failure appears in an unrelated
+test, attributed to an unrelated subsystem.
+
+### Fix
+
+The descriptor is duplicated with `dup(2)` and the copy is what gets wrapped, so
+the finalizer closes a descriptor this program owns. The copy is marked
+close-on-exec.
+
+`TestSecretFromFDDoesNotCloseTheCallersDescriptor` reads a secret, drops the
+reader, forces collection, and then requires the caller's pipe to still stat and
+still accept a write. Mutation-checked: adopting the original descriptor fails it
+with `bad file descriptor`.

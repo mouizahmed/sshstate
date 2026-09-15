@@ -56,3 +56,32 @@ Prefix matching means a subject that is unique today can become ambiguous later,
 when a second record shares its prefix. That is the correct failure: the command
 refuses and names both, rather than picking one. Scripts that want stability
 should use full ids, which is what the listings print.
+
+## Amendment, 2026-09-15: secrets on a file descriptor, and superseded blocks
+
+Two follow-ons, recorded here rather than as separate records because both
+settle how a verb is invoked.
+
+**`unlock --password-fd N`.** §3.1 allows a secret to come from a protected
+terminal *or an explicitly supplied file descriptor*, and only the terminal was
+implemented, so there was no way to unlock without one. The flag reads exactly
+one line from the named descriptor: leading and trailing spaces are part of the
+password, only the line terminator is stripped, the read is bounded, and an
+empty line is refused. `init` deliberately does not take it — it also requires
+the recovery-kit checksum back from the user, which is interactive by nature.
+
+Passing a secret as an argument stays forbidden. A descriptor is not visible in
+`ps`; an argument is.
+
+**`import --comment-source`.** §3.2 permits exactly one managed edit to the
+user's config, the Include, so `import` does not remove the blocks it copied
+into the vault. But leaving them means OpenSSH reads both definitions and takes
+the user's IdentityFile first, which is defect D9.
+
+The flag is the explicit, opt-in middle: it comments the imported blocks out
+rather than deleting them, after writing the same timestamped backup the
+installer uses, and prefixes each with a line saying why. Every byte is
+recoverable and nothing is removed. Without the flag, `import` only warns.
+
+It refuses to touch any file other than the user's own config, so it cannot be
+pointed at an arbitrary path.

@@ -111,6 +111,7 @@ Or step by step:
 ./sshstate keys                        # fingerprints and comments
 ./sshstate add prod --hostname 10.0.0.5 --user ubuntu --key laptop@home
 ./sshstate hosts
+./sshstate import ~/.ssh/config --with-keys --comment-source  # or import what you have
 ./sshstate install                     # adds the Include to ~/.ssh/config
 ./sshstate doctor
 ssh prod
