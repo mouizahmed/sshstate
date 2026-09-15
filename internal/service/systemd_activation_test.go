@@ -183,3 +183,115 @@ func TestSystemdSocketActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSystemdInstallAndUninstall(t *testing.T) {
+	if os.Getenv("SSHSTATE_SYSTEMD_TEST") != "1" {
+		t.Skip("set SSHSTATE_SYSTEMD_TEST=1 to register real systemd user units")
+	}
+	if os.Getenv("XDG_RUNTIME_DIR") == "" {
+		t.Skip("no systemd user session ($XDG_RUNTIME_DIR is unset)")
+	}
+	mgr := service.For()
+	if mgr == nil {
+		t.Fatal("no service manager on linux")
+	}
+	if installed, err := mgr.Installed(); err != nil {
+		t.Fatal(err)
+	} else if installed {
+		t.Skipf("sshstate is already registered at %s; this test will not overwrite it", mgr.DefinitionPath())
+	}
+	if mgr.Name() != "systemd" {
+		t.Fatalf("service manager is %q on linux", mgr.Name())
+	}
+
+	root, err := os.MkdirTemp("/tmp", "sssi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	layout := paths.Layout{
+		Data:          root + "/data",
+		SSH:           root + "/ssh",
+		UserSSHConfig: root + "/ssh/config",
+		Runtime:       root,
+	}
+
+	store, err := vault.OpenStore(layout.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, kit, err := vault.Init(store, vault.InitOptions{Password: []byte("pw"), DeviceLabel: "systemd-install-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.ConfirmRecoveryKit(kit.Checksum(), kit); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	binary := root + "/sshstate"
+	build := exec.Command("go", "build", "-o", binary, "github.com/mouizahmed/sshstate/cmd/sshstate")
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		t.Fatalf("build the daemon binary: %v", err)
+	}
+
+	systemctl := func(args ...string) (string, error) {
+		out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	t.Cleanup(func() { _ = mgr.Uninstall(layout) })
+
+	if err := mgr.Install(binary, layout); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if installed, err := mgr.Installed(); err != nil || !installed {
+		t.Fatalf("Installed() reports %v, %v after a successful install", installed, err)
+	}
+	for _, unit := range []string{"sshstate-control.socket", "sshstate-agent.socket"} {
+		if out, err := systemctl("is-enabled", unit); err != nil || out != "enabled" {
+			t.Fatalf("%s is %q (%v); install did not enable it", unit, out, err)
+		}
+	}
+	info, err := os.Stat(layout.AgentSocket())
+	if err != nil {
+		t.Fatalf("install did not create the agent socket: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("the agent socket is mode %04o, expected 0600", perm)
+	}
+
+	client := control.NewClient(layout.ControlSocket())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err = client.Status(ctx); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			out, _ := systemctl("status", "--no-pager", "sshstate.service")
+			t.Fatalf("the installed service never answered: %v\n%s", err, out)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	if err := mgr.Uninstall(layout); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	if installed, err := mgr.Installed(); err != nil || installed {
+		t.Fatalf("Installed() reports %v, %v after uninstall", installed, err)
+	}
+	dir := filepath.Dir(mgr.DefinitionPath())
+	for _, name := range []string{"sshstate.service", "sshstate-control.socket", "sshstate-agent.socket"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s survived uninstall: %v", name, err)
+		}
+	}
+	if out, _ := systemctl("is-active", "sshstate.service"); out == "active" {
+		t.Fatal("the daemon is still running after uninstall")
+	}
+	if _, err := os.Stat(layout.Database()); err != nil {
+		t.Fatalf("uninstall removed the vault: %v", err)
+	}
+}
