@@ -97,17 +97,24 @@ One machine, nothing leaving it:
 ```sh
 go build -o sshstate ./cmd/sshstate
 
+./sshstate setup --import ~/.ssh/config   # vault, service, unlock, hosts, Include
+ssh prod
+```
+
+Or step by step:
+
+```sh
 ./sshstate init --kit ~/sshstate-recovery-kit.txt
-./sshstate daemon &                    # or: ./sshstate install --service
+./sshstate service                     # starts on demand; or: ./sshstate daemon &
 ./sshstate unlock
 ./sshstate add-key ~/.ssh/id_ed25519
-./sshstate add prod --hostname 10.0.0.5 --user ubuntu --key <record-id>
-./sshstate edit prod --hostname 10.0.0.9   # revises the record, does not add one
-./sshstate import ~/.ssh/config --dry-run  # then again without --dry-run
+./sshstate keys                        # fingerprints and comments
+./sshstate add prod --hostname 10.0.0.5 --user ubuntu --key laptop@home
+./sshstate hosts
 ./sshstate install                     # adds the Include to ~/.ssh/config
 ./sshstate doctor
 ssh prod
-./sshstate trust                           # host keys ssh captured, and what is pending
+./sshstate trust                       # host keys ssh captured, and what is pending
 ```
 
 A second machine, through a relay you run (`deploy/README.md` sets one up):

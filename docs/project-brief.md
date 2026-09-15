@@ -41,7 +41,7 @@ sshstate status
 sshstate doctor
 sshstate lock
 
-sshstate server connect https://sync.example.com
+sshstate connect https://sync.example.com
 sshstate pair
 sshstate devices
 sshstate revoke <device-id>
@@ -52,13 +52,13 @@ sshstate export /path/to/backup.age
 sshstate restore /path/to/backup.age
 sshstate recover
 sshstate rotate-master-key
-sshstate rotation status
-sshstate rotation resume
+sshstate rotation-status
+sshstate rotation-resume
 sshstate uninstall
 sshstate uninstall --purge
 ```
 
-These are the command boundaries; individual flags are specified alongside implementation. Passwords, recovery secrets, and bootstrap secrets are read from a protected terminal or explicitly supplied file descriptor, never required as command-line arguments.
+These are the command boundaries; individual flags are specified alongside implementation. Verb shape — flat verbs, positional subjects, prefix matching — is decision record 0003, which amends this list. Passwords, recovery secrets, and bootstrap secrets are read from a protected terminal or explicitly supplied file descriptor, never required as command-line arguments.
 
 The post-v1 Git integration adds `sshstate git-sign -- <ssh-keygen arguments>` (§3.5).
 

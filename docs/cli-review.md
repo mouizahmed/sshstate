@@ -1,6 +1,7 @@
-# CLI review — what the command surface is missing
+# CLI review — what the command surface was missing
 
 Written 2026-09-15, after Milestone 3a and before client distribution.
+All three phases were implemented the same day; see the status column below.
 
 Distribution is the point at which strangers meet this CLI cold, with no author
 sitting next to them. This is an audit of all 25 verbs against that moment: what
@@ -138,16 +139,16 @@ unwritten, so the shape should be settled before it is built rather than after.
 
 ## Plan
 
-Ordered by whether it blocks distribution.
+Ordered by whether it blocks distribution. All done.
 
 ### Phase 1 — close the functional gaps
 
-1. **`sshstate hosts`** — alias, hostname, user, port, jump, key count, record id.
-2. **`sshstate keys`** — record id, fingerprint, algorithm, comment.
-3. **Accept a unique prefix** wherever a record id is taken, plus a fingerprint
+1. **Done — `sshstate hosts`** — alias, hostname, user, port, jump, key count, record id.
+2. **Done — `sshstate keys`** — record id, fingerprint, algorithm, comment.
+3. **Done — accept a unique prefix** wherever a record id is taken, plus a fingerprint
    or comment match for keys. Ambiguity is an error that lists the candidates.
    Full ids keep working.
-4. **`sshstate remove <alias>`** and **`sshstate remove-key <id>`**, writing
+4. **Done — `sshstate remove <alias>` and `sshstate remove-key <id>`**, writing
    tombstones. `remove-key` refuses while a host still references the key, and
    names the hosts. Both take `--yes`. Known-host records stay undeletable.
 
@@ -156,18 +157,20 @@ is the path it was written for and has never had.
 
 ### Phase 2 — setup
 
-5. **Reorder `install --service`** to register before generating.
-6. **`sshstate setup`** — one guided command: init, kit confirmation, service
+5. **Done — reorder `install --service`** to register before generating.
+6. **Done — `sshstate setup`**, plus a standalone `sshstate service` verb so
+   registration no longer has to travel with `install` — one guided command: init, kit confirmation, service
    registration, unlock, offer to import `~/.ssh/config`, install the Include.
    The five-command sequence becomes one, and the individual verbs stay for
    people who want them.
 
 ### Phase 3 — consistency
 
-7. Subjects positional everywhere; `trust <id>...` alongside `--all`.
-8. `--yes` on every verb that destroys or withdraws something.
-9. Settle `connect` versus `server connect`, and flat versus two-word
-   `rotation` subcommands, as a recorded decision before rotation is built.
+7. Done — subjects positional everywhere; `trust <id>...` alongside `--all`.
+8. Done — `--yes` on `remove` and `remove-key`, alongside `revoke` and
+   `uninstall`.
+9. Done — decision record 0003 settles flat verbs, positional subjects and
+   prefix matching, and amends the brief's command list.
 
 ### Not in scope
 
