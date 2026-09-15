@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
@@ -91,5 +92,66 @@ func TestTrustRefusesIDsAndAllTogether(t *testing.T) {
 	err := s.run(t, "trust", "abcdef01", "--all")
 	if err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Fatalf("expected a refusal, got %v", err)
+	}
+}
+
+func TestDoctorReportsThroughTheCLI(t *testing.T) {
+	s, _, _ := listReady(t)
+	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu")
+	s.out.Reset()
+
+	if err := s.run(t, "doctor"); err != nil && !strings.Contains(err.Error(), "problem") {
+		t.Fatalf("doctor: %v\n%s", err, s.errOut)
+	}
+	out := s.out.String()
+	if !strings.Contains(out, "ssh config include") {
+		t.Fatalf("doctor printed no findings:\n%s", out)
+	}
+	if !strings.Contains(out, "sshstate install") {
+		t.Fatalf("doctor did not say the Include is missing:\n%s", out)
+	}
+}
+
+func TestDoctorWithoutADaemonSaysHowToStartOne(t *testing.T) {
+	s := newScripted(t)
+	err := s.run(t, "doctor")
+	if err == nil {
+		t.Fatal("doctor answered with no daemon")
+	}
+	if !strings.Contains(err.Error(), "daemon") {
+		t.Fatalf("unhelpful error: %v", err)
+	}
+}
+
+func TestServiceRemoveWhenNotRegistered(t *testing.T) {
+	s, _, _ := listReady(t)
+	if service.For() == nil {
+		t.Skip("no service manager on this platform")
+	}
+	installed, err := service.For().Installed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed {
+		t.Skip("sshstate is registered on this machine; this test will not touch it")
+	}
+	s.out.Reset()
+	s.mustRun(t, "service", "--remove")
+	if !strings.Contains(s.out.String(), "Not registered") {
+		t.Fatalf("unexpected output:\n%s", s.out)
+	}
+}
+
+func TestServiceRejectsExtraArguments(t *testing.T) {
+	s, _, _ := listReady(t)
+	if err := s.run(t, "service", "install"); err == nil {
+		t.Fatal("a stray argument was accepted")
+	}
+}
+
+func TestSetupNeedsNoArguments(t *testing.T) {
+	s := newScripted(t)
+	if err := s.run(t, "setup", "extra"); err == nil {
+		t.Fatal("a positional argument was accepted")
 	}
 }
