@@ -11,6 +11,7 @@ import (
 
 type ImportedHost struct {
 	Line          int
+	EndLine       int
 	Alias         string
 	HostName      string
 	User          string
@@ -59,8 +60,10 @@ func ParseImport(text string) ([]ImportedHost, []ImportProblem) {
 	fail := func(line int, format string, args ...any) {
 		problems = append(problems, ImportProblem{Line: line, Text: fmt.Sprintf(format, args...)})
 	}
+	lastContent := 0
 	closeBlock := func() {
 		if current != nil {
+			current.EndLine = lastContent
 			hosts = append(hosts, *current)
 			current = nil
 		}
@@ -91,7 +94,7 @@ func ParseImport(text string) ([]ImportedHost, []ImportProblem) {
 				continue
 			}
 			seenAlias[strings.ToLower(alias)] = line
-			current = &ImportedHost{Line: line, Alias: alias}
+			current = &ImportedHost{Line: line, EndLine: line, Alias: alias}
 			continue
 		}
 
@@ -115,6 +118,7 @@ func ParseImport(text string) ([]ImportedHost, []ImportProblem) {
 			fail(line, "%s appears before any Host block", keyword)
 			continue
 		}
+		lastContent = line
 		if lowered != "identityfile" {
 			if first, dup := set[lowered]; dup {
 				fail(line, "%s is set twice for host %q; it was already set on line %d", keyword, current.Alias, first)

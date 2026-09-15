@@ -23,6 +23,7 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "import")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	withKeys := fs.Bool("with-keys", false, "also import the private keys the config's IdentityFile lines name")
+	commentSource := fs.Bool("comment-source", false, "comment out the imported Host blocks in your own config, after backing it up")
 	positional, rest := splitPositional(args, 1)
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -140,6 +141,9 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 		if len(missingKeys) > 0 {
 			env.printf("%s would be imported as well.\n", count(len(missingKeys), "key", "keys"))
 		}
+		if *commentSource {
+			env.printf("%s in %s would be commented out.\n", count(len(hosts), "block", "blocks"), path)
+		}
 		env.printf("\nNothing was written. Run it again without --dry-run to apply.\n")
 		return nil
 	}
@@ -149,7 +153,25 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 	if counts[string(vault.ImportConflict)] > 0 {
 		env.printf("Existing hosts were left as they are. See: sshstate conflicts\n")
 	}
+	if *commentSource && !res.DryRun {
+		return commentOutSource(env, path, hosts)
+	}
 	warnStillDefined(env, path, hosts)
+	return nil
+}
+
+func commentOutSource(env *Env, path string, hosts []sshconfig.ImportedHost) error {
+	if path != env.Layout.UserSSHConfig {
+		return fmt.Errorf("--comment-source only edits %s, and this import read %s", env.Layout.UserSSHConfig, path)
+	}
+	res, err := sshconfig.CommentOutBlocks(env.Layout, hosts)
+	if err != nil {
+		return err
+	}
+	env.printf("\nBacked up your SSH config to %s\n", res.BackupPath)
+	env.printf("Commented out %s in %s: %s\n",
+		count(len(res.Aliases), "block", "blocks"), path, strings.Join(res.Aliases, ", "))
+	env.printf("Nothing was deleted. Check with: sshstate doctor\n")
 	return nil
 }
 
