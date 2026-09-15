@@ -320,7 +320,11 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 	env.printf("hosts        %d\n", st.Hosts)
 	env.printf("keys         %d\n", st.Keys)
 	env.printf("known hosts  %d\n", st.KnownHosts)
-	env.printf("pending      %d\n", st.Pending)
+	if st.Relay != "" {
+		env.printf("unpublished  %d\n", st.Pending)
+	} else if st.Pending > 0 {
+		env.printf("unpublished  %d (no relay yet; they publish on connect)\n", st.Pending)
+	}
 	if st.Relay != "" {
 		env.printf("relay        %s\n", st.Relay)
 	} else {
