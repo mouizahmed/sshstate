@@ -422,3 +422,54 @@ process was not started by the service manager. The two ways forward are named:
 use the service, or `sshstate uninstall` to unregister it first. A daemon that
 was activated has descriptors passed to it and is allowed through, as is one
 given an explicit `--runtime` directory, which is not the service's.
+
+---
+
+## D9 — An imported host kept authenticating with the key it was meant to replace
+
+- Found: Milestone 3a, by running the everyday path against a real sshd and locking the vault
+- Severity: the vault's agent was not what authenticated, and nothing said so
+- Fixed in: `internal/cli/import.go`, `internal/sshconfig/generate.go`
+
+`import` copies hosts out of `~/.ssh/config` into the vault. It does not remove
+them from that file, and nothing warned that it had not. OpenSSH then reads both
+definitions: the user's own block and the generated one behind the Include.
+
+§3.2 already records why that matters — IdentityFile accumulates across every
+matching block, and `IdentitiesOnly` does not erase identities configured
+elsewhere. So the user's own `IdentityFile ~/.ssh/id_ed25519` kept being offered
+alongside the agent's. With the vault locked, the login still succeeded, using
+the plaintext key on disk. The whole premise, that the private key lives only in
+the vault, was quietly false for every host imported this way.
+
+A second problem surfaced in the same run. Generated public key files were
+written 0644 inside a 0700 directory. That is ordinary for a public key, but
+OpenSSH applies its private-key permission check to whatever `IdentityFile`
+names, and answered:
+
+    It is required that your private key files are NOT accessible by others.
+    This private key will be ignored.
+    Load key ".../demo-01-<digest>.pub": bad permissions
+
+It then authenticated with something else. Unlocked, this was invisible: ssh
+uses the file as an agent hint without loading it. It appeared only when the
+agent had nothing to offer, which is exactly when the user is trying to work out
+why they cannot log in.
+
+### Why the tests did not show it
+
+`TestNativeSSHLogin` builds a config containing nothing but the managed Include,
+because that is the claim being tested. A real user's config still has their own
+blocks in it, and the test could not have had them without ceasing to test the
+thing it is named after. It also asserts a successful login and a refusal when
+locked; both were true here, for the wrong reason.
+
+### Fix
+
+Public key files are written 0600, so OpenSSH stops rejecting them. `import`
+now names the hosts the source file still defines with an IdentityFile, says
+that OpenSSH offers the user's own key first, and points at `doctor`, which
+compares the effective configuration and reports extra identities.
+
+`import` still does not edit the user's config. §3.2 permits exactly one managed
+edit to that file, the Include, and removing blocks the user wrote is not it.

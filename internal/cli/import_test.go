@@ -346,3 +346,68 @@ func TestImportWithKeysIsIdempotent(t *testing.T) {
 		t.Fatalf("the key was imported %d times", len(keys))
 	}
 }
+
+func TestImportWarnsTheSourceConfigStillDefinesTheHosts(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+
+	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--with-keys")
+
+	warned := s.errOut.String()
+	if !strings.Contains(warned, "still defined") || !strings.Contains(warned, "prod") {
+		t.Fatalf("no warning that the source config still defines the host:\n%s", warned)
+	}
+	if !strings.Contains(warned, "sshstate doctor") {
+		t.Fatalf("the warning does not say how to check:\n%s", warned)
+	}
+}
+
+func TestImportFromElsewhereDoesNotWarn(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n")
+
+	s.mustRun(t, "import", path, "--with-keys")
+
+	if strings.Contains(s.errOut.String(), "still defined") {
+		t.Fatalf("a config that is not the user's own was warned about:\n%s", s.errOut)
+	}
+}
+
+func TestGeneratedPublicKeysAreNotWorldReadable(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n")
+	s.mustRun(t, "import", path, "--with-keys")
+
+	entries, err := os.ReadDir(s.Layout.PublicDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no public key files were generated")
+	}
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("%s is mode %04o; OpenSSH will ignore it", e.Name(), info.Mode().Perm())
+		}
+	}
+}
