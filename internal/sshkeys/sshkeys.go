@@ -112,6 +112,14 @@ func Signer(privateKey string) (ssh.Signer, error) {
 	return s, nil
 }
 
+func PublicKeyFingerprint(authorizedKey string) (string, error) {
+	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(authorizedKey))
+	if err != nil {
+		return "", fmt.Errorf("parse public key: %w", err)
+	}
+	return ssh.FingerprintSHA256(pub), nil
+}
+
 func PublicKeyDigest(authorizedKey string) (string, error) {
 	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(authorizedKey))
 	if err != nil {
