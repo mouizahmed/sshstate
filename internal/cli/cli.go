@@ -35,6 +35,7 @@ type Command struct {
 
 func Commands() []Command {
 	return []Command{
+		{"setup", "first run: vault, service, unlock, and your hosts", runSetup},
 		{"init", "create a vault on this device", runInit},
 		{"confirm-recovery", "confirm a saved recovery kit for an existing vault", runConfirmRecovery},
 		{"unlock", "unlock the vault for this session", runUnlock},
@@ -63,6 +64,7 @@ func Commands() []Command {
 		{"install", "activate the managed Include in ~/.ssh/config", runInstall},
 		{"uninstall", "remove the managed Include, preserving vault data", runUninstall},
 		{"doctor", "diagnose SSH integration problems", runDoctor},
+		{"service", "register the daemon with the platform service manager", runService},
 		{"daemon", "run the daemon in the foreground", runDaemon},
 	}
 }
