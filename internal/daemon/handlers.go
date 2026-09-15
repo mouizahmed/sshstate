@@ -150,6 +150,9 @@ func (d *Daemon) handleUnlock(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if _, err := d.reconcileCapture(); err != nil {
+		d.log.Warn("capture reconciliation failed after unlock", "error", err)
+	}
 	d.handleStatus(w, r)
 }
 

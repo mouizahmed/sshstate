@@ -91,6 +91,9 @@ func checkJumpGraph(hosts []sshconfig.Host) error {
 }
 
 func (d *Daemon) regenerate() ([]sshconfig.Host, error) {
+	if _, err := d.reconcileCapture(); err != nil {
+		d.log.Warn("capture reconciliation failed before generating", "error", err)
+	}
 	hosts, err := d.renderable()
 	if err != nil {
 		return nil, err

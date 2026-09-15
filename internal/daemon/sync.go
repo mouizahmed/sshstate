@@ -134,6 +134,9 @@ func (d *Daemon) membershipRoot() (protocol.SignedMembershipEvent, error) {
 }
 
 func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
+	if _, err := d.reconcileCapture(); err != nil {
+		d.log.Warn("capture reconciliation failed before sync", "error", err)
+	}
 	client, err := d.relayClient("")
 	if err != nil {
 		writeError(w, err)
