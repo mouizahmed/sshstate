@@ -27,6 +27,9 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 		return errors.New("usage: sshstate setup [--kit path] [--label name] [--import ~/.ssh/config]")
 	}
 
+	if st, err := env.Client().Status(ctx); err == nil {
+		return fmt.Errorf("a vault already exists here (%s); setup is for a new machine", st.VaultID)
+	}
 	store, err := vault.OpenStore(env.Layout.Database())
 	if err != nil {
 		return err
