@@ -83,6 +83,7 @@ jobs:
           fuzz ./internal/protocol FuzzStrictUnmarshalMembership
           fuzz ./internal/protocol FuzzCounterAndBytes
           fuzz ./internal/protocol FuzzParseFingerprint
+          fuzz ./internal/sshconfig FuzzParseImport
           fuzz ./internal/knownhosts FuzzParseLine
           fuzz ./internal/knownhosts FuzzParseFile
           fuzz ./internal/httpsig FuzzParseSignatureParams
