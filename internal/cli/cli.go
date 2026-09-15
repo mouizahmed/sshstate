@@ -42,6 +42,7 @@ func Commands() []Command {
 		{"add-key", "import an SSH private key into the vault", runAddKey},
 		{"add", "add a managed host", runAdd},
 		{"edit", "change a managed host", runEdit},
+		{"import", "import hosts from an existing SSH config", runImport},
 		{"connect", "point this vault at a sync relay", runConnect},
 		{"pair", "enrol this machine into an existing vault", runPair},
 		{"approve", "authorize another machine to join this vault", runApprove},

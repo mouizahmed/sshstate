@@ -1,0 +1,254 @@
+// Copyright (C) 2026 Mouiz Ahmed
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package cli
+
+import (
+	"context"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mouizahmed/sshstate/internal/vault"
+)
+
+func importReady(t *testing.T) *scripted {
+	t.Helper()
+	s := newScripted(t)
+	kitPath := filepath.Join(t.TempDir(), "kit.txt")
+	s.secrets = []string{password, password}
+	s.answer = func(string) (string, error) {
+		body, _ := os.ReadFile(kitPath)
+		kit, err := vault.ParseKit(string(body))
+		if err != nil {
+			return "", err
+		}
+		return kit.Checksum(), nil
+	}
+	s.mustRun(t, "init", "--kit", kitPath)
+	s.answer = nil
+	s.startDaemon(t)
+	s.secrets = []string{password}
+	s.mustRun(t, "unlock")
+	s.out.Reset()
+	s.errOut.Reset()
+	return s
+}
+
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestImportCreatesHostsAndResolvesDefaults(t *testing.T) {
+	s := importReady(t)
+	path := writeConfig(t, "Host bastion\n HostName 10.0.0.1\n User ubuntu\n\nHost prod\n HostName 10.0.0.5\n ProxyJump bastion\n")
+
+	s.mustRun(t, "import", path)
+
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 2 {
+		t.Fatalf("imported %d hosts:\n%s", len(hosts), s.out)
+	}
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hosts {
+		if h.Port != 22 {
+			t.Errorf("%s got port %d; an omitted Port must be stored as 22", h.Alias, h.Port)
+		}
+		if h.Alias == "prod" {
+			if h.User != me.Username {
+				t.Errorf("an omitted User became %q, expected this machine's %q", h.User, me.Username)
+			}
+			if h.ProxyJump == nil || *h.ProxyJump != "bastion" {
+				t.Errorf("ProxyJump is %v", h.ProxyJump)
+			}
+		}
+	}
+	body, err := os.ReadFile(s.Layout.Config())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "Host prod") {
+		t.Fatalf("the generated config was not rewritten:\n%s", body)
+	}
+}
+
+func TestImportDryRunWritesNothing(t *testing.T) {
+	s := importReady(t)
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n")
+
+	s.mustRun(t, "import", path, "--dry-run")
+
+	if !strings.Contains(s.out.String(), "new") {
+		t.Fatalf("the plan did not report the new host:\n%s", s.out)
+	}
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 0 {
+		t.Fatalf("--dry-run created %d hosts", len(hosts))
+	}
+}
+
+func TestReimportingTheSameDefinitionChangesNothing(t *testing.T) {
+	s := importReady(t)
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n Port 22\n")
+	s.mustRun(t, "import", path)
+	before, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.out.Reset()
+	s.mustRun(t, "import", path)
+	if !strings.Contains(s.out.String(), "unchanged") {
+		t.Fatalf("a repeat import did not report the host as unchanged:\n%s", s.out)
+	}
+	after, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 1 || after[0].RecordID != before[0].RecordID {
+		t.Fatalf("a repeat import produced %d hosts", len(after))
+	}
+	conflicts, err := s.Env.Client().Conflicts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts.Conflicts) != 0 {
+		t.Fatalf("an identical re-import preserved %d conflicts", len(conflicts.Conflicts))
+	}
+}
+
+func TestADifferingDefinitionBecomesAConflict(t *testing.T) {
+	s := importReady(t)
+	s.mustRun(t, "import", writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n"))
+	s.out.Reset()
+
+	s.mustRun(t, "import", writeConfig(t, "Host prod\n HostName 10.9.9.9\n User root\n"))
+
+	if !strings.Contains(s.out.String(), "conflict") {
+		t.Fatalf("the differing definition was not reported as a conflict:\n%s", s.out)
+	}
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 {
+		t.Fatalf("the import added a second host under the same alias: %d hosts", len(hosts))
+	}
+	if hosts[0].HostName != "10.0.0.5" || hosts[0].User != "ubuntu" {
+		t.Fatalf("the existing host was overwritten: %s@%s", hosts[0].User, hosts[0].HostName)
+	}
+	conflicts, err := s.Env.Client().Conflicts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts.Conflicts) != 1 {
+		t.Fatalf("%d conflicts were preserved, expected 1", len(conflicts.Conflicts))
+	}
+}
+
+func TestImportingTheSameConflictTwicePreservesOne(t *testing.T) {
+	s := importReady(t)
+	s.mustRun(t, "import", writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n"))
+	differing := writeConfig(t, "Host prod\n HostName 10.9.9.9\n User ubuntu\n")
+	s.mustRun(t, "import", differing)
+	s.mustRun(t, "import", differing)
+
+	conflicts, err := s.Env.Client().Conflicts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts.Conflicts) != 1 {
+		t.Fatalf("importing the same differing file twice preserved %d conflicts", len(conflicts.Conflicts))
+	}
+}
+
+func TestImportRefusesTheWholeFileForOneBadLine(t *testing.T) {
+	s := importReady(t)
+	path := writeConfig(t, "Host good\n HostName 10.0.0.1\n User ubuntu\n\nHost bad\n HostName 10.0.0.2\n ProxyCommand nc %h %p\n")
+
+	err := s.run(t, "import", path)
+	if err == nil {
+		t.Fatal("a file with an unsupported directive was imported")
+	}
+	if !strings.Contains(s.errOut.String(), path+":7") {
+		t.Fatalf("the diagnostic does not name the file and line:\n%s", s.errOut)
+	}
+	hosts, herr := s.Env.Client().Hosts(context.Background())
+	if herr != nil {
+		t.Fatal(herr)
+	}
+	if len(hosts) != 0 {
+		t.Fatalf("%d hosts were imported from a refused file; §3.2 forbids a partial import", len(hosts))
+	}
+}
+
+func TestImportResolvesIdentityFilesToVaultKeys(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first")
+	second := filepath.Join(dir, "second")
+	writeTestKey(t, first, "first")
+	writeTestKey(t, second, "second")
+	s.mustRun(t, "add-key", first)
+	firstID := extractRecordID(t, s.out.String())
+	s.out.Reset()
+	s.mustRun(t, "add-key", second)
+	secondID := extractRecordID(t, s.out.String())
+	s.out.Reset()
+
+	path := writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+second+"\n IdentityFile "+first+"\n")
+	s.mustRun(t, "import", path)
+
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts[0].KeyIDs) != 2 {
+		t.Fatalf("the host references %d keys", len(hosts[0].KeyIDs))
+	}
+	if hosts[0].KeyIDs[0] != secondID || hosts[0].KeyIDs[1] != firstID {
+		t.Fatalf("IdentityFile order was not preserved: %v", hosts[0].KeyIDs)
+	}
+}
+
+func TestImportNamesAnIdentityFileTheVaultDoesNotHave(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	stray := filepath.Join(dir, "stray")
+	writeTestKey(t, stray, "stray")
+
+	err := s.run(t, "import", writeConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+stray+"\n"))
+	if err == nil {
+		t.Fatal("a host referencing an unknown key was imported")
+	}
+	if !strings.Contains(s.errOut.String(), "add-key") {
+		t.Fatalf("the diagnostic does not say how to fix it:\n%s", s.errOut)
+	}
+}
+
+func TestImportRejectsAnUppercaseAlias(t *testing.T) {
+	s := importReady(t)
+	err := s.run(t, "import", writeConfig(t, "Host Prod\n HostName 10.0.0.5\n User ubuntu\n"))
+	if err == nil {
+		t.Fatal("an uppercase alias was imported")
+	}
+	if !strings.Contains(s.errOut.String(), "lowercase") {
+		t.Fatalf("the diagnostic does not explain the alias rule:\n%s", s.errOut)
+	}
+}
