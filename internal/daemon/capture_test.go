@@ -293,3 +293,121 @@ func TestConcurrentAppendersAreAllPickedUp(t *testing.T) {
 		t.Fatalf("%d of %d concurrent first-use keys were approved", approved, writers)
 	}
 }
+
+func TestObservationsMadeWhileLockedArriveOnUnlock(t *testing.T) {
+	h := captureHarness(t)
+	key := hostKey(t)
+	if _, err := h.client.Lock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	writeCapture(t, h, "10.0.0.5 "+key+"\n")
+	if _, err := h.mgr.KnownHosts(); err == nil {
+		t.Fatal("a locked vault answered a read")
+	}
+
+	if _, err := h.client.Unlock(context.Background(), testPassword); err != nil {
+		t.Fatal(err)
+	}
+	views := trustLines(t, h)
+	if len(views) != 1 {
+		t.Fatalf("unlocking picked up %d of 1 observation", len(views))
+	}
+	if views[0].Status != vault.TrustApproved || !strings.Contains(views[0].Line, key) {
+		t.Fatalf("stored %+v", views[0])
+	}
+	lines, err := h.mgr.ApprovedTrustLines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("the generated trust file has %d lines after unlock", len(lines))
+	}
+}
+
+func TestApprovingAPendingObservationPublishesIt(t *testing.T) {
+	h := captureHarness(t)
+	first := hostKey(t)
+	second := hostKey(t)
+	writeCapture(t, h, "10.0.0.5 "+first+"\n")
+	if _, err := h.daemon.reconcileCapture(); err != nil {
+		t.Fatal(err)
+	}
+	appendCapture(t, h, "10.0.0.5 "+second+"\n")
+	if _, err := h.daemon.reconcileCapture(); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := h.client.TrustList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pendingID string
+	for _, e := range list.Entries {
+		if e.Status == "pending" {
+			pendingID = e.RecordID
+		}
+	}
+	if pendingID == "" {
+		t.Fatalf("nothing was pending: %+v", list.Entries)
+	}
+
+	res, err := h.client.TrustApprove(context.Background(), control.TrustApproveRequest{RecordIDs: []string{pendingID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Approved != 1 {
+		t.Fatalf("approved %d", res.Approved)
+	}
+	lines, err := h.mgr.ApprovedTrustLines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("the approved key did not reach the generated file: %v", lines)
+	}
+	body, err := os.ReadFile(h.layout.KnownHosts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), second) {
+		t.Fatalf("the generated known_hosts was not rewritten:\n%s", body)
+	}
+}
+
+func TestARevokedLineStaysRevokedInTheGeneratedFile(t *testing.T) {
+	h := captureHarness(t)
+	key := hostKey(t)
+	writeCapture(t, h, "@revoked 10.0.0.5 "+key+"\n")
+	if _, err := h.daemon.reconcileCapture(); err != nil {
+		t.Fatal(err)
+	}
+	views := trustLines(t, h)
+	if len(views) != 1 {
+		t.Fatalf("stored %d", len(views))
+	}
+	if views[0].Marker != "@revoked" {
+		t.Fatalf("the marker became %q", views[0].Marker)
+	}
+	lines, err := h.mgr.ApprovedTrustLines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "@revoked ") {
+		t.Fatalf("the revocation did not survive into the generated file: %v", lines)
+	}
+}
+
+func TestApprovingARevokedObservationIsRefused(t *testing.T) {
+	h := captureHarness(t)
+	writeCapture(t, h, "@revoked 10.0.0.5 "+hostKey(t)+"\n")
+	if _, err := h.daemon.reconcileCapture(); err != nil {
+		t.Fatal(err)
+	}
+	views := trustLines(t, h)
+	if err := h.mgr.SetKnownHostPending(views[0].RecordID); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.mgr.ApproveKnownHost(views[0].RecordID); err == nil {
+		t.Fatal("a pending @revoked observation was approved into ordinary trust")
+	}
+}
