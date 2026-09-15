@@ -56,6 +56,7 @@ func (d *Daemon) diagnose(ctx context.Context) ([]control.DoctorFinding, error) 
 
 	d.checkPermissions(add)
 	d.checkSystemTrustSources(add)
+	d.checkMatchExec(add)
 
 	hosts, err := d.mgr.Hosts()
 	if errors.Is(err, vault.ErrLocked) {
@@ -132,7 +133,7 @@ func (d *Daemon) checkPendingTrust(add func(sev, check, detail, remedy string)) 
 	if pending > 0 {
 		add(sevWarn, "host key trust",
 			fmt.Sprintf("%d host-key observation(s) are pending review and are not trusted", pending),
-			"explicit conflict resolution ships with synchronization; until then these stay pending")
+			"review them with: sshstate trust")
 	}
 }
 
@@ -267,4 +268,26 @@ func expandTilde(path string) string {
 		return path
 	}
 	return filepath.Join(home, path[2:])
+}
+
+func (d *Daemon) checkMatchExec(add func(sev, check, detail, remedy string)) {
+	body, err := os.ReadFile(d.layout.UserSSHConfig)
+	if err != nil {
+		return
+	}
+	for n, line := range strings.Split(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !strings.EqualFold(fields[0], "match") {
+			continue
+		}
+		for _, f := range fields[1:] {
+			if strings.EqualFold(f, "exec") {
+				add(sevWarn, "effective configuration",
+					fmt.Sprintf("%s:%d has a Match exec block, and doctor runs ssh -G, which evaluates it",
+						d.layout.UserSSHConfig, n+1),
+					"the command runs as you, on every doctor run and every ssh connection that matches")
+				return
+			}
+		}
+	}
 }
