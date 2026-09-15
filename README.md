@@ -181,6 +181,7 @@ SSHSTATE_SSHD_TEST=1 go test ./internal/cli/ -run NativeSSH
 - [Project brief and milestones](docs/project-brief.md)
 - [Threat model](docs/threat-model.md)
 - [Defects found during implementation](docs/defects.md)
+- [CLI review](docs/cli-review.md) — gaps in the command surface, and the plan
 - [Protocol](docs/protocol.md) — draft, frozen before Milestone 2
 - [Decision records](docs/decisions/)
 
