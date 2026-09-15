@@ -633,3 +633,29 @@ func TestFingerprintIsShownInFull(t *testing.T) {
 		}
 	}
 }
+
+func TestIdentityRendersItsPublicKeys(t *testing.T) {
+	signing, err := crypto.GenerateSigningKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryption, err := crypto.GenerateEncryptionKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := Identity{DeviceID: protocol.MustNewID(), Signing: signing, Encryption: encryption}
+
+	k := id.keys()
+	if k.ID != id.DeviceID {
+		t.Fatalf("keys() reports device %s, identity is %s", k.ID, id.DeviceID)
+	}
+	if string(k.VerifyKey) != string(signing.Verifier().Bytes()) {
+		t.Fatal("keys() does not carry this identity's verify key")
+	}
+	if k.Recipient != encryption.Recipient().String() {
+		t.Fatal("keys() does not carry this identity's recipient")
+	}
+	if strings.Contains(k.Recipient, "AGE-SECRET-KEY") {
+		t.Fatal("keys() leaked the private half")
+	}
+}

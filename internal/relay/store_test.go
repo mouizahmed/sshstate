@@ -543,3 +543,15 @@ func TestStoreCreatesRestrictivePermissions(t *testing.T) {
 func signerFor(d device) membership.Signer {
 	return membership.Signer{DeviceID: d.id, Key: d.signing}
 }
+
+func TestStoreRemembersItsPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "relay.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if s.Path() != path {
+		t.Fatalf("Path() is %q, opened %q", s.Path(), path)
+	}
+}

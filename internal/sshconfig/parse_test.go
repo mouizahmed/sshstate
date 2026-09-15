@@ -164,3 +164,14 @@ func TestEveryProblemIsReportedNotJustTheFirst(t *testing.T) {
 		t.Fatalf("expected both bad lines, got:\n%s", problemText(problems))
 	}
 }
+
+func TestImportProblemRendersItsLine(t *testing.T) {
+	p := ImportProblem{Line: 12, Text: "Compression is not in the v1 import subset"}
+	got := p.String()
+	if !strings.Contains(got, "line 12") {
+		t.Fatalf("the rendered problem does not name the line: %q", got)
+	}
+	if !strings.Contains(got, p.Text) {
+		t.Fatalf("the rendered problem lost its reason: %q", got)
+	}
+}

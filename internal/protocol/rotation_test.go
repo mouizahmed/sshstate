@@ -5,6 +5,7 @@ package protocol
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -262,5 +263,27 @@ func TestManifestItemOrderIsCanonical(t *testing.T) {
 	}
 	if string(a) != string(b) {
 		t.Fatal("sorting did not produce the same canonical manifest")
+	}
+}
+
+func TestTransitionManifestSigningInputIsCanonical(t *testing.T) {
+	m := &TransitionManifest{}
+	first, err := m.SigningInput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.SigningInput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatal("the same manifest produced two signing inputs")
+	}
+	if len(first) == 0 {
+		t.Fatal("the signing input is empty")
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(first, &decoded); err != nil {
+		t.Fatalf("the signing input is not JSON: %v", err)
 	}
 }
