@@ -27,6 +27,8 @@ func (d *Daemon) routes() http.Handler {
 	mux.HandleFunc("POST "+control.RouteHosts, d.handleAddHost)
 	mux.HandleFunc("POST "+control.RouteHostEdit, d.handleEditHost)
 	mux.HandleFunc("POST "+control.RouteImport, d.handleImport)
+	mux.HandleFunc("POST "+control.RouteHostRemove, d.handleRemoveHost)
+	mux.HandleFunc("POST "+control.RouteKeyRemove, d.handleRemoveKey)
 	mux.HandleFunc("GET "+control.RouteKeys, d.handleListKeys)
 	mux.HandleFunc("POST "+control.RouteKeys, d.handleAddKey)
 	mux.HandleFunc("POST "+control.RouteGenerate, d.handleGenerate)
@@ -403,6 +405,74 @@ func (d *Daemon) handleImport(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (d *Daemon) handleRemoveHost(w http.ResponseWriter, r *http.Request) {
+	id, ok := removeSubject(w, r)
+	if !ok {
+		return
+	}
+	hosts, err := d.mgr.Hosts()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	subject := ""
+	for _, h := range hosts {
+		if h.RecordID == id {
+			subject = h.Alias
+		}
+	}
+	if err := d.mgr.RemoveHost(id); err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := d.regenerate(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, control.RemoveResponse{RecordID: id.String(), Subject: subject})
+}
+
+func (d *Daemon) handleRemoveKey(w http.ResponseWriter, r *http.Request) {
+	id, ok := removeSubject(w, r)
+	if !ok {
+		return
+	}
+	keys, err := d.mgr.Keys()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	subject := ""
+	for _, k := range keys {
+		if k.RecordID == id {
+			subject = k.Fingerprint
+		}
+	}
+	if err := d.mgr.RemoveKey(id); err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := d.regenerate(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, control.RemoveResponse{RecordID: id.String(), Subject: subject})
+}
+
+func removeSubject(w http.ResponseWriter, r *http.Request) (protocol.ID, bool) {
+	var req control.RemoveRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return "", false
+	}
+	id := protocol.ID(req.RecordID)
+	if !id.Valid() {
+		writeError(w, fmt.Errorf("%q is not a record id", req.RecordID))
+		return "", false
+	}
+	return id, true
 }
 
 func trimmed(s string) *string {

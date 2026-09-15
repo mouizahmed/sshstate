@@ -156,6 +156,16 @@ func (c *Client) TrustApprove(ctx context.Context, req TrustApproveRequest) (*Tr
 	return &out, c.do(ctx, http.MethodPost, RouteTrustApprove, req, &out)
 }
 
+func (c *Client) RemoveHost(ctx context.Context, req RemoveRequest) (*RemoveResponse, error) {
+	var out RemoveResponse
+	return &out, c.do(ctx, http.MethodPost, RouteHostRemove, req, &out)
+}
+
+func (c *Client) RemoveKey(ctx context.Context, req RemoveRequest) (*RemoveResponse, error) {
+	var out RemoveResponse
+	return &out, c.do(ctx, http.MethodPost, RouteKeyRemove, req, &out)
+}
+
 func (c *Client) Generate(ctx context.Context) (*GenerateResponse, error) {
 	var out GenerateResponse
 	return &out, c.do(ctx, http.MethodPost, RouteGenerate, struct{}{}, &out)

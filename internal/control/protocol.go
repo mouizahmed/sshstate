@@ -16,6 +16,8 @@ const (
 	RouteHosts             = "/" + APIVersion + "/hosts"
 	RouteHostEdit          = "/" + APIVersion + "/hosts/edit"
 	RouteImport            = "/" + APIVersion + "/hosts/import"
+	RouteHostRemove        = "/" + APIVersion + "/hosts/remove"
+	RouteKeyRemove         = "/" + APIVersion + "/keys/remove"
 	RouteKeys              = "/" + APIVersion + "/keys"
 	RouteGenerate          = "/" + APIVersion + "/generate"
 	RouteDoctor            = "/" + APIVersion + "/doctor"
@@ -146,6 +148,15 @@ type TrustApproveRequest struct {
 
 type TrustApproveResponse struct {
 	Approved int `json:"approved"`
+}
+
+type RemoveRequest struct {
+	RecordID string `json:"record_id"`
+}
+
+type RemoveResponse struct {
+	RecordID string `json:"record_id"`
+	Subject  string `json:"subject"`
 }
 
 type HostResponse struct {
