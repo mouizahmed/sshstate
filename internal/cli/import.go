@@ -149,7 +149,28 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 	if counts[string(vault.ImportConflict)] > 0 {
 		env.printf("Existing hosts were left as they are. See: sshstate conflicts\n")
 	}
+	warnStillDefined(env, path, hosts)
 	return nil
+}
+
+func warnStillDefined(env *Env, path string, hosts []sshconfig.ImportedHost) {
+	if path != env.Layout.UserSSHConfig {
+		return
+	}
+	var withKeys []string
+	for _, h := range hosts {
+		if len(h.IdentityFiles) > 0 {
+			withKeys = append(withKeys, h.Alias)
+		}
+	}
+	if len(withKeys) == 0 {
+		return
+	}
+	env.warnf("\n%s still defined in %s with an IdentityFile: %s\n",
+		plural(len(withKeys), "This host is", "These hosts are"), path, strings.Join(withKeys, ", "))
+	env.warnf("OpenSSH reads both definitions and offers your own key file first, so the\n")
+	env.warnf("vault's agent would not be what authenticates. Remove or comment those\n")
+	env.warnf("blocks, then check with: sshstate doctor\n")
 }
 
 func importRefusal(env *Env, path string, problems []sshconfig.ImportProblem) error {
