@@ -102,6 +102,7 @@ go build -o sshstate ./cmd/sshstate
 ./sshstate unlock
 ./sshstate add-key ~/.ssh/id_ed25519
 ./sshstate add prod --hostname 10.0.0.5 --user ubuntu --key <record-id>
+./sshstate edit prod --hostname 10.0.0.9   # revises the record, does not add one
 ./sshstate install                     # adds the Include to ~/.ssh/config
 ./sshstate doctor
 ssh prod

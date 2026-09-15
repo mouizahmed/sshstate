@@ -212,6 +212,113 @@ func (m *Manager) AddHost(spec HostSpec) (protocol.ID, error) {
 	return id, err
 }
 
+type HostEdit struct {
+	Alias     *string
+	HostName  *string
+	User      *string
+	Port      *int
+	ProxyJump *string
+	KeyIDs    *[]protocol.ID
+}
+
+func (m *Manager) EditHost(recordID protocol.ID, edit HostEdit) error {
+	return m.mutate(func(s *session, w *Writer, r *Reader) error {
+		head, headDigest, err := m.store.Head(recordID)
+		if err != nil {
+			return fmt.Errorf("no such host %s: %w", recordID, err)
+		}
+		if head.Context.RecordType != protocol.RecordHost {
+			return fmt.Errorf("record %s is not a host", recordID)
+		}
+		if head.Context.Deleted {
+			return fmt.Errorf("host %s was deleted", recordID)
+		}
+		var payload HostPayload
+		if err := r.Open(head, &payload); err != nil {
+			return err
+		}
+		was := payload.Alias
+
+		if edit.Alias != nil {
+			payload.Alias = *edit.Alias
+		}
+		if edit.HostName != nil {
+			payload.HostName = *edit.HostName
+		}
+		if edit.User != nil {
+			payload.User = *edit.User
+		}
+		if edit.Port != nil {
+			payload.Port = *edit.Port
+		}
+		if edit.ProxyJump != nil {
+			if *edit.ProxyJump == "" {
+				payload.ProxyJump = nil
+			} else {
+				jump := *edit.ProxyJump
+				payload.ProxyJump = &jump
+			}
+		}
+		if edit.KeyIDs != nil {
+			payload.KeyIDs = *edit.KeyIDs
+		}
+		if err := payload.Validate(); err != nil {
+			return err
+		}
+
+		hosts, err := m.hostsLocked(r)
+		if err != nil {
+			return err
+		}
+		aliases := make(map[string]bool, len(hosts))
+		for _, h := range hosts {
+			if h.RecordID == recordID {
+				continue
+			}
+			aliases[h.Alias] = true
+			if payload.Alias != was && h.ProxyJump != nil && *h.ProxyJump == was {
+				return fmt.Errorf("host %q is the ProxyJump for %q; change that first", was, h.Alias)
+			}
+		}
+		if aliases[payload.Alias] {
+			return fmt.Errorf("host %q already exists", payload.Alias)
+		}
+		if payload.ProxyJump != nil && !aliases[*payload.ProxyJump] {
+			return fmt.Errorf("ProxyJump %q is not a host in this vault", *payload.ProxyJump)
+		}
+
+		keys, err := m.keysLocked(r)
+		if err != nil {
+			return err
+		}
+		known := make(map[protocol.ID]bool, len(keys))
+		for _, k := range keys {
+			known[k.RecordID] = true
+		}
+		for _, id := range payload.KeyIDs {
+			if !known[id] {
+				return fmt.Errorf("host %q references key %s, which is not in the vault", payload.Alias, id)
+			}
+		}
+
+		mutationID, err := protocol.NewID()
+		if err != nil {
+			return err
+		}
+		env, err := w.Seal(Mutation{
+			RecordID:     recordID,
+			RecordType:   protocol.RecordHost,
+			Rev:          head.Context.Rev + 1,
+			ParentDigest: headDigest,
+			MutationID:   mutationID,
+		}, &payload)
+		if err != nil {
+			return err
+		}
+		return m.store.ApplyLocal(env)
+	})
+}
+
 func (m *Manager) Hosts() ([]HostView, error) {
 	var out []HostView
 	err := m.read(func(s *session, r *Reader) error {

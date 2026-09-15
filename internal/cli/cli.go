@@ -41,6 +41,7 @@ func Commands() []Command {
 		{"status", "show vault and integration status", runStatus},
 		{"add-key", "import an SSH private key into the vault", runAddKey},
 		{"add", "add a managed host", runAdd},
+		{"edit", "change a managed host", runEdit},
 		{"connect", "point this vault at a sync relay", runConnect},
 		{"pair", "enrol this machine into an existing vault", runPair},
 		{"approve", "authorize another machine to join this vault", runApprove},

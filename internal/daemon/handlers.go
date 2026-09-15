@@ -25,6 +25,7 @@ func (d *Daemon) routes() http.Handler {
 	mux.HandleFunc("POST "+control.RouteLock, d.handleLock)
 	mux.HandleFunc("GET "+control.RouteHosts, d.handleListHosts)
 	mux.HandleFunc("POST "+control.RouteHosts, d.handleAddHost)
+	mux.HandleFunc("POST "+control.RouteHostEdit, d.handleEditHost)
 	mux.HandleFunc("GET "+control.RouteKeys, d.handleListKeys)
 	mux.HandleFunc("POST "+control.RouteKeys, d.handleAddKey)
 	mux.HandleFunc("POST "+control.RouteGenerate, d.handleGenerate)
@@ -285,6 +286,69 @@ func (d *Daemon) handleAddHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeError(w, errors.New("host was created but could not be read back"))
+}
+
+func (d *Daemon) handleEditHost(w http.ResponseWriter, r *http.Request) {
+	var req control.EditHostRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	recordID := protocol.ID(req.RecordID)
+	if !recordID.Valid() {
+		writeError(w, fmt.Errorf("%q is not a record id", req.RecordID))
+		return
+	}
+	edit := vault.HostEdit{Port: req.Port}
+	if req.Alias != nil {
+		edit.Alias = trimmed(*req.Alias)
+	}
+	if req.HostName != nil {
+		edit.HostName = trimmed(*req.HostName)
+	}
+	if req.User != nil {
+		edit.User = trimmed(*req.User)
+	}
+	if req.ProxyJump != nil {
+		edit.ProxyJump = trimmed(*req.ProxyJump)
+	}
+	if req.KeyIDs != nil {
+		ids := make([]protocol.ID, 0, len(*req.KeyIDs))
+		for _, raw := range *req.KeyIDs {
+			id := protocol.ID(raw)
+			if !id.Valid() {
+				writeError(w, fmt.Errorf("key id %q is malformed", raw))
+				return
+			}
+			ids = append(ids, id)
+		}
+		edit.KeyIDs = &ids
+	}
+	if err := d.mgr.EditHost(recordID, edit); err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := d.regenerate(); err != nil {
+		writeError(w, err)
+		return
+	}
+	hosts, err := d.mgr.Hosts()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	for _, h := range hosts {
+		if h.RecordID == recordID {
+			writeJSON(w, http.StatusOK, hostResponse(h))
+			return
+		}
+	}
+	writeError(w, errors.New("host was edited but could not be read back"))
+}
+
+func trimmed(s string) *string {
+	t := strings.TrimSpace(s)
+	return &t
 }
 
 func (d *Daemon) handleShutdown(w http.ResponseWriter, r *http.Request) {

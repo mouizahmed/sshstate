@@ -136,6 +136,11 @@ func (c *Client) AddHost(ctx context.Context, req AddHostRequest) (*HostResponse
 	return &out, c.do(ctx, http.MethodPost, RouteHosts, req, &out)
 }
 
+func (c *Client) EditHost(ctx context.Context, req EditHostRequest) (*HostResponse, error) {
+	var out HostResponse
+	return &out, c.do(ctx, http.MethodPost, RouteHostEdit, req, &out)
+}
+
 func (c *Client) Generate(ctx context.Context) (*GenerateResponse, error) {
 	var out GenerateResponse
 	return &out, c.do(ctx, http.MethodPost, RouteGenerate, struct{}{}, &out)

@@ -449,6 +449,83 @@ func runAdd(ctx context.Context, env *Env, args []string) error {
 	return nil
 }
 
+func runEdit(ctx context.Context, env *Env, args []string) error {
+	fs := newFlagSet(env, "edit")
+	alias := fs.String("alias", "", "new alias for this host")
+	hostname := fs.String("hostname", "", "HostName to connect to")
+	username := fs.String("user", "", "User to log in as")
+	port := fs.Int("port", 0, "Port")
+	jump := fs.String("jump", "", `ProxyJump alias, or "none" to clear it`)
+	keys := fs.String("key", "", "comma-separated key record ids, in the order to offer them")
+	positional, rest := splitPositional(args, 1)
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	positional = append(positional, fs.Args()...)
+	if len(positional) != 1 {
+		return errors.New("usage: sshstate edit <alias> [--alias new] [--hostname h] [--user u] [--port n] [--jump alias|none] [--key id,...]")
+	}
+
+	hosts, err := env.Client().Hosts(ctx)
+	if err != nil {
+		return hint(err)
+	}
+	req := control.EditHostRequest{}
+	for _, h := range hosts {
+		if h.Alias == positional[0] {
+			req.RecordID = h.RecordID
+			break
+		}
+	}
+	if req.RecordID == "" {
+		return fmt.Errorf("no host named %q; see: sshstate status", positional[0])
+	}
+
+	var given int
+	fs.Visit(func(f *flag.Flag) {
+		given++
+		switch f.Name {
+		case "alias":
+			req.Alias = alias
+		case "hostname":
+			req.HostName = hostname
+		case "user":
+			req.User = username
+		case "port":
+			req.Port = port
+		case "jump":
+			cleared := ""
+			if *jump == "none" {
+				req.ProxyJump = &cleared
+			} else {
+				req.ProxyJump = jump
+			}
+		case "key":
+			ids := []string{}
+			for _, id := range strings.Split(*keys, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					ids = append(ids, id)
+				}
+			}
+			req.KeyIDs = &ids
+		}
+	})
+	if given == 0 {
+		return errors.New("nothing to change; pass at least one of --alias, --hostname, --user, --port, --jump, --key")
+	}
+
+	host, err := env.Client().EditHost(ctx, req)
+	if err != nil {
+		return hint(err)
+	}
+	env.printf("Updated host %s -> %s@%s:%d\n", host.Alias, host.User, host.HostName, host.Port)
+	if len(host.KeyIDs) == 0 {
+		env.warnf("\nThis host now references no keys, so the agent will offer nothing for it.\n")
+	}
+	env.printf("\nConfig regenerated at %s\n", env.Layout.Config())
+	return nil
+}
+
 func runInstall(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "install")
 	withService := fs.Bool("service", false, "also register the daemon with the platform service manager")

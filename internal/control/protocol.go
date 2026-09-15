@@ -14,6 +14,7 @@ const (
 	RouteUnlock            = "/" + APIVersion + "/unlock"
 	RouteLock              = "/" + APIVersion + "/lock"
 	RouteHosts             = "/" + APIVersion + "/hosts"
+	RouteHostEdit          = "/" + APIVersion + "/hosts/edit"
 	RouteKeys              = "/" + APIVersion + "/keys"
 	RouteGenerate          = "/" + APIVersion + "/generate"
 	RouteDoctor            = "/" + APIVersion + "/doctor"
@@ -93,6 +94,16 @@ type AddHostRequest struct {
 	Port      int      `json:"port,omitempty"`
 	ProxyJump *string  `json:"proxy_jump,omitempty"`
 	KeyIDs    []string `json:"key_ids,omitempty"`
+}
+
+type EditHostRequest struct {
+	RecordID  string    `json:"record_id"`
+	Alias     *string   `json:"alias,omitempty"`
+	HostName  *string   `json:"hostname,omitempty"`
+	User      *string   `json:"user,omitempty"`
+	Port      *int      `json:"port,omitempty"`
+	ProxyJump *string   `json:"proxy_jump,omitempty"`
+	KeyIDs    *[]string `json:"key_ids,omitempty"`
 }
 
 type HostResponse struct {
