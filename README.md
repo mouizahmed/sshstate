@@ -190,6 +190,7 @@ SSHSTATE_SSHD_TEST=1 go test ./internal/cli/ -run NativeSSH
 - [Threat model](docs/threat-model.md)
 - [Defects found during implementation](docs/defects.md)
 - [CLI review](docs/cli-review.md) — gaps in the command surface, and the plan
+- [Distribution plan](docs/distribution-plan.md) — how v0.1.0 ships
 - [Protocol](docs/protocol.md) — draft, frozen before Milestone 2
 - [Decision records](docs/decisions/)
 
