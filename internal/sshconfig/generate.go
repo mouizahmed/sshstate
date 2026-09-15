@@ -114,7 +114,7 @@ func Publish(hosts []Host, l paths.Layout) error {
 		for _, id := range h.Identities {
 			path := filepath.Join(l.PublicDir(), h.PublicFileName(id))
 			body := strings.TrimRight(id.PublicKey, "\n") + "\n"
-			if err := atomicWrite(path, []byte(body), 0o644); err != nil {
+			if err := atomicWrite(path, []byte(body), 0o600); err != nil {
 				return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 			}
 		}
