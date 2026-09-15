@@ -429,11 +429,11 @@ func runAdd(ctx context.Context, env *Env, args []string) error {
 		req.ProxyJump = jump
 	}
 	if *keys != "" {
-		for _, id := range strings.Split(*keys, ",") {
-			if id = strings.TrimSpace(id); id != "" {
-				req.KeyIDs = append(req.KeyIDs, id)
-			}
+		ids, err := resolveKeyList(ctx, env, *keys)
+		if err != nil {
+			return err
 		}
+		req.KeyIDs = ids
 	}
 
 	host, err := env.Client().AddHost(ctx, req)
@@ -482,6 +482,7 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 	}
 
 	var given int
+	var resolveErr error
 	fs.Visit(func(f *flag.Flag) {
 		given++
 		switch f.Name {
@@ -501,15 +502,17 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 				req.ProxyJump = jump
 			}
 		case "key":
-			ids := []string{}
-			for _, id := range strings.Split(*keys, ",") {
-				if id = strings.TrimSpace(id); id != "" {
-					ids = append(ids, id)
-				}
+			ids, err := resolveKeyList(ctx, env, *keys)
+			if err != nil {
+				resolveErr = err
+				return
 			}
 			req.KeyIDs = &ids
 		}
 	})
+	if resolveErr != nil {
+		return resolveErr
+	}
 	if given == 0 {
 		return errors.New("nothing to change; pass at least one of --alias, --hostname, --user, --port, --jump, --key")
 	}
