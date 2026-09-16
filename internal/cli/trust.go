@@ -20,7 +20,7 @@ func (e *Env) resolveTrust(ctx context.Context, doImport, doSkip bool) error {
 	}
 	preview, err := e.Client().TrustPreview(ctx)
 	if err != nil {
-		return hint(err)
+		return e.hint(err)
 	}
 	importable := importableDigests(preview)
 	e.printTrustPreview(preview, len(importable))
@@ -62,7 +62,7 @@ func (e *Env) resolveTrust(ctx context.Context, doImport, doSkip bool) error {
 
 	res, err := e.Client().TrustImport(ctx, importable)
 	if err != nil {
-		return fmt.Errorf("importing trust failed, so the Include was not activated: %w", hint(err))
+		return fmt.Errorf("importing trust failed, so the Include was not activated: %w", e.hint(err))
 	}
 	e.printf("\nImported %d entr%s into %s\n", res.Imported, plural(res.Imported, "y", "ies"), res.KnownHostsPath)
 	if res.Pending > 0 {

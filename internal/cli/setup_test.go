@@ -15,17 +15,31 @@ import (
 	"github.com/mouizahmed/sshstate/internal/control"
 
 	"github.com/mouizahmed/sshstate/internal/service"
+	"github.com/mouizahmed/sshstate/internal/sshconfig"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
-func TestSetupRefusesAnExistingVault(t *testing.T) {
-	s, _, _ := listReady(t)
-	err := s.run(t, "setup", "--kit", filepath.Join(t.TempDir(), "kit.txt"))
-	if err == nil {
-		t.Fatal("setup ran against a vault that already exists")
+func TestSetupOnAFinishedMachineSaysSoAndChangesNothing(t *testing.T) {
+	s, firstID, _ := listReady(t)
+	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu", "--key", firstID)
+	s.mustRun(t, "install", "--skip-trust")
+	before, err := os.ReadFile(s.Layout.UserSSHConfig)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("unhelpful refusal: %v", err)
+	s.out.Reset()
+
+	s.mustRun(t, "setup")
+
+	if !strings.Contains(s.out.String(), "already set up") {
+		t.Fatalf("a finished machine was not reported as finished:\n%s", s.out)
+	}
+	after, err := os.ReadFile(s.Layout.UserSSHConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("setup on a finished machine rewrote the SSH config")
 	}
 }
 
@@ -116,14 +130,14 @@ func TestDoctorReportsThroughTheCLI(t *testing.T) {
 	}
 }
 
-func TestDoctorWithoutADaemonSaysHowToStartOne(t *testing.T) {
+func TestDoctorOnAFreshMachinePointsAtSetup(t *testing.T) {
 	s := newScripted(t)
 	err := s.run(t, "doctor")
 	if err == nil {
-		t.Fatal("doctor answered with no daemon")
+		t.Fatal("doctor answered with no vault")
 	}
-	if !strings.Contains(err.Error(), "daemon") {
-		t.Fatalf("unhelpful error: %v", err)
+	if !strings.Contains(err.Error(), "sshstate setup") {
+		t.Fatalf("doctor on a fresh machine does not point at setup: %v", err)
 	}
 }
 
@@ -269,5 +283,143 @@ func TestSameFileRecognisesTheUsersOwnConfig(t *testing.T) {
 	}
 	if sameFile(p, filepath.Join(dir, "other")) {
 		t.Fatal("two different paths matched")
+	}
+}
+
+func vaultOnly(t *testing.T) *scripted {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	s := newScripted(t)
+	kitPath := filepath.Join(t.TempDir(), "kit.txt")
+	s.secrets = []string{password, password}
+	s.answer = func(string) (string, error) {
+		body, _ := os.ReadFile(kitPath)
+		kit, err := vault.ParseKit(string(body))
+		if err != nil {
+			return "", err
+		}
+		return kit.Checksum(), nil
+	}
+	s.mustRun(t, "init", "--kit", kitPath)
+	s.answer = nil
+	s.out.Reset()
+	s.errOut.Reset()
+	return s
+}
+
+func TestAVaultWithNoDaemonPointsAtSetupNotTheDaemon(t *testing.T) {
+	if service.For() == nil {
+		t.Skip("no service manager here, so the daemon is the right advice")
+	}
+	s := vaultOnly(t)
+	err := s.run(t, "status")
+	if err == nil {
+		t.Fatal("status answered with no daemon")
+	}
+	if !strings.Contains(err.Error(), "sshstate setup") {
+		t.Fatalf("a half-set-up machine is not pointed at setup: %v", err)
+	}
+	if strings.Contains(err.Error(), "sshstate daemon") {
+		t.Fatalf("a half-set-up machine is told to run a foreground daemon: %v", err)
+	}
+	if !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("the message does not distinguish this from a machine with no vault: %v", err)
+	}
+
+	fresh := newScripted(t)
+	freshErr := fresh.run(t, "status")
+	if freshErr == nil || freshErr.Error() == err.Error() {
+		t.Fatalf("no vault and a vault with no daemon read identically: %v", freshErr)
+	}
+}
+
+func TestSetupResumesAMachineThatStoppedAfterTheVault(t *testing.T) {
+	s := vaultOnly(t)
+	s.startDaemon(t)
+	s.secrets = []string{password}
+
+	s.mustRun(t, "setup")
+
+	out := s.out.String()
+	for _, want := range []string{"already done: vault", "already done: the daemon is running", "No hosts yet"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("resuming setup did not report %q:\n%s", want, out)
+		}
+	}
+	st, err := s.Env.Client().Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Unlocked {
+		t.Fatal("setup resumed but did not unlock")
+	}
+}
+
+func TestSetupFinishesOnceTheresSomethingToManage(t *testing.T) {
+	s := vaultOnly(t)
+	s.startDaemon(t)
+	s.secrets = []string{password}
+	s.mustRun(t, "setup")
+
+	key := filepath.Join(t.TempDir(), "id")
+	writeTestKey(t, key, "laptop@home")
+	s.mustRun(t, "add-key", key)
+	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu", "--key", "laptop@home")
+	s.out.Reset()
+
+	s.lines = []string{"s"}
+	s.mustRun(t, "setup")
+	if !strings.Contains(s.out.String(), "Done") {
+		t.Fatalf("setup did not finish once a host existed:\n%s", s.out)
+	}
+	installed, err := sshconfig.IsInstalled(s.Layout)
+	if err != nil || !installed {
+		t.Fatalf("the Include is not active after setup finished: %v", err)
+	}
+
+	s.out.Reset()
+	s.mustRun(t, "setup")
+	if !strings.Contains(s.out.String(), "already set up") {
+		t.Fatalf("a third run did not recognise a finished machine:\n%s", s.out)
+	}
+}
+
+func TestSetupImportIsSafeToRunTwice(t *testing.T) {
+	s := vaultOnly(t)
+	s.startDaemon(t)
+	key := filepath.Join(t.TempDir(), "id")
+	writeTestKey(t, key, "laptop@home")
+	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.secrets = []string{password}
+	s.lines = []string{"s"}
+
+	s.mustRun(t, "setup", "--import", s.Layout.UserSSHConfig)
+	first, err := os.ReadFile(s.Layout.UserSSHConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(first), "# Host prod") {
+		t.Fatalf("setup left the imported block active:\n%s", first)
+	}
+
+	s.out.Reset()
+	s.mustRun(t, "setup", "--import", s.Layout.UserSSHConfig)
+	out := s.out.String()
+	if !strings.Contains(out, "no hosts left to import") || !strings.Contains(out, "already set up") {
+		t.Fatalf("a second setup --import did not recognise the finished state:\n%s", out)
+	}
+	second, err := os.ReadFile(s.Layout.UserSSHConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("a second setup --import changed the config:\n%s", second)
 	}
 }

@@ -29,7 +29,7 @@ const recoveryChallengeTTL = 2 * time.Minute
 
 var (
 	ErrLocked              = errors.New("vault is locked")
-	ErrNotInitialized      = errors.New("no vault here; run: sshstate init")
+	ErrNotInitialized      = errors.New("sshstate is not set up on this machine; run: sshstate setup")
 	ErrRecoveryUnconfirmed = errors.New("recovery kit has not been confirmed; run: sshstate confirm-recovery --kit <path>")
 )
 

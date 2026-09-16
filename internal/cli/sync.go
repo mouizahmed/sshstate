@@ -49,7 +49,7 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 
 	out, err := env.Client().Connect(ctx, req)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	if out.Bootstrap {
 		env.printf("Connected to %s and created the vault there.\n", out.URL)
@@ -70,7 +70,7 @@ func runSync(ctx context.Context, env *Env, args []string) error {
 	}
 	out, err := env.Client().Sync(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	switch {
 	case out.Pushed == 0 && out.Applied == 0 && out.Preserved == 0:
@@ -103,7 +103,7 @@ func runDevices(ctx context.Context, env *Env, args []string) error {
 	}
 	out, err := env.Client().Devices(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	if len(out.Devices) == 0 {
 		env.printf("No devices.\n")
@@ -138,7 +138,7 @@ func runRevoke(ctx context.Context, env *Env, args []string) error {
 	}
 	devices, err := env.Client().Devices(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	ids := make([]string, 0, len(devices.Devices))
 	for _, d := range devices.Devices {
@@ -153,7 +153,7 @@ func runRevoke(ctx context.Context, env *Env, args []string) error {
 		Confirm:  *yes,
 	})
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Revoked %s.\n", out.DeviceID)
 	if out.ThisDevice {
@@ -186,7 +186,7 @@ func runExport(ctx context.Context, env *Env, args []string) error {
 	}
 	out, err := env.Client().Export(ctx, path)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Wrote %s (%d bytes, %s, %s).\n", out.Path, out.Bytes,
 		count(out.Records, "record", "records"),
@@ -206,7 +206,7 @@ func runConflicts(ctx context.Context, env *Env, args []string) error {
 	}
 	out, err := env.Client().Conflicts(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	if len(out.Conflicts) == 0 {
 		env.printf("No conflicts.\n")
@@ -406,7 +406,7 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 	}
 	listed, err := env.Client().Conflicts(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	ids := make([]string, 0, len(listed.Conflicts))
 	for _, c := range listed.Conflicts {
@@ -424,9 +424,9 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 		if strings.Contains(err.Error(), "has been deleted") {
 			return fmt.Errorf("%w\nThat record was deleted on another device.\n"+
 				"To apply this edit anyway and bring it back: sshstate resolve %s --resurrect",
-				hint(err), recordID)
+				env.hint(err), recordID)
 		}
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Applied the preserved edit to record %s.\n", out.SourceRecordID)
 	env.printf("\nIt went in as an ordinary change against the current version, so if\n")
@@ -484,7 +484,7 @@ func runRecover(ctx context.Context, env *Env, args []string) error {
 	}
 	challenge, err := client.RecoveryChallenge(ctx, vaultID)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	if len(challenge.RecoveryEnvelope) == 0 {
 		return errors.New("that relay holds no recovery material for this vault")

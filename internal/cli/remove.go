@@ -24,7 +24,7 @@ func runRemove(ctx context.Context, env *Env, args []string) error {
 	}
 	hosts, err := env.Client().Hosts(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	var target *control.HostResponse
 	for i, h := range hosts {
@@ -49,7 +49,7 @@ func runRemove(ctx context.Context, env *Env, args []string) error {
 	}
 	res, err := env.Client().RemoveHost(ctx, control.RemoveRequest{RecordID: target.RecordID})
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Removed host %s.\n", res.Subject)
 	env.printf("Keys it referenced stay in the vault; see: sshstate keys\n")
@@ -70,7 +70,7 @@ func runRemoveKey(ctx context.Context, env *Env, args []string) error {
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	id, err := resolveKeyID(keys, positional[0])
 	if err != nil {
@@ -102,7 +102,7 @@ func runRemoveKey(ctx context.Context, env *Env, args []string) error {
 	}
 	res, err := env.Client().RemoveKey(ctx, control.RemoveRequest{RecordID: id})
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Removed key %s.\n", res.Subject)
 	return nil

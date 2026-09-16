@@ -29,7 +29,7 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 		if len(subjects) > 0 {
 			listed, err := env.Client().TrustList(ctx)
 			if err != nil {
-				return hint(err)
+				return env.hint(err)
 			}
 			ids := make([]string, 0, len(listed.Entries))
 			for _, e := range listed.Entries {
@@ -45,7 +45,7 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 		}
 		res, err := env.Client().TrustApprove(ctx, req)
 		if err != nil {
-			return hint(err)
+			return env.hint(err)
 		}
 		env.printf("Approved %s.\n", count(res.Approved, "observation", "observations"))
 		env.printf("Regenerated %s\n", env.Layout.KnownHosts())
@@ -54,7 +54,7 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 
 	res, err := env.Client().TrustList(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	if len(res.Entries) == 0 {
 		env.printf("No host-key observations yet.\n")

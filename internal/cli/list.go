@@ -23,7 +23,7 @@ func runHosts(ctx context.Context, env *Env, args []string) error {
 	}
 	hosts, err := env.Client().Hosts(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	if len(hosts) == 0 {
 		env.printf("No managed hosts. Add one with: sshstate add <alias> --hostname <host>\n")
@@ -31,7 +31,7 @@ func runHosts(ctx context.Context, env *Env, args []string) error {
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	fingerprints := map[string]string{}
 	for _, k := range keys {
@@ -65,7 +65,7 @@ func runKeys(ctx context.Context, env *Env, args []string) error {
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	if len(keys) == 0 {
 		env.printf("No keys in the vault. Import one with: sshstate add-key /path/to/private_key\n")
@@ -73,7 +73,7 @@ func runKeys(ctx context.Context, env *Env, args []string) error {
 	}
 	hosts, err := env.Client().Hosts(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	used := map[string][]string{}
 	for _, h := range hosts {
@@ -166,7 +166,7 @@ func resolveRecordID(candidates []string, want, kind string) (string, error) {
 func resolveKeyList(ctx context.Context, env *Env, spec string) ([]string, error) {
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
-		return nil, hint(err)
+		return nil, env.hint(err)
 	}
 	ids := []string{}
 	for _, want := range strings.Split(spec, ",") {

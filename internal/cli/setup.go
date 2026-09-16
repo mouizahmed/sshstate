@@ -6,13 +6,11 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/sshconfig"
-	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
 func runSetup(ctx context.Context, env *Env, args []string) error {
@@ -24,69 +22,127 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate setup [--kit path] [--label name] [--import ~/.ssh/config]")
+		return errors.New("usage: sshstate setup [--import ~/.ssh/config] [--kit path] [--label name]")
 	}
 
-	if st, err := env.Client().Status(ctx); err == nil {
-		return fmt.Errorf("a vault already exists here (%s); setup is for a new machine", st.VaultID)
-	}
-	store, err := vault.OpenStore(env.Layout.Database())
-	if err != nil {
-		return err
-	}
-	initialized, err := store.Initialized()
-	store.Close()
-	if err != nil {
-		return err
-	}
-	if initialized {
-		return fmt.Errorf("a vault already exists at %s; setup is for a new machine", env.Layout.Database())
-	}
+	did := 0
 
-	env.printf("Step 1 of 4: creating the vault.\n\n")
-	if err := initVault(ctx, env, []string{"--kit", *kitPath, "--label", *label}, false); err != nil {
-		return err
-	}
-
-	env.printf("\nStep 2 of 4: starting the daemon.\n\n")
-	if service.For() == nil {
-		env.printf("No service manager ships for this platform, so the daemon runs in the\n")
-		env.printf("foreground. Start it in another terminal and run setup again:\n")
-		env.printf("  sshstate daemon\n")
-		return errors.New("setup needs a running daemon on this platform")
-	}
-	if err := installService(env); err != nil {
-		return err
-	}
-
-	env.printf("\nStep 3 of 4: unlocking.\n\n")
-	if err := runUnlock(ctx, env, nil); err != nil {
-		return err
-	}
-
-	env.printf("\nStep 4 of 4: your hosts.\n\n")
-	if *importFrom != "" {
-		args := []string{*importFrom, "--with-keys"}
-		if sameFile(*importFrom, env.Layout.UserSSHConfig) {
-			args = append(args, "--comment-source")
-		}
-		if err := runImport(ctx, env, args); err != nil {
+	env.printf("Step 1 of 4: the vault.\n")
+	st, statusErr := env.Client().Status(ctx)
+	switch {
+	case statusErr == nil:
+		env.printf("  already done: vault %s\n", st.VaultID)
+	case env.vaultExists():
+		env.printf("  already done: the vault exists\n")
+	default:
+		env.printf("\n")
+		if err := initVault(ctx, env, []string{"--kit", *kitPath, "--label", *label}, false); err != nil {
 			return err
 		}
+		did++
+	}
+
+	env.printf("\nStep 2 of 4: the daemon.\n")
+	mgr := service.For()
+	switch {
+	case statusErr == nil:
+		env.printf("  already done: the daemon is running\n")
+	case mgr == nil:
+		env.printf("\nNo service manager ships for this platform, so the daemon runs in the\n")
+		env.printf("foreground. Start it in another terminal, then run setup again:\n")
+		env.printf("  sshstate daemon\n")
+		return errors.New("setup needs a running daemon on this platform")
+	default:
+		if installed, err := mgr.Installed(); err == nil && installed {
+			env.printf("  already done: registered with %s\n", mgr.Name())
+		} else {
+			env.printf("\n")
+			if err := installService(env); err != nil {
+				return err
+			}
+			did++
+		}
+	}
+
+	env.printf("\nStep 3 of 4: unlocking.\n")
+	st, err := env.Client().Status(ctx)
+	if err != nil {
+		return env.hint(err)
+	}
+	if st.Unlocked {
+		env.printf("  already done: the vault is unlocked\n")
+	} else {
+		env.printf("\n")
+		if err := runUnlock(ctx, env, nil); err != nil {
+			return err
+		}
+		did++
+	}
+
+	env.printf("\nStep 4 of 4: your hosts.\n")
+	if *importFrom != "" {
+		if hasHostBlocks(*importFrom) {
+			env.printf("\n")
+			importArgs := []string{*importFrom, "--with-keys"}
+			if sameFile(*importFrom, env.Layout.UserSSHConfig) {
+				importArgs = append(importArgs, "--comment-source")
+			}
+			if err := runImport(ctx, env, importArgs); err != nil {
+				return err
+			}
+			did++
+		} else {
+			env.printf("  already done: %s has no hosts left to import\n", *importFrom)
+		}
+	}
+
+	installed, err := sshconfig.IsInstalled(env.Layout)
+	if err != nil {
+		return err
+	}
+	st, err = env.Client().Status(ctx)
+	if err != nil {
+		return env.hint(err)
+	}
+	switch {
+	case installed:
+		env.printf("  already done: the Include is active in %s\n", env.Layout.UserSSHConfig)
+	case st.Hosts == 0:
+		env.printf("\nNo hosts yet. Add a key and a host, then run setup again to finish:\n")
+		env.printf("  sshstate add-key ~/.ssh/id_ed25519\n")
+		env.printf("  sshstate add <alias> --hostname <host> --key <fingerprint-or-comment>\n")
+		env.printf("  sshstate setup\n")
+		env.printf("\nOr import the hosts you already have:\n")
+		env.printf("  sshstate setup --import ~/.ssh/config\n")
+		return nil
+	default:
+		env.printf("\n")
 		if err := runInstall(ctx, env, nil); err != nil {
 			return err
 		}
-	} else {
-		env.printf("Nothing imported. Add a key and a host, then activate the Include:\n")
-		env.printf("  sshstate add-key ~/.ssh/id_ed25519\n")
-		env.printf("  sshstate add <alias> --hostname <host> --key <fingerprint-or-comment>\n")
-		env.printf("  sshstate install\n")
-		return nil
+		did++
 	}
 
-	env.printf("\nDone. Try: ssh <alias>\n")
-	env.printf("Check anything unexpected with: sshstate doctor\n")
+	if did == 0 {
+		env.printf("\nThis machine is already set up.\n")
+	} else {
+		env.printf("\nDone. Try: ssh <alias>\n")
+	}
+	env.printf("See what it manages with: sshstate hosts\n")
 	return nil
+}
+
+func hasHostBlocks(path string) bool {
+	expanded, err := expandHome(path)
+	if err != nil {
+		return true
+	}
+	body, err := os.ReadFile(expanded)
+	if err != nil {
+		return true
+	}
+	hosts, problems := sshconfig.ParseImport(string(body))
+	return len(hosts) > 0 || len(problems) > 0
 }
 
 func defaultKitPath() string {
@@ -148,7 +204,7 @@ func adoptIdentityFiles(ctx context.Context, env *Env, hosts []sshconfig.Importe
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	have := map[string]bool{}
 	for _, k := range keys {

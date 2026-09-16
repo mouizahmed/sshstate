@@ -53,7 +53,7 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	byFingerprint := make(map[string]string, len(keys))
 	for _, k := range keys {
@@ -113,7 +113,7 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 
 	res, err := env.Client().Import(ctx, req)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 
 	for file, fingerprint := range missingKeys {

@@ -78,7 +78,7 @@ func (c *Client) do(ctx context.Context, method, route string, in, out any) erro
 	if err != nil {
 		var opErr *net.OpError
 		if errors.As(err, &opErr) {
-			return fmt.Errorf("%w (socket %s)", ErrDaemonUnavailable, c.socket)
+			return ErrDaemonUnavailable
 		}
 		return err
 	}

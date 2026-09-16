@@ -178,7 +178,7 @@ func runApprove(ctx context.Context, env *Env, args []string) error {
 	}
 	session, err := env.Client().PairApprove(ctx, fs.Arg(0))
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 
 	env.printf("Device %s is asking to join.\n", session.JoinerDeviceID)
@@ -193,7 +193,7 @@ func runApprove(ctx context.Context, env *Env, args []string) error {
 	env.printf("\nWaiting for the other device to confirm the same fingerprint...\n")
 	out, err := env.Client().PairDeliver(ctx, session.SessionID)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("\nEnrolled device %s and sent it %s.\n",
 		out.DeviceID, count(out.Records, "record", "records"))

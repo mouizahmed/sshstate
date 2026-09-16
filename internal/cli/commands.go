@@ -91,7 +91,7 @@ func initVault(ctx context.Context, env *Env, args []string, showNext bool) erro
 	}
 	env.printf("\nRecovery kit confirmed.\n")
 	if showNext {
-		env.printf("Next: sshstate service, then sshstate unlock\n")
+		env.printf("Finish setting up this machine with: sshstate setup\n")
 	}
 	return nil
 }
@@ -215,7 +215,7 @@ func (e *Env) confirmRecoveryViaDaemon(ctx context.Context, signing *crypto.Sign
 	st, err := e.Client().RecoveryConfirm(ctx, challenge.Nonce,
 		base64.RawURLEncoding.EncodeToString(signature))
 	if err != nil {
-		return "", hint(err)
+		return "", e.hint(err)
 	}
 	return st.VaultID, nil
 }
@@ -275,7 +275,7 @@ func runUnlock(ctx context.Context, env *Env, args []string) error {
 	defer clear(password)
 	st, err := env.Client().Unlock(ctx, string(password))
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Unlocked. Idle expiry %s, hard expiry %s.\n",
 		st.IdleExpiresAt.Local().Format(time.Kitchen),
@@ -289,7 +289,7 @@ func runLock(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if _, err := env.Client().Lock(ctx); err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Locked. Keys are out of daemon memory.\n")
 	env.printf("SSH sessions already authenticated are unaffected.\n")
@@ -303,7 +303,7 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 	}
 	st, err := env.Client().Status(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	state := "locked"
 	if st.Unlocked {
@@ -385,7 +385,7 @@ func runAddKey(ctx context.Context, env *Env, args []string) error {
 			key, err = env.Client().AddKey(ctx, req)
 		}
 		if err != nil {
-			return hint(err)
+			return env.hint(err)
 		}
 	}
 	env.printf("Added %s %s\n", key.Algorithm, key.Fingerprint)
@@ -452,7 +452,7 @@ func runAdd(ctx context.Context, env *Env, args []string) error {
 
 	host, err := env.Client().AddHost(ctx, req)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Added host %s -> %s@%s:%d\n", host.Alias, host.User, host.HostName, host.Port)
 	if len(host.KeyIDs) == 0 {
@@ -482,7 +482,7 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 
 	hosts, err := env.Client().Hosts(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	req := control.EditHostRequest{}
 	for _, h := range hosts {
@@ -533,7 +533,7 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 
 	host, err := env.Client().EditHost(ctx, req)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	env.printf("Updated host %s -> %s@%s:%d\n", host.Alias, host.User, host.HostName, host.Port)
 	if len(host.KeyIDs) == 0 {
@@ -565,7 +565,7 @@ func runInstall(ctx context.Context, env *Env, args []string) error {
 			env.printf("  sshstate unlock\n  sshstate install\n")
 			return errors.New("installation is incomplete")
 		}
-		return hint(err)
+		return env.hint(err)
 	}
 	if err := env.resolveTrust(ctx, *importTrust, *skipTrust); err != nil {
 		return err
@@ -647,7 +647,7 @@ func runDoctor(ctx context.Context, env *Env, args []string) error {
 	}
 	report, err := env.Client().Doctor(ctx)
 	if err != nil {
-		return hint(err)
+		return env.hint(err)
 	}
 	problems := 0
 	for _, f := range report.Findings {

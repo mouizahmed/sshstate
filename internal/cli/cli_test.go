@@ -341,12 +341,17 @@ func TestPurgeIsRefusedWithoutDeletingData(t *testing.T) {
 
 func TestCommandsWithoutDaemonExplainThemselves(t *testing.T) {
 	s := newScripted(t)
-	err := s.run(t, "status")
-	if err == nil {
-		t.Fatal("status succeeded with no daemon")
-	}
-	if !strings.Contains(err.Error(), "sshstate daemon") {
-		t.Fatalf("the error does not say how to start the daemon: %v", err)
+	for _, verb := range []string{"status", "hosts", "keys", "trust", "doctor", "sync", "lock", "install"} {
+		err := s.run(t, verb)
+		if err == nil {
+			t.Fatalf("%s succeeded on a machine with no vault", verb)
+		}
+		if !strings.Contains(err.Error(), "sshstate setup") {
+			t.Errorf("%s on a fresh machine does not point at setup: %v", verb, err)
+		}
+		if strings.Contains(err.Error(), "sshstate daemon") || strings.Contains(err.Error(), "sshstate init") {
+			t.Errorf("%s on a fresh machine points at the half-setup path: %v", verb, err)
+		}
 	}
 }
 
