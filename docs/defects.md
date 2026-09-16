@@ -728,3 +728,28 @@ that has only moved. `TestBootstrappingASecondRelayIsRefusedBeforeTheSecretIsSpe
 fails without the refusal, and `TestConnectingToTheSameRelayAtANewAddress` fails
 if the refusal also blocks a plain address change. Moving a vault to a new relay
 remains unsupported.
+
+## D19 — A restored vault could spend a new relay's secret and strand itself
+
+- Found: checking `docs/cli-flows.md` against the code before v0.1.1
+- Severity: the documented way to publish a restored vault left it attached to a relay that could never accept it
+- Fixed in: `internal/daemon/sync.go` (`handleConnect`)
+
+### What happened
+
+The draft CLI guide said a restored vault could be published to a new, empty
+relay with `connect --bootstrap-secret`. Bootstrap uploads only the genesis
+device's root event, so the relay did not know the restored device, and every
+request after that failed with `device_unknown`. By then the secret was spent
+and the relay URL recorded. The restored device also holds only each record's
+latest revision, which a new relay would refuse anyway (D18).
+
+### Fix
+
+Bootstrapping is refused before the secret is sent whenever the local
+membership chain has more than its root event. Only the machine that created
+the vault, before it first connected, can start a relay; a restored, recovered,
+or paired device cannot. The guide now says so.
+`TestARestoredVaultCannotStartANewRelay` fails without the refusal, and then
+starts the relay from the original machine and recovers from it, so the refusal
+cannot also block the flow that works.
