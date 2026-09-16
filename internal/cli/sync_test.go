@@ -883,6 +883,37 @@ func TestBootstrappingASecondRelayIsRefusedBeforeTheSecretIsSpent(t *testing.T) 
 	a.mustRun(t, "sync")
 }
 
+func TestARestoredVaultCannotStartANewRelay(t *testing.T) {
+	r := newTestRelay(t)
+	source, kitPath := ready(t)
+	source.mustRun(t, "edit", "prod", "--port", "2201")
+	archive := filepath.Join(t.TempDir(), "vault.export")
+	source.mustRun(t, "export", archive)
+
+	restored := newScripted(t)
+	restored.secrets = []string{"restored password", "restored password"}
+	restored.mustRun(t, "restore", archive, "--kit", kitPath)
+	restored.startDaemon(t)
+	restored.secrets = []string{"restored password"}
+	restored.mustRun(t, "unlock")
+
+	err := restored.run(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	if err == nil || !strings.Contains(err.Error(), "cannot start a new relay") {
+		t.Fatalf("a restored vault was allowed to start a relay: %v", err)
+	}
+	if spent, err := r.store.BootstrapConsumed(); err != nil || spent {
+		t.Fatalf("the refused connect spent the relay's bootstrap secret: %v %v", spent, err)
+	}
+	restored.out.Reset()
+	restored.mustRun(t, "status")
+	if got := restored.out.String(); !strings.Contains(got, "relay        none") {
+		t.Fatalf("the refused connect left a relay configured:\n%s", got)
+	}
+
+	source.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	recoverDevice(t, r, source, kitPath)
+}
+
 func TestConnectingToTheSameRelayAtANewAddress(t *testing.T) {
 	r := newTestRelay(t)
 	a, _ := ready(t)

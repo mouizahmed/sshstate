@@ -79,6 +79,17 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 				"if that relay only moved to a new address, run: sshstate connect <new-url>", current))
 			return
 		}
+		chain, err := d.chain()
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if chain.Len() > 1 {
+			writeError(w, errors.New("this vault came from a restore, a recovery, or a pairing, so it cannot start a new relay\n"+
+				"a new relay needs every host from its first revision, which only the machine that created the vault has before it first connects\n"+
+				"the bootstrap secret was not used"))
+			return
+		}
 		secret, err := protocol.DecodeBootstrapSecret(req.BootstrapSecret)
 		if err != nil {
 			writeError(w, fmt.Errorf("%v", err))
