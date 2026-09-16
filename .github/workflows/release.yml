@@ -176,6 +176,17 @@ jobs:
           \`\`\`
 
           \`brew install\` is unaffected.
+
+          ## What is not here
+
+          Master-key rotation is specified but not implemented; it ships in the
+          next milestone. If a vault key were exposed, the fallback is a fresh
+          vault and a reviewed migration rather than a rotation. Windows is out
+          of scope for v1.
+
+          This is a 0.x release. It works, it is tested against real sshd,
+          launchd, systemd and a real relay, and it has not been independently
+          audited or used by anyone but its author.
           EOF
 
       - name: publish

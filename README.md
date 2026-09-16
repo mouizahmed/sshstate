@@ -6,16 +6,20 @@ sshstate keeps your managed SSH hosts, connection options, trusted host keys and
 credentials available across every machine you use, including headless ones,
 while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 
-> **Status: pre-v1, Milestone 1.** Local operation works end to end on macOS: a
-> vault, a recovery kit, a daemon with an agent socket, generated configuration,
-> reviewed import of the host-key trust you already have, and a real `ssh` login
-> authenticated by a key that is never written to disk.
-> Milestone 2 is largely in place: the sync protocol is frozen, the relay runs,
-> and two machines pair, sync, resolve conflicts, revoke each other and restore
-> from an encrypted backup with the relay unavailable. Not yet done: master-key
-> rotation (specified, ships in M3b), conflict resolution as a command, Linux
-> systemd, and strict SSH config import. This is an implementation in progress,
-> not a released tool, and it has not been independently audited.
+> **Status: v0.1.0, Milestone 3a.** Usable on macOS and Linux, and not yet
+> stable. One machine works end to end: a vault, a recovery kit, a daemon with
+> an agent socket, generated configuration, strict import of the SSH config and
+> host-key trust you already have, and a real `ssh` login authenticated by a key
+> that is never written to disk. Several machines work too: the sync protocol is
+> frozen, the relay runs, and three devices pair, sync, resolve conflicts, revoke
+> each other, and restore from an encrypted backup with the relay unavailable.
+> The daemon starts on demand through launchd or systemd user units.
+>
+> **Not here yet:** master-key rotation, which is specified in
+> [docs/rotation.md](docs/rotation.md) and ships in M3b. If a vault key were
+> exposed, the v1 fallback is a fresh vault and reviewed migration (§7.3), not a
+> rotation. Windows is out of v1 scope. This has not been independently audited,
+> and it has not yet been used by anyone but its author.
 
 ## What it is, and is not
 
