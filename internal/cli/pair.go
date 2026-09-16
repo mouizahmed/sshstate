@@ -159,7 +159,7 @@ func runPair(ctx context.Context, env *Env, args []string) error {
 
 	env.printf("\nEnrolled as device %s in vault %s.\n", deviceID, delivery.Genesis.VaultID)
 	env.printf("Installed %s from the other machine.\n", count(len(delivery.Snapshot), "record", "records"))
-	env.printf("\nNext: sshstate daemon, then sshstate install\n")
+	env.printf("\nFinish setting up this machine with: sshstate setup\n")
 	return nil
 }
 

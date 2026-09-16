@@ -70,3 +70,13 @@ func TestPositionalVerbsAcceptFlagsFirst(t *testing.T) {
 		t.Fatalf("revoke with no device did not print its usage: %v", err)
 	}
 }
+
+func TestLockOnALockedVaultSaysSo(t *testing.T) {
+	s, _ := ready(t)
+	s.mustRun(t, "lock")
+	s.out.Reset()
+	s.mustRun(t, "lock")
+	if !strings.Contains(s.out.String(), "Already locked") {
+		t.Fatalf("locking a locked vault did not say so:\n%s", s.out.String())
+	}
+}

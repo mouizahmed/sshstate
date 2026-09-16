@@ -307,8 +307,12 @@ func (e *Env) deregister(ctx context.Context, st *control.StatusResponse) (done 
 func (e *Env) OfferDeregistration(ctx context.Context, yes bool) {
 	st, err := e.Client().Status(ctx)
 	if err != nil {
-		e.warnf("\nThe daemon is not reachable, so this device was not deregistered.\n")
-		e.warnf("If this vault is connected to a relay, revoke it from another device.\n")
+		relay := e.storedRelay()
+		if relay == "" {
+			return
+		}
+		e.warnf("\nThe daemon is not reachable, so this device was not deregistered from %s.\n", relay)
+		e.warnf("Revoke it from another device with: sshstate revoke <device-id>\n")
 		return
 	}
 	if st.Relay == "" {
@@ -333,11 +337,29 @@ func (e *Env) OfferDeregistration(ctx context.Context, yes bool) {
 	e.warnf("Revoke it from another device with: sshstate revoke %s\n", st.DeviceID)
 }
 
+func (e *Env) storedRelay() string {
+	if !e.vaultExists() {
+		return ""
+	}
+	store, err := vault.OpenStore(e.Layout.Database())
+	if err != nil {
+		return "its relay"
+	}
+	defer store.Close()
+	relay, err := store.Meta(vault.MetaRelayURL)
+	switch {
+	case errors.Is(err, vault.ErrNotFound):
+		return ""
+	case err != nil:
+		return "its relay"
+	}
+	return relay
+}
+
 func (e *Env) purgeVault(ctx context.Context, yes bool) error {
 	st, err := e.Client().Status(ctx)
 	if err != nil {
-		return fmt.Errorf("--purge needs the daemon running so it can deregister first: %w.\n"+
-			"Start it with: sshstate daemon\nNothing was deleted", err)
+		return fmt.Errorf("--purge needs the daemon running so it can deregister first: %w\nNothing was deleted", e.hint(err))
 	}
 	if st.LastExportPath == "" {
 		return errors.New("--purge needs a backup first.\n" +

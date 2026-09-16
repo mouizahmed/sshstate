@@ -292,6 +292,14 @@ func runLock(ctx context.Context, env *Env, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	current, err := env.Client().Status(ctx)
+	if err != nil {
+		return env.hint(err)
+	}
+	if !current.Unlocked {
+		env.printf("Already locked.\n")
+		return nil
+	}
 	if _, err := env.Client().Lock(ctx); err != nil {
 		return env.hint(err)
 	}

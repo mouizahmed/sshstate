@@ -808,7 +808,7 @@ func TestUninstallReportsIncompleteDeregistration(t *testing.T) {
 	}
 }
 
-func TestUninstallWithNoDaemonSaysSo(t *testing.T) {
+func initWithoutDaemon(t *testing.T) *scripted {
 	s := newScripted(t)
 	kitPath := filepath.Join(t.TempDir(), "kit.txt")
 	s.secrets = []string{password, password}
@@ -823,11 +823,33 @@ func TestUninstallWithNoDaemonSaysSo(t *testing.T) {
 	s.mustRun(t, "init", "--kit", kitPath)
 	s.answer = nil
 	s.errOut.Reset()
+	return s
+}
+
+func TestUninstallWithNoDaemonSaysAConnectedDeviceWasNotDeregistered(t *testing.T) {
+	s := initWithoutDaemon(t)
+	store, err := vault.OpenStore(s.Layout.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetMeta(vault.MetaRelayURL, "https://relay.example"); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
 
 	s.mustRun(t, "uninstall", "--yes")
 	warning := s.errOut.String()
-	if !strings.Contains(warning, "not deregistered") {
+	if !strings.Contains(warning, "not deregistered from https://relay.example") {
 		t.Fatalf("uninstall did not say the device was left registered:\n%s", warning)
+	}
+}
+
+func TestUninstallWithNoDaemonDoesNotMentionARelayALocalVaultNeverHad(t *testing.T) {
+	s := initWithoutDaemon(t)
+
+	s.mustRun(t, "uninstall", "--yes")
+	if strings.Contains(s.errOut.String()+s.out.String(), "deregister") {
+		t.Fatalf("uninstall of a single-machine vault talked about deregistering:\n%s%s", s.out.String(), s.errOut.String())
 	}
 }
 
