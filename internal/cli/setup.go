@@ -66,7 +66,11 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 
 	env.printf("\nStep 4 of 4: your hosts.\n\n")
 	if *importFrom != "" {
-		if err := runImport(ctx, env, []string{*importFrom, "--with-keys"}); err != nil {
+		args := []string{*importFrom, "--with-keys"}
+		if sameFile(*importFrom, env.Layout.UserSSHConfig) {
+			args = append(args, "--comment-source")
+		}
+		if err := runImport(ctx, env, args); err != nil {
 			return err
 		}
 		if err := runInstall(ctx, env, nil); err != nil {
@@ -170,4 +174,35 @@ func adoptIdentityFiles(ctx context.Context, env *Env, hosts []sshconfig.Importe
 		have[fingerprint] = true
 	}
 	return nil
+}
+
+func sameFile(a, b string) bool {
+	ea, err := expandHome(a)
+	if err != nil {
+		return false
+	}
+	eb, err := expandHome(b)
+	if err != nil {
+		return false
+	}
+	ra, err := filepath.Abs(ea)
+	if err != nil {
+		return false
+	}
+	rb, err := filepath.Abs(eb)
+	if err != nil {
+		return false
+	}
+	if ra == rb {
+		return true
+	}
+	fa, err := os.Stat(ra)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(rb)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(fa, fb)
 }

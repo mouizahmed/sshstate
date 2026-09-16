@@ -223,3 +223,51 @@ func TestDefaultEnvResolvesFromTheEnvironment(t *testing.T) {
 		t.Fatal("DefaultEnv produced an env with no control client")
 	}
 }
+
+func TestSetupCommentsOutTheConfigItImported(t *testing.T) {
+	s := importReady(t)
+	dir := t.TempDir()
+	key := filepath.Join(dir, "id")
+	writeTestKey(t, key, "laptop@home")
+	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	args := []string{s.Layout.UserSSHConfig, "--with-keys"}
+	if sameFile(s.Layout.UserSSHConfig, s.Layout.UserSSHConfig) {
+		args = append(args, "--comment-source")
+	}
+	s.mustRun(t, "import", args...)
+
+	after, err := os.ReadFile(s.Layout.UserSSHConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "# Host prod") {
+		t.Fatalf("the imported block still shadows the generated one:\n%s", after)
+	}
+	if strings.Contains(s.errOut.String(), "still defined") {
+		t.Fatalf("setup left a state it then warned about:\n%s", s.errOut)
+	}
+}
+
+func TestSameFileRecognisesTheUsersOwnConfig(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config")
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !sameFile(p, p) {
+		t.Fatal("a path does not match itself")
+	}
+	if !sameFile(filepath.Join(dir, ".", "config"), p) {
+		t.Fatal("an equivalent path did not match")
+	}
+	if sameFile(p, filepath.Join(dir, "other")) {
+		t.Fatal("two different paths matched")
+	}
+}
