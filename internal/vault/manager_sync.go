@@ -185,7 +185,7 @@ func (m *Manager) Snapshot(acceptedOnly bool) (*ExportSnapshot, error) {
 		protocol.RecordHost, protocol.RecordKey, protocol.RecordKnownHost,
 		protocol.RecordConflictMetadata, protocol.RecordConflictSecret,
 	} {
-		envs, err := m.store.LiveRecords(t)
+		envs, err := m.store.AllRecords(t)
 		if err != nil {
 			return nil, err
 		}
@@ -212,6 +212,16 @@ func (m *Manager) Snapshot(acceptedOnly bool) (*ExportSnapshot, error) {
 	}
 	protocol.SortHeads(out.Heads)
 	return out, nil
+}
+
+func LiveCount(envs []*protocol.Envelope) int {
+	n := 0
+	for _, env := range envs {
+		if !env.Context.Deleted {
+			n++
+		}
+	}
+	return n
 }
 
 func (m *Manager) Checkpoint(membershipDigest []byte, seq protocol.Counter, snapshot *ExportSnapshot) (protocol.Checkpoint, error) {

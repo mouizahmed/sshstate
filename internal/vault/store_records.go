@@ -110,9 +110,15 @@ func (s *Store) Head(id protocol.ID) (*protocol.Envelope, []byte, error) {
 }
 
 func (s *Store) LiveRecords(t protocol.RecordType) ([]*protocol.Envelope, error) {
-	rows, err := s.db.Query(
-		`SELECT envelope FROM records WHERE record_type = ? AND deleted = 0 ORDER BY record_id`,
-		string(t))
+	return s.records(`SELECT envelope FROM records WHERE record_type = ? AND deleted = 0 ORDER BY record_id`, t)
+}
+
+func (s *Store) AllRecords(t protocol.RecordType) ([]*protocol.Envelope, error) {
+	return s.records(`SELECT envelope FROM records WHERE record_type = ? ORDER BY record_id`, t)
+}
+
+func (s *Store) records(query string, t protocol.RecordType) ([]*protocol.Envelope, error) {
+	rows, err := s.db.Query(query, string(t))
 	if err != nil {
 		return nil, err
 	}

@@ -139,7 +139,7 @@ func Restore(store *Store, opts RestoreOptions) (*Manager, *RestoreResult, error
 	return m, &RestoreResult{
 		VaultID:  genesis.VaultID,
 		DeviceID: deviceID,
-		Records:  len(records),
+		Records:  LiveCount(records),
 		Seq:      archive.Manifest.Checkpoint.Seq,
 	}, nil
 }

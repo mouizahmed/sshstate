@@ -185,7 +185,7 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, control.PairDeliverResponse{
 		DeviceID: approver.JoinerKeys().ID.String(),
-		Records:  len(records),
+		Records:  vault.LiveCount(records),
 	})
 }
 

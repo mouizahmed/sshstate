@@ -381,7 +381,7 @@ func (d *Daemon) handleExport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, control.ExportResponse{
 		Path:      req.Path,
 		Bytes:     len(sealed),
-		Records:   len(snapshot.Records),
+		Records:   vault.LiveCount(snapshot.Records),
 		Conflicts: len(snapshot.Conflicts),
 		Seq:       cursor,
 	})

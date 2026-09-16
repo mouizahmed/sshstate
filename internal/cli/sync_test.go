@@ -367,6 +367,27 @@ func TestRestoreInstallsHostsAtTheirEditedRevision(t *testing.T) {
 	replacement.mustRun(t, "edit", "prod", "--port", "2203")
 }
 
+func TestRestoreKeepsARemovedHostRemoved(t *testing.T) {
+	source, kitPath := ready(t)
+	source.mustRun(t, "add", "staging", "--hostname", "10.0.0.6", "--user", "ubuntu")
+	source.mustRun(t, "remove", "staging", "--yes")
+	archivePath := filepath.Join(t.TempDir(), "vault.export")
+	source.mustRun(t, "export", archivePath)
+
+	replacement := newScripted(t)
+	replacement.secrets = []string{"a different password", "a different password"}
+	replacement.mustRun(t, "restore", archivePath, "--kit", kitPath)
+	if got := replacement.out.String(); !strings.Contains(got, " 1 record") {
+		t.Fatalf("restore counted the removed host:\n%s", got)
+	}
+	replacement.startDaemon(t)
+	replacement.secrets = []string{"a different password"}
+	replacement.mustRun(t, "unlock")
+	if aliases := hostAliases(t, replacement); aliases["staging"] || !aliases["prod"] {
+		t.Fatalf("the restored hosts are wrong: %v", aliases)
+	}
+}
+
 func TestRestoreNeedsItsOwnPassword(t *testing.T) {
 	source, kitPath := ready(t)
 	archivePath := filepath.Join(t.TempDir(), "vault.export")

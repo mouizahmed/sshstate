@@ -159,3 +159,39 @@ func TestResolveResurrectsAHostThatWasRemoved(t *testing.T) {
 		t.Fatalf("--resurrect did not bring the host back: %+v", hosts)
 	}
 }
+
+func TestADeviceThatJoinsAfterARemovalFollowsItsResurrection(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	vaultID := vaultIDOf(t, a)
+	b := pairInto(t, r.url, a, vaultID, "b's own password")
+
+	b.mustRun(t, "edit", "prod", "--hostname", "10.9.9.9")
+	a.mustRun(t, "remove", "prod", "--yes")
+	a.mustRun(t, "sync")
+	b.mustRun(t, "sync")
+
+	c := pairInto(t, r.url, a, vaultID, "c's own password")
+
+	b.out.Reset()
+	b.mustRun(t, "conflicts")
+	conflictID := ""
+	for _, f := range strings.Fields(b.out.String()) {
+		if len(f) == 32 {
+			conflictID = f
+		}
+	}
+	if conflictID == "" {
+		t.Fatalf("no conflict to resurrect from:\n%s", b.out)
+	}
+	b.mustRun(t, "resolve", conflictID, "--resurrect")
+	b.mustRun(t, "sync")
+
+	if err := c.run(t, "sync"); err != nil {
+		t.Fatalf("a device that joined after the removal could not follow the resurrection: %v", err)
+	}
+	if !hostAliases(t, c)["prod"] {
+		t.Fatal("the resurrected host did not reach the device that joined after its removal")
+	}
+}
