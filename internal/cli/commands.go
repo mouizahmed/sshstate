@@ -268,6 +268,16 @@ func runUnlock(ctx context.Context, env *Env, args []string) error {
 	if err := applySecretFD(env, *passwordFD); err != nil {
 		return err
 	}
+	current, err := env.Client().Status(ctx)
+	if err != nil {
+		return env.hint(err)
+	}
+	if current.Unlocked {
+		env.printf("Already unlocked. Idle expiry %s, hard expiry %s.\n",
+			current.IdleExpiresAt.Local().Format(time.Kitchen),
+			current.HardExpiresAt.Local().Format(time.Kitchen))
+		return nil
+	}
 	password, err := env.ReadSecret("Device unlock password: ")
 	if err != nil {
 		return err
@@ -320,7 +330,6 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 			st.IdleExpiresAt.Local().Format(time.Kitchen),
 			st.HardExpiresAt.Local().Format(time.Kitchen))
 	}
-	env.printf("key epoch    %s\n", st.KeyEpoch)
 	env.printf("hosts        %d\n", st.Hosts)
 	env.printf("keys         %d\n", st.Keys)
 	env.printf("known hosts  %d\n", st.KnownHosts)
@@ -338,15 +347,21 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 	if st.ConfigInstalled {
 		env.printf("include      active in ~/.ssh/config\n")
 	} else {
-		env.printf("include      not installed (run: sshstate install)\n")
+		env.printf("include      not installed\n")
 	}
 	env.printf("agent socket %s\n", st.AgentSocket)
 	if !st.RecoveryConfirmed {
 		env.warnf("\nThe recovery kit has not been confirmed; the vault will refuse changes.\n")
+		env.warnf("Confirm it with: sshstate confirm-recovery\n")
+		return nil
 	}
-	if !st.Unlocked {
+	switch {
+	case !st.ConfigInstalled || st.Hosts == 0:
+		env.printf("\nThis machine is not fully set up yet.\n")
+		env.printf("Next: sshstate setup\n")
+	case !st.Unlocked:
 		env.printf("\nThe vault is locked, so the agent offers no identities.\n")
-		env.printf("Run: sshstate unlock\n")
+		env.printf("Next: sshstate unlock\n")
 	}
 	return nil
 }
@@ -649,12 +664,13 @@ func runDoctor(ctx context.Context, env *Env, args []string) error {
 	if err != nil {
 		return env.hint(err)
 	}
-	problems := 0
+	problems, warnings := 0, 0
 	for _, f := range report.Findings {
 		marker := "ok  "
 		switch f.Severity {
 		case "warn":
 			marker = "warn"
+			warnings++
 		case "problem":
 			marker = "FAIL"
 			problems++
@@ -666,6 +682,10 @@ func runDoctor(ctx context.Context, env *Env, args []string) error {
 	}
 	if problems > 0 {
 		return fmt.Errorf("%d problem(s) found", problems)
+	}
+	if warnings > 0 {
+		env.printf("\nNo problems, but %s above.\n", count(warnings, "warning", "warnings"))
+		return nil
 	}
 	env.printf("\nNo problems found.\n")
 	return nil

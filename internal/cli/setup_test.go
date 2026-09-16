@@ -125,8 +125,8 @@ func TestDoctorReportsThroughTheCLI(t *testing.T) {
 	if !strings.Contains(out, "ssh config include") {
 		t.Fatalf("doctor printed no findings:\n%s", out)
 	}
-	if !strings.Contains(out, "sshstate install") {
-		t.Fatalf("doctor did not say the Include is missing:\n%s", out)
+	if !strings.Contains(out, "Include is not installed") || !strings.Contains(out, "sshstate setup") {
+		t.Fatalf("doctor did not say the Include is missing and how to finish:\n%s", out)
 	}
 }
 
@@ -421,5 +421,73 @@ func TestSetupImportIsSafeToRunTwice(t *testing.T) {
 	}
 	if string(first) != string(second) {
 		t.Fatalf("a second setup --import changed the config:\n%s", second)
+	}
+}
+
+func TestStatusOnAnUnfinishedMachineSaysSetupNotInstall(t *testing.T) {
+	s := vaultOnly(t)
+	s.startDaemon(t)
+	s.mustRun(t, "status")
+	out := s.out.String()
+	if !strings.Contains(out, "Next: sshstate setup") {
+		t.Fatalf("an unfinished machine is not pointed at setup:\n%s", out)
+	}
+	if strings.Contains(out, "sshstate install") {
+		t.Fatalf("status suggests install, which fails while the vault is locked:\n%s", out)
+	}
+}
+
+func TestStatusOnAFinishedLockedMachineSaysUnlock(t *testing.T) {
+	s, firstID, _ := listReady(t)
+	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu", "--key", firstID)
+	s.mustRun(t, "install", "--skip-trust")
+	s.mustRun(t, "lock")
+	s.out.Reset()
+
+	s.mustRun(t, "status")
+	out := s.out.String()
+	if !strings.Contains(out, "Next: sshstate unlock") {
+		t.Fatalf("a finished, locked machine is not told to unlock:\n%s", out)
+	}
+	if strings.Contains(out, "sshstate setup") {
+		t.Fatalf("a finished machine is sent back to setup:\n%s", out)
+	}
+	if strings.Contains(out, "key epoch") {
+		t.Fatalf("status still shows internal epoch numbers:\n%s", out)
+	}
+}
+
+func TestUnlockDoesNotAskForAPasswordItCannotUse(t *testing.T) {
+	s := newScripted(t)
+	s.secrets = []string{password}
+	if err := s.run(t, "unlock"); err == nil {
+		t.Fatal("unlock succeeded with no daemon")
+	}
+	if len(s.secrets) != 1 {
+		t.Fatal("unlock read the password before finding out there was no daemon to give it to")
+	}
+}
+
+func TestUnlockOnAnUnlockedVaultDoesNotAsk(t *testing.T) {
+	s, _, _ := listReady(t)
+	s.secrets = []string{password}
+	s.mustRun(t, "unlock")
+	if len(s.secrets) != 1 {
+		t.Fatal("unlock asked for a password the vault did not need")
+	}
+	if !strings.Contains(s.out.String(), "Already unlocked") {
+		t.Fatalf("unlock did not say the vault was already unlocked:\n%s", s.out)
+	}
+}
+
+func TestDoctorDoesNotCallANonfunctionalMachineHealthy(t *testing.T) {
+	s, _, _ := listReady(t)
+	s.mustRun(t, "doctor")
+	out := s.out.String()
+	if strings.Contains(out, "No problems found.") {
+		t.Fatalf("doctor reported no problems while the Include is not installed:\n%s", out)
+	}
+	if !strings.Contains(out, "warning") {
+		t.Fatalf("doctor's summary does not mention its warnings:\n%s", out)
 	}
 }

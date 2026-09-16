@@ -316,3 +316,35 @@ func TestDoctorDetectsAMissingManagedIdentity(t *testing.T) {
 			strings.Join(problems(findings), "\n  "))
 	}
 }
+
+func TestDoctorSkipsComparingWhenSSHReadsAnotherConfig(t *testing.T) {
+	h := start(t)
+	ctx := context.Background()
+	if _, err := h.client.Unlock(ctx, testPassword); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.client.AddHost(ctx, control.AddHostRequest{Alias: "prod", HostName: "10.0.0.5", User: "ubuntu"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sshconfig.Install(h.layout); err != nil {
+		t.Fatal(err)
+	}
+	h.daemon.effectiveConfigArgs = nil
+
+	findings, err := h.daemon.diagnose(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawSkip := false
+	for _, f := range findings {
+		if f.Severity == sevProblem {
+			t.Errorf("doctor reported a problem against a config ssh does not read: %s: %s", f.Check, f.Detail)
+		}
+		if strings.Contains(f.Detail, "ssh reads") {
+			sawSkip = true
+		}
+	}
+	if !sawSkip {
+		t.Fatalf("doctor did not explain that ssh reads a different config: %+v", findings)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -50,8 +51,8 @@ func (d *Daemon) diagnose(ctx context.Context) ([]control.DoctorFinding, error) 
 	} else if installed {
 		add(sevOK, "ssh config include", "the managed Include is present in "+d.layout.UserSSHConfig, "")
 	} else {
-		add(sevWarn, "ssh config include", "the managed Include is not installed, so generated hosts are inert",
-			"run: sshstate install")
+		add(sevWarn, "ssh config include", "the managed Include is not installed, so sshstate is not managing any hosts yet",
+			"run: sshstate setup")
 	}
 
 	d.checkPermissions(add)
@@ -75,12 +76,18 @@ func (d *Daemon) diagnose(ctx context.Context) ([]control.DoctorFinding, error) 
 	}
 	if !installed {
 		add(sevWarn, "effective configuration",
-			"skipped: the managed Include is not active yet", "run: sshstate install")
+			"skipped: the managed Include is not active yet", "run: sshstate setup")
+		return out, nil
+	}
+	if reads, ok := d.sshReadsAnotherConfig(); ok {
+		add(sevWarn, "effective configuration",
+			fmt.Sprintf("skipped: ssh reads %s, not %s, because it finds your config from your login account rather than $HOME", reads, d.layout.UserSSHConfig),
+			"run doctor without overriding $HOME to compare the configuration ssh actually uses")
 		return out, nil
 	}
 	expected := map[string][]string{}
 	if rendered, err := d.renderable(); err != nil {
-		add(sevProblem, "generated configuration", err.Error(), "run: sshstate generate")
+		add(sevProblem, "generated configuration", err.Error(), "run: sshstate install")
 	} else {
 		for _, r := range rendered {
 			paths := make([]string, 0, len(r.Identities))
@@ -214,7 +221,7 @@ func (d *Daemon) checkHost(ctx context.Context, h vault.HostView, wantIdentities
 		add(sevProblem, "host key trust",
 			fmt.Sprintf("host %q: UserKnownHostsFile is [%s], expected [%s]",
 				h.Alias, strings.Join(gotFiles, " "), strings.Join(wantFiles, " ")),
-			"managed host keys are read from the sshstate files; run: sshstate generate, "+
+			"managed host keys are read from the sshstate files; run: sshstate install, "+
 				"and check for an earlier UserKnownHostsFile in ~/.ssh/config")
 	}
 
@@ -233,7 +240,7 @@ func (d *Daemon) checkHost(ctx context.Context, h vault.HostView, wantIdentities
 		add(sevProblem, "accumulated identities",
 			fmt.Sprintf("host %q resolves managed identities [%s], the vault says [%s]",
 				h.Alias, strings.Join(baseNames(managed), " "), strings.Join(baseNames(wantIdentities), " ")),
-			"run: sshstate generate, and check for an earlier IdentityFile for this host in ~/.ssh/config")
+			"run: sshstate install, and check for an earlier IdentityFile for this host in ~/.ssh/config")
 	}
 }
 
@@ -290,4 +297,26 @@ func (d *Daemon) checkMatchExec(add func(sev, check, detail, remedy string)) {
 			}
 		}
 	}
+}
+
+func (d *Daemon) sshReadsAnotherConfig() (string, bool) {
+	if len(d.effectiveConfigArgs) > 0 {
+		return "", false
+	}
+	account, err := user.Current()
+	if err != nil || account.HomeDir == "" {
+		return "", false
+	}
+	reads := filepath.Join(account.HomeDir, ".ssh", "config")
+	a, errA := filepath.Abs(reads)
+	b, errB := filepath.Abs(d.layout.UserSSHConfig)
+	if errA != nil || errB != nil || a == b {
+		return "", false
+	}
+	if ia, err := os.Stat(a); err == nil {
+		if ib, err := os.Stat(b); err == nil && os.SameFile(ia, ib) {
+			return "", false
+		}
+	}
+	return reads, true
 }

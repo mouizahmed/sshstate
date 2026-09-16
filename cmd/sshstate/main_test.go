@@ -4,7 +4,10 @@
 package main
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -105,5 +108,32 @@ func TestRunReachesACommandThatNeedsNoDaemon(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not both") {
 		t.Fatalf("run did not dispatch to the verb: %v", err)
+	}
+}
+
+func TestEverySuggestedCommandExists(t *testing.T) {
+	registered := map[string]bool{"version": true}
+	for _, c := range cli.Commands() {
+		registered[c.Name] = true
+	}
+	suggestion := regexp.MustCompile(`(?:run|with|Next|Try|re-register it with|start it with|finish setting it up with):\s+sshstate ([a-z][a-z-]*)`)
+	root := filepath.Join("..", "..", "internal")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range suggestion.FindAllStringSubmatch(string(body), -1) {
+			if !registered[m[1]] {
+				t.Errorf("%s tells users to run \"sshstate %s\", which is not a command", path, m[1])
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
