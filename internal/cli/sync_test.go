@@ -498,13 +498,17 @@ func TestPurgeDeletesTheVaultAfterABackup(t *testing.T) {
 	}
 }
 
-func pairDevice(t *testing.T, r *testRelay, a *scripted) *scripted {
-	t.Helper()
+func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
 	vaultID := vaultIDOf(t, a)
+
 	b := newScripted(t)
 	b.lines = []string{"y"}
 	b.secrets = []string{"b's own password", "b's own password"}
 
+	sessionCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- b.run(t, "pair", r.url, vaultID)
@@ -525,6 +529,7 @@ func pairDevice(t *testing.T, r *testRelay, a *scripted) *scripted {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
+	sessionCh <- session
 
 	a.lines = []string{"y"}
 	a.out.Reset()
@@ -545,17 +550,6 @@ func pairDevice(t *testing.T, r *testRelay, a *scripted) *scripted {
 	b.secrets = []string{"b's own password"}
 	b.mustRun(t, "unlock")
 	b.out.Reset()
-	b.errOut.Reset()
-	return b
-}
-
-func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
-	r := newTestRelay(t)
-	a, _ := ready(t)
-	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
-	vaultID := vaultIDOf(t, a)
-
-	b := pairDevice(t, r, a)
 	b.mustRun(t, "status")
 	status := b.out.String()
 	if !strings.Contains(status, vaultID) {
@@ -595,7 +589,7 @@ func TestPairingInstallsHostsAtTheirEditedRevision(t *testing.T) {
 	a.mustRun(t, "edit", "prod", "--port", "2202")
 	a.mustRun(t, "sync")
 
-	b := pairDevice(t, r, a)
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
 	b.mustRun(t, "hosts")
 	if got := b.out.String(); !strings.Contains(got, "ubuntu@10.0.0.5:2202") {
 		t.Fatalf("the joined device did not get the latest revision:\n%s", got)
@@ -775,7 +769,7 @@ func TestRecoveryAfterPairingKnowsTheJoinedDevice(t *testing.T) {
 	r := newTestRelay(t)
 	a, kitPath := ready(t)
 	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
-	pairDevice(t, r, a)
+	pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
 	recoverDevice(t, r, a, kitPath)
 }
 
