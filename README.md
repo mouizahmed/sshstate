@@ -6,7 +6,7 @@ sshstate keeps your managed SSH hosts, connection options, trusted host keys and
 credentials available across every machine you use, including headless ones,
 while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 
-> **Status: v0.1.1, Milestone 3a.** Usable on macOS and Linux, and not yet
+> **Status: v0.1.2, Milestone 3a.** Usable on macOS and Linux, and not yet
 > stable. One machine works end to end: a vault, a recovery kit, a daemon with
 > an agent socket, generated configuration, strict import of the SSH config and
 > host-key trust you already have, and a real `ssh` login authenticated by a key
