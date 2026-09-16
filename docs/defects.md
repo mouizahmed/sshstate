@@ -514,3 +514,116 @@ close-on-exec.
 reader, forces collection, and then requires the caller's pipe to still stat and
 still accept a write. Mutation-checked: adopting the original descriptor fails it
 with `bad file descriptor`.
+
+## D11 — A vault with edited hosts could not be restored or paired
+
+- Found: live audit on macOS and an Ubuntu VM, after `go test ./...` passed
+- Severity: backups and pairing failed for any vault used past its first day
+- Fixed in: `internal/vault/store_install.go` (`Store.Install`), `internal/vault/restore.go`
+
+### What happened
+
+`sshstate restore` failed with `put record … at rev 4: no stored head to build
+on`. An export, a relay recovery copy, and a pairing snapshot all carry each
+record's current head. Restore and join installed those heads through
+`ApplyRemoteBatch`, which enforces the revision chain and so only accepts rev 1
+into an empty store.
+
+The failure also left a half-written vault: the genesis, wrappers, membership,
+and devices were each committed separately before the records failed, so a
+retry refused with `a vault already exists`.
+
+### Why it survived until a test found it
+
+Every restore, recover, and pairing test snapshotted hosts that had only been
+created, never edited, so every head was rev 1.
+
+### Fix
+
+`Store.Install` writes the whole vault, heads included, in one transaction.
+Heads go in as heads; the snapshot's signatures and digests are verified before
+it reaches the store. `TestRestoreInstallsHostsAtTheirEditedRevision`,
+`TestPairingInstallsHostsAtTheirEditedRevision`, and
+`TestInstallAcceptsHeadsPastTheirFirstRevision` fail when heads go through the
+chain check. `TestAFailedInstallLeavesNoVault` fails when the genesis is written
+outside the transaction.
+
+## D12 — A failed recovery left an authorized device behind
+
+- Found: live audit, recovering against a relay
+- Severity: a device nobody holds stayed authorized to write
+- Fixed in: `internal/vault/store_install.go`, `internal/vault/restore.go`
+
+### What happened
+
+Restore published the replacement device's enrolment to the relay before it
+wrote anything locally. When the local install then failed (D11), the relay kept
+the enrolment and every other device learned of an active device that did not
+exist.
+
+### Fix
+
+The enrolment is published from inside the install transaction, after every
+local write has succeeded and before commit; if the relay refuses, the
+transaction rolls back. `TestAFailedInstallLeavesNoVault` fails when the
+announcement runs before the writes, and
+`TestAnInstallWhoseAnnouncementFailsLeavesNoVault` fails when it runs after
+commit.
+
+### Not guarded
+
+Both tests exercise `Store.Install`. Moving the `Publish` call in `Restore` back
+above `store.Install` passes every test: making `Restore` fail locally needs an
+archive that verifies yet cannot be installed, and no test builds one.
+
+## D13 — The relay's recovery copy went stale
+
+- Found: live audit, recovering after pairing
+- Severity: recovery failed with `chain_seq is 2, expected 3` once the vault had changed
+- Fixed in: `internal/daemon/sync.go` (`refreshRecovery`), `internal/relay/envelopes.go`
+
+### What happened
+
+The daemon uploaded recovery material only on `connect`. A later pairing or
+revocation left the copy with an old membership chain, so the recovered device's
+enrolment did not extend the relay's chain, and later edits were missing from
+it. Each `connect` also added another copy at the same epoch, and the relay
+served whichever had the highest random id.
+
+### Fix
+
+Sync, approve, and revoke refresh the copy whenever the chain head or record
+cursor has moved since the last upload. An upload replaces older recovery copies
+at the same or an earlier epoch. `TestRecoveryAfterPairingKnowsTheJoinedDevice`,
+`TestRecoveryCarriesWhatTheLastSyncPublished`, and
+`TestRecoveryAfterARevocationKnowsOfIt` each fail when their site stops
+refreshing, or when the state key drops the chain or the cursor.
+`TestTheNewestRecoveryUploadIsTheOneServed` fails without the replacement.
+
+## D14 — A joining device could give up mid-delivery
+
+- Found: live audit, a second pairing on the same relay
+- Severity: pairing failed after both fingerprints matched
+- Fixed in: `internal/enroll/pairing.go` (`ErrNotDelivered`)
+
+### What happened
+
+The approver stores the key bundle on the pairing session, then appends the
+enrolment to the chain: two requests. A joiner polling between them saw the
+bundle, asked for the chain as a device the relay did not yet know, got
+`device_unknown`, and the CLI treated that as final.
+
+### Why it survived until a test found it
+
+The protocol tests deliver and then receive in sequence, so the window never
+opened. The CLI tests poll, but the window is one round trip wide.
+
+### Fix
+
+`device_unknown` while fetching the chain means the delivery is still in
+progress, and `Receive` reports it as `ErrNotDelivered` so the poll continues.
+Reordering the approver instead would leave an enrolled device with no keys
+whenever the session expired between the two requests.
+`TestAJoinerPollingMidDeliveryKeepsWaiting` runs the joiner from inside the
+relay's handler for the delivery request, which holds the window open, and fails
+without the mapping.
