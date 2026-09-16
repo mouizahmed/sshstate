@@ -30,43 +30,49 @@ type Env struct {
 
 type Command struct {
 	Name    string
+	Group   string
+	Args    string
 	Summary string
 	Run     func(ctx context.Context, env *Env, args []string) error
 }
 
 func Commands() []Command {
 	return []Command{
-		{"setup", "first run: vault, service, unlock, and your hosts", runSetup},
-		{"init", "create a vault on this device", runInit},
-		{"confirm-recovery", "confirm a saved recovery kit for an existing vault", runConfirmRecovery},
-		{"unlock", "unlock the vault for this session", runUnlock},
-		{"lock", "lock the vault and drop keys from memory", runLock},
-		{"status", "show vault and integration status", runStatus},
-		{"add-key", "import an SSH private key into the vault", runAddKey},
-		{"add", "add a managed host", runAdd},
-		{"edit", "change a managed host", runEdit},
-		{"remove", "remove a managed host", runRemove},
-		{"hosts", "list managed hosts", runHosts},
-		{"keys", "list keys in the vault", runKeys},
-		{"remove-key", "remove a key from the vault", runRemoveKey},
-		{"import", "import hosts from an existing SSH config", runImport},
-		{"trust", "review and approve host-key observations", runTrust},
-		{"connect", "point this vault at a sync relay", runConnect},
-		{"pair", "enrol this machine into an existing vault", runPair},
-		{"approve", "authorize another machine to join this vault", runApprove},
-		{"sync", "reconcile with the relay once", runSync},
-		{"devices", "list the devices authorized to write", runDevices},
-		{"revoke", "withdraw a device's authority", runRevoke},
-		{"export", "write an encrypted backup", runExport},
-		{"restore", "rebuild this vault from an export and the recovery kit", runRestore},
-		{"recover", "rebuild this vault from the relay using the recovery kit", runRecover},
-		{"conflicts", "list edits preserved after a race", runConflicts},
-		{"resolve", "apply a preserved edit to the current version", runResolve},
-		{"install", "activate the managed Include in ~/.ssh/config", runInstall},
-		{"uninstall", "remove the managed Include, preserving vault data", runUninstall},
-		{"doctor", "diagnose SSH integration problems", runDoctor},
-		{"service", "register the daemon with the platform service manager", runService},
-		{"daemon", "run the daemon in the foreground", runDaemon},
+		{"setup", GroupStart, "[--import ~/.ssh/config] [--kit path] [--label name]", "set up this machine, or finish setting it up", runSetup},
+		{"status", GroupStart, "", "show what sshstate is doing on this machine", runStatus},
+		{"unlock", GroupStart, "[--password-fd n]", "unlock the vault so ssh can use your keys", runUnlock},
+		{"lock", GroupStart, "", "lock the vault and drop keys from memory", runLock},
+		{"doctor", GroupStart, "", "check that ssh is using sshstate correctly", runDoctor},
+
+		{"hosts", GroupHosts, "", "list managed hosts", runHosts},
+		{"add", GroupHosts, "<alias> --hostname <host> [--user name] [--port n] [--jump alias] [--key key,...]", "add a managed host", runAdd},
+		{"edit", GroupHosts, "<alias> [--alias new] [--hostname host] [--user name] [--port n] [--jump alias|none] [--key key,...]", "change a managed host", runEdit},
+		{"remove", GroupHosts, "<alias> [--yes]", "remove a managed host", runRemove},
+		{"keys", GroupHosts, "", "list keys in the vault", runKeys},
+		{"add-key", GroupHosts, "<private-key-file> [--comment text]", "import an SSH private key into the vault", runAddKey},
+		{"remove-key", GroupHosts, "<key> [--yes]", "remove a key from the vault", runRemoveKey},
+		{"import", GroupHosts, "<ssh-config> [--with-keys] [--comment-source] [--dry-run]", "import hosts from an existing SSH config", runImport},
+		{"trust", GroupHosts, "[<id>...] [--all]", "review and approve host keys seen on first connection", runTrust},
+
+		{"connect", GroupMachines, "<relay-url> [--bootstrap-secret file]", "connect this vault to a relay so other machines can join", runConnect},
+		{"pair", GroupMachines, "<relay-url> <vault-id> [--label name]", "join this machine to a vault on another machine", runPair},
+		{"approve", GroupMachines, "<session-id>", "let another machine join this vault", runApprove},
+		{"sync", GroupMachines, "", "sync with the relay now", runSync},
+		{"devices", GroupMachines, "", "list the machines that can change this vault", runDevices},
+		{"revoke", GroupMachines, "<device-id> [--yes]", "remove a machine from this vault", runRevoke},
+		{"conflicts", GroupMachines, "", "list edits kept aside when two machines changed the same thing", runConflicts},
+		{"resolve", GroupMachines, "<conflict-id> [--resurrect]", "apply an edit that was kept aside", runResolve},
+
+		{"export", GroupBackup, "<path>", "write an encrypted backup", runExport},
+		{"restore", GroupBackup, "<export-file> --kit <kit-file> [--label name]", "rebuild this vault from a backup and the recovery kit", runRestore},
+		{"recover", GroupBackup, "<relay-url> <vault-id> --kit <kit-file> [--label name]", "rebuild this vault from the relay and the recovery kit", runRecover},
+		{"confirm-recovery", GroupBackup, "[--kit path]", "confirm you saved the recovery kit", runConfirmRecovery},
+
+		{"init", GroupAdvanced, "[--kit path] [--label name]", "create a vault without the rest of setup", runInit},
+		{"install", GroupAdvanced, "[--service] [--import-trust | --skip-trust]", "add the sshstate Include to ~/.ssh/config", runInstall},
+		{"uninstall", GroupAdvanced, "[--purge] [--yes]", "remove the sshstate Include, keeping the vault", runUninstall},
+		{"service", GroupAdvanced, "[--remove]", "start the daemon at login with the system service manager", runService},
+		{"daemon", GroupAdvanced, "[--data dir] [--ssh-dir dir] [--runtime dir] [--user-config path] [-v]", "run the daemon in the foreground", runDaemon},
 	}
 }
 

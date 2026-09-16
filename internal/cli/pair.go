@@ -6,7 +6,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"strings"
 	"time"
@@ -22,18 +21,15 @@ import (
 const pairPoll = time.Second
 
 func runPair(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "pair")
 	label := fs.String("label", defaultDeviceLabel(), "label for this device")
-	if len(args) < 2 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: sshstate pair <relay-url> <vault-id>")
-	}
-	relayURL, vaultID := args[0], protocol.ID(args[1])
-	if err := fs.Parse(args[2:]); err != nil {
+	positional, err := fs.parsePositional(args, 2)
+	if err != nil {
 		return err
 	}
+	relayURL, vaultID := positional[0], protocol.ID(positional[1])
 	if !vaultID.Valid() {
-		return fmt.Errorf("%q is not a vault id", args[1])
+		return fmt.Errorf("%q is not a vault id", positional[1])
 	}
 
 	store, err := vault.OpenStore(env.Layout.Database())
@@ -168,13 +164,12 @@ func runPair(ctx context.Context, env *Env, args []string) error {
 }
 
 func runApprove(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("approve", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "approve")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: sshstate approve <session-id>")
+		return usageError("approve")
 	}
 	session, err := env.Client().PairApprove(ctx, fs.Arg(0))
 	if err != nil {

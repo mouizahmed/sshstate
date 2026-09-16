@@ -19,7 +19,7 @@ func runHosts(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate hosts")
+		return usageError("hosts")
 	}
 	hosts, err := env.Client().Hosts(ctx)
 	if err != nil {
@@ -61,7 +61,7 @@ func runKeys(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate keys")
+		return usageError("keys")
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {

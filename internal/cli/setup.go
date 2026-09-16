@@ -22,7 +22,7 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate setup [--import ~/.ssh/config] [--kit path] [--label name]")
+		return usageError("setup")
 	}
 
 	did := 0
@@ -160,7 +160,7 @@ func runService(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate service [--remove]")
+		return usageError("service")
 	}
 	mgr := service.For()
 	if mgr == nil {

@@ -30,7 +30,7 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 	}
 	positional = append(positional, fs.Args()...)
 	if len(positional) != 1 {
-		return errors.New("usage: sshstate import /path/to/config [--dry-run]")
+		return usageError("import")
 	}
 	path := positional[0]
 	body, err := os.ReadFile(path)

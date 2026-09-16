@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"sort"
@@ -29,22 +30,30 @@ var withdrawn = map[string]string{
 func usage(env *cli.Env) string {
 	var b strings.Builder
 	b.WriteString("sshstate - synchronize an SSH environment across machines\n\n")
-	b.WriteString("usage: sshstate <command> [flags]\n\n")
-	b.WriteString("commands:\n")
-	for _, c := range cli.Commands() {
-		fmt.Fprintf(&b, "  %-11s %s\n", c.Name, c.Summary)
+	b.WriteString("usage: sshstate <command> [flags]\n")
+	for _, group := range cli.Groups() {
+		fmt.Fprintf(&b, "\n%s:\n", group)
+		for _, c := range cli.Commands() {
+			if c.Group == group {
+				fmt.Fprintf(&b, "  %-18s %s\n", c.Name, c.Summary)
+			}
+		}
+		if group == cli.GroupAdvanced {
+			fmt.Fprintf(&b, "  %-18s %s\n", "version", "print version and the adopted cryptographic suite")
+		}
 	}
-	fmt.Fprintf(&b, "  %-11s %s\n", "version", "print version and the adopted cryptographic suite")
 
-	b.WriteString("\nnot yet implemented:\n")
+	b.WriteString("\nNot yet implemented:\n")
 	names := make([]string, 0, len(laterMilestones))
 	for name := range laterMilestones {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		fmt.Fprintf(&b, "  %-11s %s\n", name, laterMilestones[name])
+		fmt.Fprintf(&b, "  %-18s %s\n", name, laterMilestones[name])
 	}
+	b.WriteString("\nNew here? Run: sshstate setup\n")
+	b.WriteString("Help for one command: sshstate <command> --help\n")
 	return b.String()
 }
 
@@ -66,7 +75,10 @@ func run() error {
 		os.Exit(2)
 	}
 
-	name, rest := args[0], args[1:]
+	return dispatch(env, args[0], args[1:])
+}
+
+func dispatch(env *cli.Env, name string, rest []string) error {
 	switch name {
 	case "version":
 		fmt.Printf("sshstate %s\n", buildinfo.String())
@@ -75,13 +87,21 @@ func run() error {
 		fmt.Println(buildinfo.Notice())
 		return nil
 	case "help", "-h", "--help":
+		if name == "help" && len(rest) > 0 {
+			name, rest = rest[0], []string{"--help"}
+			break
+		}
 		fmt.Print(usage(env))
 		return nil
 	}
 
 	for _, c := range cli.Commands() {
 		if c.Name == name {
-			return c.Run(context.Background(), env, rest)
+			err := c.Run(context.Background(), env, rest)
+			if errors.Is(err, flag.ErrHelp) {
+				return nil
+			}
+			return err
 		}
 	}
 	if reason, ok := laterMilestones[name]; ok {

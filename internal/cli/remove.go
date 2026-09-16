@@ -5,7 +5,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/mouizahmed/sshstate/internal/control"
@@ -20,7 +19,7 @@ func runRemove(ctx context.Context, env *Env, args []string) error {
 	}
 	positional = append(positional, fs.Args()...)
 	if len(positional) != 1 {
-		return errors.New("usage: sshstate remove <alias> [--yes]")
+		return usageError("remove")
 	}
 	hosts, err := env.Client().Hosts(ctx)
 	if err != nil {
@@ -66,7 +65,7 @@ func runRemoveKey(ctx context.Context, env *Env, args []string) error {
 	}
 	positional = append(positional, fs.Args()...)
 	if len(positional) != 1 {
-		return errors.New("usage: sshstate remove-key <id|fingerprint|comment> [--yes]")
+		return usageError("remove-key")
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {

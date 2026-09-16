@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -135,5 +136,42 @@ func TestEverySuggestedCommandExists(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHelpForOneCommandSucceeds(t *testing.T) {
+	for _, args := range [][]string{{"help", "import"}, {"import", "--help"}, {"status", "-h"}} {
+		var out strings.Builder
+		env := &cli.Env{Stdout: &out, Stderr: &out}
+		if err := dispatch(env, args[0], args[1:]); err != nil {
+			t.Errorf("%v: %v", args, err)
+		}
+		if !strings.Contains(out.String(), "usage: sshstate") {
+			t.Errorf("%v printed no usage:\n%s", args, out.String())
+		}
+	}
+}
+
+func TestUsageListsEachCommandUnderItsGroup(t *testing.T) {
+	sections := map[string][]string{}
+	var order []string
+	current := ""
+	for _, line := range strings.Split(usage(nil), "\n") {
+		switch {
+		case strings.HasSuffix(line, ":") && !strings.HasPrefix(line, " "):
+			current = strings.TrimSuffix(line, ":")
+			order = append(order, current)
+		case strings.HasPrefix(line, "  ") && current != "":
+			sections[current] = append(sections[current], strings.Fields(line)[0])
+		}
+	}
+	groups := cli.Groups()
+	if len(order) < len(groups) || !slices.Equal(order[:len(groups)], groups) {
+		t.Fatalf("usage headings are %v, want %v first", order, groups)
+	}
+	for _, c := range cli.Commands() {
+		if !slices.Contains(sections[c.Group], c.Name) {
+			t.Errorf("%q is not listed under %q: %v", c.Name, c.Group, sections[c.Group])
+		}
 	}
 }

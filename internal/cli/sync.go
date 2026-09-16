@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,19 +21,13 @@ import (
 )
 
 func runConnect(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "connect")
 	secretPath := fs.String("bootstrap-secret", "", "path to the relay's one-time bootstrap secret file")
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: sshstate connect <relay-url> [--bootstrap-secret <file>]")
-	}
-	url := args[0]
-	if err := fs.Parse(args[1:]); err != nil {
+	positional, err := fs.parsePositional(args, 1)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate connect <relay-url> [--bootstrap-secret <file>]")
-	}
+	url := positional[0]
 	req := control.ConnectRequest{URL: strings.TrimSuffix(url, "/")}
 	if *secretPath != "" {
 		raw, err := os.ReadFile(*secretPath)
@@ -63,8 +56,7 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 }
 
 func runSync(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "sync")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -105,8 +97,7 @@ func runSync(ctx context.Context, env *Env, args []string) error {
 }
 
 func runDevices(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("devices", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "devices")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -133,17 +124,11 @@ func runDevices(ctx context.Context, env *Env, args []string) error {
 }
 
 func runRevoke(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("revoke", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "revoke")
 	yes := fs.Bool("yes", false, "confirm revoking the device you are using")
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: sshstate revoke <device-id> [--yes]")
-	}
-	if err := fs.Parse(args[1:]); err != nil {
+	positional, err := fs.parsePositional(args, 1)
+	if err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate revoke <device-id> [--yes]")
 	}
 	devices, err := env.Client().Devices(ctx)
 	if err != nil {
@@ -153,7 +138,7 @@ func runRevoke(ctx context.Context, env *Env, args []string) error {
 	for _, d := range devices.Devices {
 		ids = append(ids, d.DeviceID)
 	}
-	deviceID, err := resolveRecordID(ids, args[0], "device")
+	deviceID, err := resolveRecordID(ids, positional[0], "device")
 	if err != nil {
 		return fmt.Errorf("%w; see: sshstate devices", err)
 	}
@@ -176,13 +161,12 @@ func runRevoke(ctx context.Context, env *Env, args []string) error {
 }
 
 func runExport(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("export", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "export")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: sshstate export <path>")
+		return usageError("export")
 	}
 	path, err := filepath.Abs(fs.Arg(0))
 	if err != nil {
@@ -208,8 +192,7 @@ func runExport(ctx context.Context, env *Env, args []string) error {
 }
 
 func runConflicts(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("conflicts", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "conflicts")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -233,20 +216,17 @@ func runConflicts(ctx context.Context, env *Env, args []string) error {
 }
 
 func runRestore(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "restore")
 	kitPath := fs.String("kit", "", "path to the recovery kit")
 	label := fs.String("label", defaultDeviceLabel(), "label for this device")
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: sshstate restore <export-file> --kit <kit-file>")
-	}
-	archivePath := args[0]
-	if err := fs.Parse(args[1:]); err != nil {
+	positional, err := fs.parsePositional(args, 1)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *kitPath == "" {
-		return errors.New("usage: sshstate restore <export-file> --kit <kit-file>")
+	if *kitPath == "" {
+		return usageError("restore")
 	}
+	archivePath := positional[0]
 
 	archive, err := os.ReadFile(archivePath)
 	if err != nil {
@@ -401,17 +381,11 @@ func (e *Env) purgeVault(ctx context.Context, yes bool) error {
 }
 
 func runResolve(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "resolve")
 	resurrect := fs.Bool("resurrect", false, "apply the edit even though the record has since been deleted")
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: sshstate resolve <conflict-record-id> [--resurrect]")
-	}
-	if err := fs.Parse(args[1:]); err != nil {
+	positional, err := fs.parsePositional(args, 1)
+	if err != nil {
 		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New("usage: sshstate resolve <conflict-record-id> [--resurrect]")
 	}
 	listed, err := env.Client().Conflicts(ctx)
 	if err != nil {
@@ -421,7 +395,7 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 	for _, c := range listed.Conflicts {
 		ids = append(ids, c.RecordID)
 	}
-	recordID, err := resolveRecordID(ids, args[0], "conflict")
+	recordID, err := resolveRecordID(ids, positional[0], "conflict")
 	if err != nil {
 		return fmt.Errorf("%w; see: sshstate conflicts", err)
 	}
@@ -445,22 +419,19 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 }
 
 func runRecover(ctx context.Context, env *Env, args []string) error {
-	fs := flag.NewFlagSet("recover", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newFlagSet(env, "recover")
 	kitPath := fs.String("kit", "", "path to the recovery kit")
 	label := fs.String("label", defaultDeviceLabel(), "label for this device")
-	if len(args) < 2 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: sshstate recover <relay-url> <vault-id> --kit <kit-file>")
-	}
-	relayURL, vaultID := strings.TrimSuffix(args[0], "/"), protocol.ID(args[1])
-	if err := fs.Parse(args[2:]); err != nil {
+	positional, err := fs.parsePositional(args, 2)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *kitPath == "" {
-		return errors.New("usage: sshstate recover <relay-url> <vault-id> --kit <kit-file>")
+	if *kitPath == "" {
+		return usageError("recover")
 	}
+	relayURL, vaultID := strings.TrimSuffix(positional[0], "/"), protocol.ID(positional[1])
 	if !vaultID.Valid() {
-		return fmt.Errorf("%q is not a vault id", args[1])
+		return fmt.Errorf("%q is not a vault id", positional[1])
 	}
 
 	kitBody, err := os.ReadFile(*kitPath)

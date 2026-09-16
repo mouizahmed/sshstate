@@ -23,12 +23,6 @@ import (
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
-func newFlagSet(env *Env, name string) *flag.FlagSet {
-	fs := flag.NewFlagSet("sshstate "+name, flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
-	return fs
-}
-
 func splitPositional(args []string, n int) (positional, rest []string) {
 	for len(args) > 0 && len(positional) < n && !strings.HasPrefix(args[0], "-") {
 		positional = append(positional, args[0])
@@ -375,7 +369,7 @@ func runAddKey(ctx context.Context, env *Env, args []string) error {
 	}
 	positional = append(positional, fs.Args()...)
 	if len(positional) != 1 {
-		return errors.New("usage: sshstate add-key /path/to/private_key")
+		return usageError("add-key")
 	}
 	path := positional[0]
 	raw, err := os.ReadFile(path)
@@ -428,14 +422,14 @@ func runAdd(ctx context.Context, env *Env, args []string) error {
 	username := fs.String("user", "", "User to log in as (defaults to this machine's username)")
 	port := fs.Int("port", 0, "Port (defaults to 22)")
 	jump := fs.String("jump", "", "ProxyJump alias, which must already be a managed host")
-	keys := fs.String("key", "", "comma-separated key record ids, in the order to offer them")
+	keys := fs.String("key", "", "comma-separated keys by id, fingerprint, or comment, in the order to offer them")
 	positional, rest := splitPositional(args, 1)
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 	positional = append(positional, fs.Args()...)
 	if len(positional) != 1 {
-		return errors.New("usage: sshstate add <alias> --hostname <host> [--user u] [--port n] [--jump alias] [--key id,...]")
+		return usageError("add")
 	}
 	if *hostname == "" {
 		return errors.New("--hostname is required")
@@ -485,14 +479,14 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 	username := fs.String("user", "", "User to log in as")
 	port := fs.Int("port", 0, "Port")
 	jump := fs.String("jump", "", `ProxyJump alias, or "none" to clear it`)
-	keys := fs.String("key", "", "comma-separated key record ids, in the order to offer them")
+	keys := fs.String("key", "", "comma-separated keys by id, fingerprint, or comment, in the order to offer them")
 	positional, rest := splitPositional(args, 1)
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 	positional = append(positional, fs.Args()...)
 	if len(positional) != 1 {
-		return errors.New("usage: sshstate edit <alias> [--alias new] [--hostname h] [--user u] [--port n] [--jump alias|none] [--key id,...]")
+		return usageError("edit")
 	}
 
 	hosts, err := env.Client().Hosts(ctx)
