@@ -325,11 +325,13 @@ ssh <alias>
 
 `restore` asks for a new device password and authorizes the new device using
 the kit. `setup` starts its service, unlocks, and installs its SSH `Include`.
-The restored data is as current as the export. If the original relay is still
-available and you want to rejoin it, use the relay recovery path below on a
-fresh machine instead. To publish the restored vault to a **new, empty relay**,
-set up that relay with a new bootstrap secret and use `sshstate connect
-<relay-url> --bootstrap-secret <secret-file>`.
+The restored data is as current as the export. A restored vault cannot start a
+**new, empty relay**: a new relay needs every host from its first revision, and
+only the machine that created the vault has that history, before it first
+connects. `connect --bootstrap-secret` refuses without spending the secret. If
+the original relay is still available and you want to rejoin it, use the relay
+recovery path below on a fresh machine instead, and keep backing up the relay's
+volume so that path stays open.
 
 ### 8B. Recover from a relay
 
