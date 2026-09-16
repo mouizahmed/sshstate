@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/mouizahmed/sshstate/internal/activation"
 	"github.com/mouizahmed/sshstate/internal/paths"
@@ -114,6 +115,11 @@ func (d launchd) Install(binary string, l paths.Layout) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create LaunchAgents directory: %w", err)
 	}
+	for _, dir := range []string{l.Data, l.SSH, l.Runtime} {
+		if err := ownDirectory(dir, os.Getuid()); err != nil {
+			return err
+		}
+	}
 	_ = d.bootout()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
@@ -126,6 +132,21 @@ func (d launchd) Install(binary string, l paths.Layout) error {
 	out, err := exec.Command("launchctl", "bootstrap", domain(), path).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func ownDirectory(dir string, uid int) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create %s: %w", dir, err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) != uid {
+		return fmt.Errorf("%s belongs to uid %d, not to you, so the daemon could not write there\n"+
+			"remove it with: sudo rm -rf %s\nthen run this again", dir, st.Uid, dir)
 	}
 	return nil
 }
