@@ -19,7 +19,16 @@ volume is the only copy of the synchronized ciphertext this relay has.
 ```sh
 head -c 32 /dev/urandom | base64 > deploy/bootstrap.secret
 chmod 600 deploy/bootstrap.secret
+cp deploy/bootstrap.secret ~/bootstrap.secret.for-first-client
+sudo chown 65532:65532 deploy/bootstrap.secret
 ```
+
+The container runs as UID 65532 and reads the file through a bind mount, so the
+file has to belong to that user. With any other owner, mode 600 keeps the relay
+out too, and it restarts in a loop with
+`read bootstrap secret: open /run/secrets/sshstate_bootstrap: permission denied`.
+Keep the copy for the first client (step 4) before changing the owner, move it
+there privately, and delete it afterwards.
 
 256 bits, used exactly once to connect your vault. The relay stores only its
 hash and disables bootstrap permanently afterwards; changing the file later does

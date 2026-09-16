@@ -196,8 +196,13 @@ with a one-time secret:
 ```sh
 head -c 32 /dev/urandom | base64 > deploy/bootstrap.secret
 chmod 600 deploy/bootstrap.secret
+cp deploy/bootstrap.secret ~/bootstrap.secret.for-first-client
+sudo chown 65532:65532 deploy/bootstrap.secret
 cd deploy && docker compose up -d
 ```
+
+The container runs as UID 65532, so the secret file must belong to that user or
+the relay cannot read it. The copy is what you transfer to the first client.
 
 Once `https://relay.example.com` reaches the relay, make the bootstrap secret
 file available **locally to the first client** through a private transfer, then

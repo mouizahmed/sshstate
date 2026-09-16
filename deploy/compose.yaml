@@ -32,4 +32,6 @@ volumes:
 secrets:
   sshstate_bootstrap:
     # Create with:  head -c 32 /dev/urandom | base64 > bootstrap.secret
+    # then:         chmod 600 bootstrap.secret && sudo chown 65532:65532 bootstrap.secret
+    # The relay runs as 65532 and cannot read the file under any other owner.
     file: ./bootstrap.secret
