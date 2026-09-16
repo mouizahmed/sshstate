@@ -28,13 +28,35 @@ not reopen registration. There is no other account creation path.
 ### 2. Start it
 
 ```sh
+cd deploy && docker compose up -d
+```
+
+That pulls `ghcr.io/mouizahmed/sshstate-server`, published for linux/amd64 and
+linux/arm64 by the release workflow. To build it yourself instead:
+
+```sh
 cd deploy && docker compose up -d --build
 ```
 
 The container runs as UID 65532 with a read-only root filesystem, no
 capabilities, and `no-new-privileges`. It binds `127.0.0.1:8080` on the host,
-not a public interface. The built image is about 21 MB: a static binary on
+not a public interface. The image is about 21 MB: a static binary on
 distroless, with no shell and no package manager inside.
+
+#### Verifying the image
+
+Each release signs the image by digest with Sigstore cosign, using the release
+workflow's own identity. A tag can later be moved to different content; a digest
+cannot, so the signature is over the digest.
+
+```sh
+digest=$(docker buildx imagetools inspect \
+  ghcr.io/mouizahmed/sshstate-server:v0.1.0 --format '{{.Manifest.Digest}}')
+
+cosign verify "ghcr.io/mouizahmed/sshstate-server@${digest}" \
+  --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ### 3. Put HTTPS in front of it
 

@@ -2,10 +2,12 @@
 # telemetry. Put an HTTPS reverse proxy in front of it (project brief §9).
 services:
   relay:
+    # Pulled by default. `docker compose up --build` builds from source
+    # instead, which is what the build stanza is here for.
+    image: ghcr.io/mouizahmed/sshstate-server:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: sshstate-server:local
     restart: unless-stopped
     read_only: true
     user: "65532:65532"
