@@ -474,7 +474,7 @@ func runAdd(ctx context.Context, env *Env, args []string) error {
 	env.printf("Added host %s -> %s@%s:%d\n", host.Alias, host.User, host.HostName, host.Port)
 	if len(host.KeyIDs) == 0 {
 		env.warnf("\nThis host references no keys, so the agent will offer nothing for it.\n")
-		env.warnf("Add one with: sshstate add-key, then recreate the host with --key <id>\n")
+		env.warnf("Attach one with: sshstate edit %s --key <key>\n", host.Alias)
 	}
 	env.printf("\nConfig regenerated at %s\n", env.Layout.Config())
 	return nil
@@ -554,7 +554,8 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 	}
 	env.printf("Updated host %s -> %s@%s:%d\n", host.Alias, host.User, host.HostName, host.Port)
 	if len(host.KeyIDs) == 0 {
-		env.warnf("\nThis host now references no keys, so the agent will offer nothing for it.\n")
+		env.warnf("\nThis host references no keys, so the agent will offer nothing for it.\n")
+		env.warnf("Attach one with: sshstate edit %s --key <key>\n", host.Alias)
 	}
 	env.printf("\nConfig regenerated at %s\n", env.Layout.Config())
 	return nil

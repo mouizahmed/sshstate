@@ -388,3 +388,16 @@ func extractRecordID(t *testing.T, out string) string {
 	t.Fatalf("no record id in output:\n%s", out)
 	return ""
 }
+
+func TestAHostWithoutKeysPointsAtEditToAttachOne(t *testing.T) {
+	s, _ := ready(t)
+	s.mustRun(t, "edit", "prod", "--port", "2201")
+	if got := s.errOut.String(); !strings.Contains(got, "sshstate edit prod --key <key>") || strings.Contains(got, "now references") {
+		t.Fatalf("edit did not point at attaching a key:\n%s", got)
+	}
+	s.errOut.Reset()
+	s.mustRun(t, "add", "bare", "--hostname", "10.0.0.6", "--user", "ubuntu")
+	if got := s.errOut.String(); !strings.Contains(got, "sshstate edit bare --key <key>") || strings.Contains(got, "recreate") {
+		t.Fatalf("add did not point at attaching a key:\n%s", got)
+	}
+}
