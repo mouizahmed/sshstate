@@ -102,11 +102,17 @@ loopback.
 
 ### 4. Connect your vault
 
-Not yet available. The client-side command that consumes the bootstrap secret
-lands with the sync client; until then the relay starts, serves, and waits. When
-it exists, connecting uploads genesis, public membership, ciphertext and the
-device and recovery envelopes from an unlocked device — it does not create or
-regenerate a vault.
+On the first client, create and unlock a vault with `sshstate setup`. Make the
+bootstrap secret file available locally to that client through a private
+transfer, then connect it to the relay:
+
+```sh
+sshstate connect https://relay.example.com --bootstrap-secret /path/to/bootstrap.secret
+```
+
+This uploads genesis, public membership, ciphertext, and the device and recovery
+envelopes from the existing vault. The bootstrap secret is then spent. See the
+[CLI flows](../docs/cli-flows.md) for pairing another machine and recovery.
 
 ### Backups
 

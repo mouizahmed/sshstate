@@ -230,6 +230,7 @@ SSHSTATE_SSHD_TEST=1 go test ./internal/cli/ -run NativeSSH
 
 ## Documentation
 
+- [CLI flows, from first run to recovery](docs/cli-flows.md)
 - [Project brief and milestones](docs/project-brief.md)
 - [Threat model](docs/threat-model.md)
 - [Defects found during implementation](docs/defects.md)
