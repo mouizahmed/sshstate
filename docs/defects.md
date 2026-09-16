@@ -691,10 +691,19 @@ The approver syncs before it builds the snapshot.
 `TestPairingWhileAnEditIsUnsyncedStillGivesTheJoinerThatHost` fails without the
 sync.
 
+An edit could still land between that sync and the snapshot. An accepted-only
+snapshot now refuses with `ErrUnsyncedEdit` when an unsynced head edits an
+existing record, and the approver syncs again, up to three times, before giving
+up. The joiner's bundle is checkpointed against that same snapshot rather than a
+second one taken later. `TestAnAcceptedSnapshotRefusesAnUnsyncedEditToAnExistingHost`
+fails without the refusal, and also fails if a brand-new unsynced host is
+refused, since the joiner can pull that from its first revision.
+
 ### Not guarded
 
-An edit made on the approving device between that sync and the snapshot still
-drops its host. No test holds that window open.
+The retry loop in `syncedSnapshot` is not exercised: no test lands an edit
+between its sync and its snapshot, so returning on the first refusal passes
+every test.
 
 ## D18 — Bootstrapping a second relay broke `connect` and spent the secret
 
