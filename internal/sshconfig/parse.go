@@ -69,8 +69,20 @@ func ParseImport(text string) ([]ImportedHost, []ImportProblem) {
 		}
 	}
 
+	managed := false
 	for n, raw := range strings.Split(text, "\n") {
 		line := n + 1
+		switch strings.TrimSpace(raw) {
+		case MarkerBegin:
+			managed = true
+			continue
+		case MarkerEnd:
+			managed = false
+			continue
+		}
+		if managed {
+			continue
+		}
 		keyword, args, err := splitDirective(raw)
 		if err != nil {
 			fail(line, "%s", err)

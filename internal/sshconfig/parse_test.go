@@ -175,3 +175,24 @@ func TestImportProblemRendersItsLine(t *testing.T) {
 		t.Fatalf("the rendered problem lost its reason: %q", got)
 	}
 }
+
+func TestTheManagedIncludeIsNotImported(t *testing.T) {
+	text := MarkerBegin + "\nInclude /home/u/.ssh/sshstate/config\n" + MarkerEnd + "\n\nHost prod\n HostName 10.0.0.5\n"
+	hosts, problems := ParseImport(text)
+	if len(problems) != 0 {
+		t.Fatalf("the Include sshstate itself wrote was refused:\n%s", problemText(problems))
+	}
+	if len(hosts) != 1 || hosts[0].Alias != "prod" {
+		t.Fatalf("parsed %+v", hosts)
+	}
+	if hosts[0].Line != 5 {
+		t.Fatalf("line numbers shifted: prod reported at %d", hosts[0].Line)
+	}
+}
+
+func TestAnIncludeOutsideTheMarkersIsStillRefused(t *testing.T) {
+	_, problems := ParseImport("Include other\n" + MarkerBegin + "\nInclude x\n" + MarkerEnd + "\n")
+	if len(problems) != 1 || problems[0].Line != 1 {
+		t.Fatalf("expected exactly the unmanaged Include refused, got:\n%s", problemText(problems))
+	}
+}
