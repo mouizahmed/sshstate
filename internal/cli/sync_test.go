@@ -141,14 +141,15 @@ func TestSyncIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestSyncWithoutARelayExplainsItself(t *testing.T) {
+func TestSyncOnASingleMachineVaultIsNotAnError(t *testing.T) {
 	s, _ := ready(t)
-	err := s.run(t, "sync")
-	if err == nil {
-		t.Fatal("sync succeeded with no relay")
+	s.mustRun(t, "sync")
+	out := s.out.String()
+	if !strings.Contains(out, "nothing to sync") {
+		t.Fatalf("sync on a local-only vault did not say there was nothing to do:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "connect") {
-		t.Fatalf("unexpected error: %v", err)
+	if !strings.Contains(out, "sshstate connect") {
+		t.Fatalf("sync did not say how to use more than one machine:\n%s", out)
 	}
 }
 

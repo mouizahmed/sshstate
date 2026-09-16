@@ -68,6 +68,15 @@ func runSync(ctx context.Context, env *Env, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	st, err := env.Client().Status(ctx)
+	if err != nil {
+		return env.hint(err)
+	}
+	if st.Relay == "" {
+		env.printf("This vault is on this machine only, so there is nothing to sync.\n")
+		env.printf("To use it on more than one machine: sshstate connect <relay-url>\n")
+		return nil
+	}
 	out, err := env.Client().Sync(ctx)
 	if err != nil {
 		return env.hint(err)
