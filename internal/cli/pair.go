@@ -114,7 +114,7 @@ func runPair(ctx context.Context, env *Env, args []string) error {
 			delivery = d
 			return true, nil
 		}
-		if strings.Contains(err.Error(), "has not delivered") {
+		if errors.Is(err, enroll.ErrNotDelivered) {
 			return false, nil
 		}
 		return false, err

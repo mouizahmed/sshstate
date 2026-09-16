@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -38,12 +39,14 @@ func newIdentity(t *testing.T) Identity {
 }
 
 type world struct {
-	t       *testing.T
-	genesis *protocol.Genesis
-	store   *relay.Store
-	url     string
-	first   Identity
-	now     time.Time
+	t             *testing.T
+	genesis       *protocol.Genesis
+	store         *relay.Store
+	url           string
+	first         Identity
+	now           time.Time
+	joining       *Joiner
+	afterDelivery func()
 }
 
 func newWorld(t *testing.T) *world {
@@ -75,9 +78,17 @@ func newWorld(t *testing.T) *world {
 	if err := store.CreateVault(g, root); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(relay.NewServer(store, relay.Config{PublicHTTPS: false}).Handler())
+	w := &world{t: t, genesis: g, store: store, first: first, now: now}
+	handler := relay.NewServer(store, relay.Config{PublicHTTPS: false}).Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(rw, r)
+		if hook := w.afterDelivery; hook != nil && r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/complete") {
+			w.afterDelivery = nil
+			hook()
+		}
+	}))
 	t.Cleanup(srv.Close)
-	w := &world{t: t, genesis: g, store: store, url: srv.URL, first: first, now: now}
+	w.url = srv.URL
 	store.Now = func() time.Time { return w.now }
 	return w
 }
@@ -157,6 +168,7 @@ func pair(t *testing.T, w *world, joiner Identity, snapshot []byte) (*Delivery, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	w.joining = j
 	a, err := Approve(ctx, w.signed(w.first), w.genesis, j.SessionID(), w.first, w.clock())
 	if err != nil {
 		t.Fatal(err)
@@ -279,6 +291,23 @@ func TestPairingDeliversTheVaultKeys(t *testing.T) {
 	}
 	if !chain.Authorized(joiner.DeviceID) {
 		t.Fatal("the enrolled device is not authorized")
+	}
+}
+
+func TestAJoinerPollingMidDeliveryKeepsWaiting(t *testing.T) {
+	w := newWorld(t)
+	var early error
+	fired := false
+	w.afterDelivery = func() {
+		fired = true
+		_, early = w.joining.Receive(context.Background())
+	}
+	pair(t, w, newIdentity(t), nil)
+	if !fired {
+		t.Fatal("the delivery hook never ran")
+	}
+	if early != nil && !errors.Is(early, ErrNotDelivered) {
+		t.Fatalf("a joiner polling mid-delivery was refused instead of told to wait: %v", early)
 	}
 }
 

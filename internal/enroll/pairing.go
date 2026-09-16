@@ -154,6 +154,8 @@ type Delivery struct {
 	Membership []protocol.SignedMembershipEvent
 }
 
+var ErrNotDelivered = errors.New("the approving device has not delivered the keys yet")
+
 func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 	if j.transcript == nil {
 		return nil, errors.New("nothing has been compared yet")
@@ -166,7 +168,7 @@ func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 		return nil, err
 	}
 	if session.MembershipEvent == nil || len(session.Bundle) == 0 {
-		return nil, errors.New("the approving device has not delivered the keys yet")
+		return nil, ErrNotDelivered
 	}
 	if session.Genesis == nil {
 		return nil, errors.New("the delivery carries no genesis document")
@@ -184,6 +186,9 @@ func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 	}
 
 	events, err := j.client.Membership(ctx)
+	if protocol.CodeOf(err) == protocol.CodeDeviceUnknown {
+		return nil, ErrNotDelivered
+	}
 	if err != nil {
 		return nil, err
 	}
