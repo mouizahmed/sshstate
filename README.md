@@ -168,6 +168,40 @@ and one socket unit per socket, because systemd names every descriptor in a
 socket unit alike and the daemon adopts its two sockets by name, never by
 position. Everywhere else, run `sshstate daemon` in the foreground.
 
+## Installing
+
+```sh
+brew tap mouizahmed/sshstate
+brew install sshstate
+```
+
+Or from a release: download the archive for your platform, verify it, and put
+the binary on your `PATH`.
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.cosign.bundle \
+  --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+tar xzf sshstate_*.tar.gz && sudo mv sshstate /usr/local/bin/
+```
+
+The checksum says the download arrived intact. The signature says it was built
+by this repository's release workflow, which a checksum alone cannot tell you —
+anyone who can replace a tarball can replace the sums beside it.
+
+macOS binaries are not notarized, so a browser download is quarantined and
+Gatekeeper refuses it. Clear it once:
+
+```sh
+xattr -d com.apple.quarantine /usr/local/bin/sshstate
+```
+
+`brew install` is unaffected.
+
 ## Building
 
 Requires **Go 1.27 or later** — `crypto/mldsa` is not present in Go 1.26.
