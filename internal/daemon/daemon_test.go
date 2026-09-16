@@ -501,3 +501,51 @@ func TestAgentSignsAndListsThroughTheExportedAgent(t *testing.T) {
 		t.Fatal("Sign answered while locked")
 	}
 }
+
+func TestALongSocketPathIsExplained(t *testing.T) {
+	long := "/tmp/" + strings.Repeat("x", 200) + "/control.sock"
+	_, err := listenUnix(long)
+	if err == nil {
+		t.Fatal("a socket path longer than the system allows was accepted")
+	}
+	for _, want := range []string{"bytes", "at most", "--runtime"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "invalid argument") {
+		t.Fatalf("the error is still the bare kernel message: %v", err)
+	}
+}
+
+func TestTheDaemonAnnouncesOnlyAfterItIsListening(t *testing.T) {
+	root := t.TempDir()
+	layout := paths.Layout{
+		Data:          filepath.Join(root, "data"),
+		SSH:           filepath.Join(root, "ssh"),
+		UserSSHConfig: filepath.Join(root, "ssh", "config"),
+		Runtime:       "/tmp/" + strings.Repeat("y", 200),
+	}
+	store, err := vault.OpenStore(layout.Database())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	mgr, kit, err := vault.Init(store, vault.InitOptions{Password: []byte(testPassword), DeviceLabel: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.ConfirmRecoveryKit(kit.Checksum(), kit); err != nil {
+		t.Fatal(err)
+	}
+	d := New(mgr, layout, nil)
+	announced := false
+	d.OnListening(func() { announced = true })
+
+	if err := d.Run(context.Background()); err == nil {
+		t.Fatal("the daemon ran with a socket path it cannot bind")
+	}
+	if announced {
+		t.Fatal("the daemon announced it was running before it could listen")
+	}
+}

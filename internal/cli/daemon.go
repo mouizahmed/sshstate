@@ -70,7 +70,9 @@ func runDaemon(ctx context.Context, env *Env, args []string) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	env.printf("sshstate daemon running. Vault is locked; run: sshstate unlock\n")
+	d.OnListening(func() {
+		env.printf("sshstate daemon running. Vault is locked; run: sshstate unlock\n")
+	})
 	return d.Run(ctx)
 }
 

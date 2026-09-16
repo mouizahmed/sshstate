@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/sys/unix"
 
 	"github.com/mouizahmed/sshstate/internal/activation"
 	"github.com/mouizahmed/sshstate/internal/agentsrv"
@@ -41,6 +42,7 @@ type Daemon struct {
 	stop     chan struct{}
 
 	effectiveConfigArgs []string
+	onListening         func()
 }
 
 func New(mgr *vault.Manager, layout paths.Layout, log *slog.Logger) *Daemon {
@@ -55,6 +57,8 @@ func New(mgr *vault.Manager, layout paths.Layout, log *slog.Logger) *Daemon {
 		stop:   make(chan struct{}),
 	}
 }
+
+func (d *Daemon) OnListening(f func()) { d.onListening = f }
 
 func (d *Daemon) Run(ctx context.Context) error {
 	release, err := AcquireInstanceLock(d.layout.DaemonLock())
@@ -76,6 +80,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	defer agentLn.Close()
 
+	if d.onListening != nil {
+		d.onListening()
+	}
 	d.log.Info("daemon listening",
 		"control", d.layout.ControlSocket(), "control_source", controlSrc,
 		"agent", d.layout.AgentSocket(), "agent_source", agentSrc)
@@ -167,6 +174,9 @@ func (d *Daemon) listen(name, path string) (net.Listener, string, error) {
 }
 
 func listenUnix(path string) (net.Listener, error) {
+	if limit := len(unix.RawSockaddrUnix{}.Path); len(path) >= limit {
+		return nil, fmt.Errorf("the socket path %s is %d bytes, and Unix sockets on this system allow at most %d; use a shorter home directory, or pass --runtime with a shorter one", path, len(path), limit-1)
+	}
 	if err := os.MkdirAll(dirOf(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create socket directory: %w", err)
 	}
