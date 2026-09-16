@@ -74,9 +74,12 @@ func runSync(ctx context.Context, env *Env, args []string) error {
 		return env.hint(err)
 	}
 	switch {
-	case out.Pushed == 0 && out.Applied == 0 && out.Preserved == 0:
+	case out.Pushed == 0 && out.Applied == 0 && out.Preserved == 0 && out.Learned == 0:
 		env.printf("Already up to date.\n")
 	default:
+		if out.Learned > 0 {
+			env.printf("Learned %s. See them with: sshstate devices\n", count(out.Learned, "device change", "device changes"))
+		}
 		if out.Pushed > 0 {
 			env.printf("Published %s.\n", count(out.Pushed, "change", "changes"))
 		}

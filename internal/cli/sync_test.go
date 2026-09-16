@@ -900,6 +900,24 @@ func TestConnectingToTheSameRelayAtANewAddress(t *testing.T) {
 	}
 }
 
+func TestSyncReportsADeviceChangeInsteadOfNothing(t *testing.T) {
+	r := newTestRelay(t)
+	a, kitPath := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	recoverDevice(t, r, a, kitPath)
+
+	a.out.Reset()
+	a.mustRun(t, "sync")
+	if got := a.out.String(); !strings.Contains(got, "Learned 1 device change") || strings.Contains(got, "Already up to date") {
+		t.Fatalf("sync did not report the new device:\n%s", got)
+	}
+	a.out.Reset()
+	a.mustRun(t, "sync")
+	if got := a.out.String(); !strings.Contains(got, "Already up to date") {
+		t.Fatalf("a quiet sync reported changes:\n%s", got)
+	}
+}
+
 func TestRecoverRefusesAnotherVault(t *testing.T) {
 	r := newTestRelay(t)
 	source, _ := ready(t)

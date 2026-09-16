@@ -28,12 +28,13 @@ type Engine struct {
 }
 
 type Report struct {
-	MembershipEvents int
-	Pushed           int
-	Preserved        int
-	Applied          int
-	Cursor           protocol.Counter
-	Complete         bool
+	MembershipEvents  int
+	MembershipLearned int
+	Pushed            int
+	Preserved         int
+	Applied           int
+	Cursor            protocol.Counter
+	Complete          bool
 }
 
 func (e *Engine) Sync(ctx context.Context) (*Report, error) {
@@ -45,11 +46,13 @@ func (e *Engine) Sync(ctx context.Context) (*Report, error) {
 	}
 	report := &Report{}
 
+	known := localChainLength(e.Store)
 	chain, newlyRevoked, err := e.syncMembership(ctx)
 	if err != nil {
 		return nil, err
 	}
 	report.MembershipEvents = chain.Len()
+	report.MembershipLearned = max(chain.Len()-known, 0)
 
 	if err := e.push(ctx, report); err != nil {
 		return nil, err

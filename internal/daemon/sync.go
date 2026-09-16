@@ -203,6 +203,7 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 		Applied:   report.Applied,
 		Cursor:    report.Cursor.String(),
 		Devices:   report.MembershipEvents,
+		Learned:   report.MembershipLearned,
 		Complete:  report.Complete,
 	})
 }

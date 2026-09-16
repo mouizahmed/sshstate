@@ -256,6 +256,7 @@ type SyncResponse struct {
 	Applied   int    `json:"applied"`
 	Cursor    string `json:"cursor"`
 	Devices   int    `json:"devices"`
+	Learned   int    `json:"learned"`
 	Complete  bool   `json:"complete"`
 }
 
