@@ -1,0 +1,151 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # darwin needs cgo: launch_activate_socket is a C library call with
+          # no syscall equivalent, and a CGO_ENABLED=0 build links none of it
+          # and then cannot adopt launchd sockets at all.
+          - {os: macos-latest, goos: darwin, goarch: arm64, cgo: '1'}
+          - {os: macos-latest, goos: darwin, goarch: amd64, cgo: '1'}
+          # linux has no such dependency, so these are static.
+          - {os: ubuntu-latest, goos: linux, goarch: amd64, cgo: '0'}
+          - {os: ubuntu-latest, goos: linux, goarch: arm64, cgo: '0'}
+    runs-on: ${{ matrix.os }}
+    env:
+      # The released binary is built by the toolchain the tests ran under, not
+      # by whatever the toolchain directive would fetch.
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          check-latest: false
+
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: |
+          set -eux
+          version="${GITHUB_REF_NAME}"
+          if [ "${{ matrix.goos }}${{ matrix.goarch }}" = "darwinamd64" ]; then
+            export CGO_CFLAGS="-arch x86_64" CGO_LDFLAGS="-arch x86_64"
+          fi
+          mkdir -p dist/stage
+          go build -trimpath \
+            -ldflags "-X github.com/mouizahmed/sshstate/internal/buildinfo.Version=${version}" \
+            -o dist/stage/sshstate ./cmd/sshstate
+          cp LICENSE README.md dist/stage/
+
+      - name: verify the darwin build carries the launchd adapter
+        if: matrix.goos == 'darwin'
+        run: |
+          set -eu
+          n="$(nm dist/stage/sshstate | grep -c launch_activate_socket || true)"
+          if [ "$n" -eq 0 ]; then
+            echo "this darwin binary has no launchd adapter; cgo did not link" >&2
+            exit 1
+          fi
+
+      - name: package
+        run: |
+          set -eux
+          version="${GITHUB_REF_NAME#v}"
+          name="sshstate_${version}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          tar -C dist/stage -czf "dist/${name}.tar.gz" sshstate LICENSE README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        run: |
+          set -eux
+          cd dist
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: sigstore/cosign-installer@v3
+
+      # Checksums prove a download is intact, not that it came from here:
+      # whoever can replace a tarball can replace the sums beside it. The
+      # signature is over SHA256SUMS, made with this workflow's OIDC identity,
+      # so there is no private key to hold or rotate.
+      - name: sign the checksums
+        run: |
+          set -eux
+          cd dist
+          cosign sign-blob --yes SHA256SUMS --bundle SHA256SUMS.cosign.bundle
+
+      - name: release notes
+        run: |
+          version="${GITHUB_REF_NAME}"
+          cat > notes.md <<EOF
+          ## Verify what you downloaded
+
+          \`\`\`sh
+          sha256sum -c SHA256SUMS --ignore-missing
+
+          cosign verify-blob SHA256SUMS \\
+            --bundle SHA256SUMS.cosign.bundle \\
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          \`\`\`
+
+          The first says the file arrived intact. The second says it was built by
+          this repository's release workflow at ${version}, which is the part a
+          checksum alone cannot tell you.
+
+          ## Install
+
+          \`\`\`sh
+          tar xzf sshstate_*.tar.gz
+          sudo mv sshstate /usr/local/bin/
+          sshstate setup --import ~/.ssh/config
+          \`\`\`
+
+          On macOS a browser download is quarantined and Gatekeeper refuses it,
+          because these binaries are not notarized. Clear it with:
+
+          \`\`\`sh
+          xattr -d com.apple.quarantine /usr/local/bin/sshstate
+          \`\`\`
+
+          \`brew install\` is unaffected.
+          EOF
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle
