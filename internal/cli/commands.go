@@ -694,6 +694,22 @@ func runDoctor(ctx context.Context, env *Env, args []string) error {
 	return nil
 }
 
+const serviceStartWait = 10 * time.Second
+
+func (e *Env) awaitDaemon(ctx context.Context, wait time.Duration) error {
+	deadline := time.Now().Add(wait)
+	for {
+		_, err := e.Client().Status(ctx)
+		if !errors.Is(err, control.ErrDaemonUnavailable) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func installService(env *Env) error {
 	mgr := service.For()
 	if mgr == nil {
@@ -711,6 +727,10 @@ func installService(env *Env) error {
 
 	if err := mgr.Install(binary, env.Layout); err != nil {
 		return err
+	}
+	if err := env.awaitDaemon(context.Background(), serviceStartWait); err != nil {
+		return fmt.Errorf("registered with %s, but the daemon did not answer within %s: %w\ncheck it with: sshstate doctor",
+			mgr.Name(), serviceStartWait, err)
 	}
 	env.printf("Registered with %s: %s\n", mgr.Name(), mgr.DefinitionPath())
 	env.printf("The daemon now starts on demand when SSH or the CLI connects.\n")
