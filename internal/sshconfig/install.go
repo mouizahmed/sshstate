@@ -139,13 +139,21 @@ func readUserConfig(path string) (body []byte, existed bool, err error) {
 	return body, true, nil
 }
 
+const maxBackupsPerSecond = 100
+
 func backupUserConfig(path string, body []byte) (string, error) {
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	backup := fmt.Sprintf("%s.sshstate-backup-%s", path, stamp)
-	if err := atomicWrite(backup, body, 0o600); err != nil {
-		return "", fmt.Errorf("write backup %s: %w", filepath.Base(backup), err)
+	for n := 2; ; n++ {
+		err := atomicCreate(backup, body, 0o600)
+		if err == nil {
+			return backup, nil
+		}
+		if !errors.Is(err, os.ErrExist) || n > maxBackupsPerSecond {
+			return "", fmt.Errorf("write backup %s: %w", filepath.Base(backup), err)
+		}
+		backup = fmt.Sprintf("%s.sshstate-backup-%s-%d", path, stamp, n)
 	}
-	return backup, nil
 }
 
 func replaceUserConfig(path string, original, next []byte, existed bool) error {

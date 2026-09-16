@@ -10,6 +10,14 @@ import (
 )
 
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
+	return writeThrough(path, data, perm, os.Rename)
+}
+
+func atomicCreate(path string, data []byte, perm os.FileMode) error {
+	return writeThrough(path, data, perm, os.Link)
+}
+
+func writeThrough(path string, data []byte, perm os.FileMode, place func(tmp, path string) error) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -36,7 +44,7 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := place(tmpName, path); err != nil {
 		return err
 	}
 	return syncDir(dir)

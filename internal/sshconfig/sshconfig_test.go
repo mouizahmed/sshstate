@@ -302,3 +302,36 @@ func mustRead(t *testing.T, path string) []byte {
 	}
 	return body
 }
+
+func TestBackupsTakenInTheSameSecondKeepEveryVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config")
+	versions := []string{"Host original\n", "Host second\n", "Host third\n"}
+	seen := map[string]bool{}
+	for _, body := range versions {
+		backup, err := backupUserConfig(path, []byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seen[backup] {
+			t.Fatalf("%s was reused for a later backup", backup)
+		}
+		seen[backup] = true
+	}
+	matches, err := filepath.Glob(path + ".sshstate-backup-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := map[string]bool{}
+	for _, m := range matches {
+		body, err := os.ReadFile(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept[string(body)] = true
+	}
+	for _, body := range versions {
+		if !kept[body] {
+			t.Fatalf("the backup holding %q was overwritten; kept %v", body, kept)
+		}
+	}
+}
