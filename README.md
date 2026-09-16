@@ -176,8 +176,14 @@ position. Everywhere else, run `sshstate daemon` in the foreground.
 
 ```sh
 brew tap mouizahmed/sshstate
+brew trust --formula mouizahmed/sshstate/sshstate
 brew install sshstate
 ```
+
+Homebrew 7 will not load a formula from a third-party tap until you say you
+trust it, because a formula is Ruby that Homebrew runs. Trusting the one formula
+is narrower than `brew trust mouizahmed/sshstate`, which would trust anything
+this tap adds later.
 
 Or from a release: download the archive for your platform, verify it, and put
 the binary on your `PATH`.
