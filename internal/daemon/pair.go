@@ -170,7 +170,7 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if _, err := d.engine(client).Sync(ctx); err != nil {
+	if _, err := d.syncAndRefresh(ctx, client); err != nil {
 		writeError(w, err)
 		return
 	}

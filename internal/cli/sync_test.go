@@ -757,6 +757,56 @@ func TestRecoverFromTheRelayWithOnlyTheKit(t *testing.T) {
 	}
 }
 
+func recoverDevice(t *testing.T, r *testRelay, source *scripted, kitPath string) (*scripted, string) {
+	t.Helper()
+	replacement := newScripted(t)
+	replacement.secrets = []string{"recovered password", "recovered password"}
+	if err := replacement.run(t, "recover", r.url, vaultIDOf(t, source), "--kit", kitPath); err != nil {
+		t.Fatalf("recover: %v\nstdout:\n%s\nstderr:\n%s", err, replacement.out, replacement.errOut)
+	}
+	m := regexp.MustCompile(`as new device ([0-9a-f]+)`).FindStringSubmatch(replacement.out.String())
+	if m == nil {
+		t.Fatalf("recover named no device:\n%s", replacement.out)
+	}
+	return replacement, m[1]
+}
+
+func TestRecoveryAfterPairingKnowsTheJoinedDevice(t *testing.T) {
+	r := newTestRelay(t)
+	a, kitPath := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	pairDevice(t, r, a)
+	recoverDevice(t, r, a, kitPath)
+}
+
+func TestRecoveryCarriesWhatTheLastSyncPublished(t *testing.T) {
+	r := newTestRelay(t)
+	a, kitPath := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	a.mustRun(t, "add", "later", "--hostname", "10.0.0.8", "--user", "ubuntu")
+	a.mustRun(t, "sync")
+
+	replacement, _ := recoverDevice(t, r, a, kitPath)
+	replacement.startDaemon(t)
+	replacement.secrets = []string{"recovered password"}
+	replacement.mustRun(t, "unlock")
+	replacement.out.Reset()
+	replacement.mustRun(t, "hosts")
+	if got := replacement.out.String(); !strings.Contains(got, "later") {
+		t.Fatalf("the recovery copy predates the last sync:\n%s", got)
+	}
+}
+
+func TestRecoveryAfterARevocationKnowsOfIt(t *testing.T) {
+	r := newTestRelay(t)
+	a, kitPath := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	_, lost := recoverDevice(t, r, a, kitPath)
+	a.mustRun(t, "sync")
+	a.mustRun(t, "revoke", lost, "--yes")
+	recoverDevice(t, r, a, kitPath)
+}
+
 func TestRecoverRefusesAnotherVault(t *testing.T) {
 	r := newTestRelay(t)
 	source, _ := ready(t)

@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -94,7 +95,7 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.Uploaded = report.Pushed
-	if err := d.publishRecovery(ctx, client); err != nil {
+	if err := d.refreshRecovery(ctx, client); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -103,6 +104,38 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (d *Daemon) syncAndRefresh(ctx context.Context, client *relayclient.Client) (*syncengine.Report, error) {
+	report, err := d.engine(client).Sync(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.refreshRecovery(ctx, client); err != nil {
+		return nil, fmt.Errorf("synced, but the relay's recovery copy was not refreshed: %w", err)
+	}
+	return report, nil
+}
+
+func (d *Daemon) refreshRecovery(ctx context.Context, client *relayclient.Client) error {
+	chain, err := d.chain()
+	if err != nil {
+		return err
+	}
+	cursor, err := d.mgr.Store().Cursor(vault.CursorRecords)
+	if errors.Is(err, vault.ErrNotFound) {
+		cursor = "0"
+	} else if err != nil {
+		return err
+	}
+	state := hex.EncodeToString(chain.HeadDigest()) + ":" + cursor
+	if published, err := d.mgr.Store().Meta(vault.MetaRecoveryPublished); err == nil && published == state {
+		return nil
+	}
+	if err := d.publishRecovery(ctx, client); err != nil {
+		return err
+	}
+	return d.mgr.Store().SetMeta(vault.MetaRecoveryPublished, state)
 }
 
 func (d *Daemon) publishRecovery(ctx context.Context, client *relayclient.Client) error {
@@ -142,7 +175,7 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	report, err := d.engine(client).Sync(r.Context())
+	report, err := d.syncAndRefresh(r.Context(), client)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -258,7 +291,7 @@ func (d *Daemon) handleRevoke(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-	} else if _, err := d.engine(client).Sync(r.Context()); err != nil {
+	} else if _, err := d.syncAndRefresh(r.Context(), client); err != nil {
 		writeError(w, err)
 		return
 	}

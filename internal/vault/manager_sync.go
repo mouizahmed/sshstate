@@ -14,7 +14,10 @@ import (
 	"github.com/mouizahmed/sshstate/internal/protocol"
 )
 
-const MetaRelayURL = "relay_url"
+const (
+	MetaRelayURL          = "relay_url"
+	MetaRecoveryPublished = "recovery_published"
+)
 
 func stampOf(t time.Time) string { return t.UTC().Truncate(time.Second).Format(time.RFC3339) }
 
