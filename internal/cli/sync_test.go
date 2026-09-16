@@ -522,6 +522,8 @@ func TestPurgeDeletesTheVaultAfterABackup(t *testing.T) {
 func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
 	r := newTestRelay(t)
 	a, _ := ready(t)
+	a.mustRun(t, "add", "gone", "--hostname", "10.0.0.8", "--user", "ubuntu")
+	a.mustRun(t, "remove", "gone", "--yes")
 	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
 	vaultID := vaultIDOf(t, a)
 
@@ -565,6 +567,9 @@ func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
 	fpB := fingerprintFrom(t, b.out.String())
 	if fpA != fpB {
 		t.Fatalf("the two machines displayed different fingerprints:\n%s\n%s", fpA, fpB)
+	}
+	if !strings.Contains(a.out.String(), "sent it 1 record") || !strings.Contains(b.out.String(), "Installed 1 record ") {
+		t.Fatalf("the two machines counted the hand-over differently:\n%s\n%s", a.out, b.out)
 	}
 
 	b.startDaemon(t)
