@@ -168,7 +168,7 @@ func runConfirmRecovery(ctx context.Context, env *Env, args []string) error {
 	if path == "" {
 		answer, err := env.ReadLine("Path to your saved recovery kit: ")
 		if err != nil {
-			return err
+			return withBypass(err, "--kit <path>")
 		}
 		path = strings.TrimSpace(answer)
 	}
@@ -616,7 +616,7 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 	if !*yes && !*purge {
 		ok, err := env.confirm("Remove the sshstate Include from ~/.ssh/config? Vault data is preserved.")
 		if err != nil {
-			return err
+			return withBypass(err, "--yes")
 		}
 		if !ok {
 			env.printf("Nothing changed.\n")

@@ -5,7 +5,9 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -37,10 +39,16 @@ func readSecretFrom(path, prompt string) ([]byte, error) {
 	return secret, nil
 }
 
+var errNoAnswer = errors.New("this needs an answer, and standard input is not a terminal")
+
 func readLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
+		if errors.Is(err, io.EOF) {
+			fmt.Fprintln(os.Stderr)
+			return "", errNoAnswer
+		}
 		return "", err
 	}
 	return strings.TrimRight(line, "\r\n"), nil

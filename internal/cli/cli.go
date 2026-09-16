@@ -128,6 +128,13 @@ func (e *Env) hint(err error) error {
 	}
 }
 
+func withBypass(err error, flag string) error {
+	if errors.Is(err, errNoAnswer) {
+		return fmt.Errorf("%w; pass %s to answer without a prompt", err, flag)
+	}
+	return err
+}
+
 func (e *Env) confirm(question string) (bool, error) {
 	answer, err := e.ReadLine(question + " [y/N]: ")
 	if err != nil {

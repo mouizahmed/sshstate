@@ -79,7 +79,7 @@ func (e *Env) askTrustChoice() (string, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		answer, err := e.ReadLine("\nImport this trust? [i]mport / [s]kip / [c]ancel: ")
 		if err != nil {
-			return "", err
+			return "", withBypass(err, "--import-trust or --skip-trust")
 		}
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "i", "import":

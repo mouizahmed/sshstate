@@ -40,7 +40,7 @@ func runRemove(ctx context.Context, env *Env, args []string) error {
 		env.printf("%s -> %s@%s:%d\n", target.Alias, target.User, target.HostName, target.Port)
 		ok, err := env.confirm("Remove this host from the vault?")
 		if err != nil {
-			return err
+			return withBypass(err, "--yes")
 		}
 		if !ok {
 			env.printf("Nothing changed.\n")
@@ -93,7 +93,7 @@ func runRemoveKey(ctx context.Context, env *Env, args []string) error {
 		env.warnf("must be reimported from your own copy, which sshstate never touched.\n")
 		ok, err := env.confirm("Remove this key from the vault?")
 		if err != nil {
-			return err
+			return withBypass(err, "--yes")
 		}
 		if !ok {
 			env.printf("Nothing changed.\n")

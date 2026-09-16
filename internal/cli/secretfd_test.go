@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -201,5 +202,39 @@ func TestSecretFromFDDoesNotCloseTheCallersDescriptor(t *testing.T) {
 	}
 	if _, err := w.WriteString("third\n"); err != nil {
 		t.Fatalf("the pipe was broken by the secret reader: %v", err)
+	}
+}
+
+func TestReadLineNamesAClosedStdinInsteadOfEOF(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = old; r.Close() })
+
+	_, err = readLine("question: ")
+	if !errors.Is(err, errNoAnswer) {
+		t.Fatalf("a closed stdin produced %v", err)
+	}
+	if strings.Contains(err.Error(), "EOF") {
+		t.Fatalf("the error still says EOF: %v", err)
+	}
+}
+
+func TestPromptsWithABypassNameIt(t *testing.T) {
+	s, firstID, _ := listReady(t)
+	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu", "--key", firstID)
+	s.answer = func(string) (string, error) { return "", errNoAnswer }
+
+	err := s.run(t, "remove", "prod")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("remove with no terminal did not say to pass --yes: %v", err)
+	}
+	err = s.run(t, "uninstall")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("uninstall with no terminal did not say to pass --yes: %v", err)
 	}
 }
