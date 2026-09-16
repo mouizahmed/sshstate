@@ -551,3 +551,33 @@ func TestSetupImportThroughASymlinkFinishes(t *testing.T) {
 		t.Fatal("setup through a symlink did not retire the imported block")
 	}
 }
+
+func TestSetupDoesNotRetireABlockThatChangedDuringTheTrustPrompt(t *testing.T) {
+	s, key := setupWithConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile KEY\n\nHost web\n HostName 10.0.0.7\n User ubuntu\n IdentityFile KEY\n")
+	if err := os.WriteFile(s.Layout.UserKnownHosts(), []byte("10.0.0.5 "+hostKeyLine(t)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Interactive = true
+	s.secrets = []string{password}
+	s.answer = func(prompt string) (string, error) {
+		edited := strings.Replace(readFile(t, s.Layout.UserSSHConfig), "HostName 10.0.0.7", "HostName 10.0.0.8", 1)
+		edited += "\nHost added\n HostName 10.0.0.9\n User ubuntu\n IdentityFile " + key + "\n"
+		writeUserConfig(t, s, edited)
+		return "s", nil
+	}
+
+	s.mustRun(t, "setup", "--import", s.Layout.UserSSHConfig)
+
+	text := readFile(t, s.Layout.UserSSHConfig)
+	if !strings.Contains(text, "# Host prod") {
+		t.Fatalf("the unchanged prod block was not retired:\n%s", text)
+	}
+	for _, active := range []string{"\nHost web\n HostName 10.0.0.8", "\nHost added\n"} {
+		if !strings.Contains(text, active) {
+			t.Fatalf("setup retired a block it never imported (%q):\n%s", strings.TrimSpace(active), text)
+		}
+	}
+	if !strings.Contains(s.out.String(), "changed during setup: web, added") {
+		t.Fatalf("setup did not name the blocks it left active:\n%s", s.out)
+	}
+}

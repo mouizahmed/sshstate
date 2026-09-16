@@ -8,6 +8,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/mouizahmed/sshstate/internal/service"
@@ -85,7 +87,7 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 	if source != "" && sameFile(source, env.Layout.UserSSHConfig) {
 		source = env.Layout.UserSSHConfig
 	}
-	retire := false
+	var retire []sshconfig.ImportedHost
 	if source != "" {
 		if hasHostBlocks(source) {
 			env.printf("\n")
@@ -97,7 +99,9 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 			if len(res.conflicts) > 0 {
 				return setupConflicts(env, source, res.conflicts)
 			}
-			retire = ownConfig
+			if ownConfig {
+				retire = res.imported
+			}
 			did++
 		} else {
 			env.printf("  already done: %s has no hosts left to import\n", source)
@@ -130,8 +134,8 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 		}
 		did++
 	}
-	if retire {
-		if err := retireImportedBlocks(env); err != nil {
+	if len(retire) > 0 {
+		if err := retireImportedBlocks(env, retire); err != nil {
 			return err
 		}
 	}
@@ -154,7 +158,7 @@ func setupConflicts(env *Env, source string, aliases []string) error {
 	return errors.New("setup stopped: resolve the conflicting hosts first")
 }
 
-func retireImportedBlocks(env *Env) error {
+func retireImportedBlocks(env *Env, imported []sshconfig.ImportedHost) error {
 	body, err := os.ReadFile(env.Layout.UserSSHConfig)
 	if err != nil {
 		return err
@@ -163,7 +167,25 @@ func retireImportedBlocks(env *Env) error {
 	if len(problems) > 0 {
 		return importRefusal(env, env.Layout.UserSSHConfig, problems)
 	}
-	return commentOutSource(env, env.Layout.UserSSHConfig, hosts)
+	var retire []sshconfig.ImportedHost
+	var changed []string
+	for _, h := range hosts {
+		if slices.ContainsFunc(imported, func(i sshconfig.ImportedHost) bool { return sameDefinition(i, h) }) {
+			retire = append(retire, h)
+		} else {
+			changed = append(changed, h.Alias)
+		}
+	}
+	if len(changed) > 0 {
+		env.printf("\nLeft active in %s because they changed during setup: %s\n", env.Layout.UserSSHConfig, strings.Join(changed, ", "))
+		env.printf("Bring them in with: sshstate import %s --with-keys\n", env.Layout.UserSSHConfig)
+	}
+	return commentOutSource(env, env.Layout.UserSSHConfig, retire)
+}
+
+func sameDefinition(a, b sshconfig.ImportedHost) bool {
+	a.Line, a.EndLine, b.Line, b.EndLine = 0, 0, 0, 0
+	return reflect.DeepEqual(a, b)
 }
 
 func hasHostBlocks(path string) bool {

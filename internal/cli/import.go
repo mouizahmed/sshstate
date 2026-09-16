@@ -53,6 +53,7 @@ type importOptions struct {
 }
 
 type importResult struct {
+	imported  []sshconfig.ImportedHost
 	conflicts []string
 }
 
@@ -177,6 +178,7 @@ func importConfig(ctx context.Context, env *Env, path string, opts importOptions
 		counts[string(vault.ImportUnchanged)],
 		counts[string(vault.ImportConflict)])
 	retire := withoutAliases(hosts, result.conflicts)
+	result.imported = retire
 	if res.DryRun {
 		if len(missingKeys) > 0 {
 			env.printf("%s would be imported as well.\n", count(len(missingKeys), "key", "keys"))
