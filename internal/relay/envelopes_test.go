@@ -125,6 +125,42 @@ func TestRecoveryEnvelopeTracksTheLatestEpoch(t *testing.T) {
 	}
 }
 
+func TestTheNewestRecoveryUploadIsTheOneServed(t *testing.T) {
+	h := newHarness(t)
+	older := h.envelopeFor("", protocol.PurposeRecovery, 1, "older")
+	older.ID = "ffffffffffffffffffffffffffffffff"
+	newer := h.envelopeFor("", protocol.PurposeRecovery, 1, "newer")
+	newer.ID = "00000000000000000000000000000000"
+	for _, env := range []KeyEnvelope{older, newer} {
+		if err := h.store.PutKeyEnvelope(h.vaultID, env); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := h.store.RecoveryEnvelope(h.vaultID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Ciphertext) != string(newer.Ciphertext) {
+		t.Fatalf("served %q, want the newest upload", got.Ciphertext)
+	}
+
+	stale := h.envelopeFor("", protocol.PurposeRecovery, 1, "stale epoch")
+	later := h.envelopeFor("", protocol.PurposeRecovery, 2, "later epoch")
+	if err := h.store.PutKeyEnvelope(h.vaultID, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.PutKeyEnvelope(h.vaultID, stale); err != nil {
+		t.Fatal(err)
+	}
+	got, err = h.store.RecoveryEnvelope(h.vaultID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.KeyEpoch != 2 {
+		t.Fatalf("an upload for an older epoch displaced epoch %s", got.KeyEpoch)
+	}
+}
+
 func TestKeyEnvelopeRejectsMalformedInput(t *testing.T) {
 	h := newHarness(t)
 	base := h.envelopeFor(h.first.id, protocol.PurposeRotation, 1, "body")

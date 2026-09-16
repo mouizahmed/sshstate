@@ -60,15 +60,30 @@ func (s *Store) PutKeyEnvelope(vaultID protocol.ID, env KeyEnvelope) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if recipient == nil && env.Purpose == protocol.PurposeRecovery {
+		if _, err := tx.Exec(
+			`DELETE FROM key_envelope
+			 WHERE vault_id = ? AND recipient_device_id IS NULL AND purpose = ? AND key_epoch <= ? AND envelope_id != ?`,
+			vaultID, string(env.Purpose), epoch, env.ID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(
 		`INSERT INTO key_envelope (vault_id, envelope_id, recipient_device_id, purpose, key_epoch, ciphertext, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(vault_id, envelope_id) DO UPDATE SET
 		   recipient_device_id = excluded.recipient_device_id,
 		   purpose = excluded.purpose, key_epoch = excluded.key_epoch,
 		   ciphertext = excluded.ciphertext, created_at = excluded.created_at`,
-		vaultID, env.ID, recipient, string(env.Purpose), epoch, env.Ciphertext, env.CreatedAt)
-	return err
+		vaultID, env.ID, recipient, string(env.Purpose), epoch, env.Ciphertext, env.CreatedAt); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) KeyEnvelopesFor(vaultID, deviceID protocol.ID) ([]KeyEnvelope, error) {
