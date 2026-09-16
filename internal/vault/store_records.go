@@ -225,7 +225,11 @@ func (s *Store) ApplyLocalBatch(envs ...*protocol.Envelope) error {
 }
 
 func (s *Store) SetCursor(name, value string) error {
-	_, err := s.db.Exec(
+	return setCursor(s.db, name, value)
+}
+
+func setCursor(db execer, name, value string) error {
+	_, err := db.Exec(
 		`INSERT INTO cursors (name, value) VALUES (?, ?)
 		 ON CONFLICT(name) DO UPDATE SET value = excluded.value`, name, value)
 	return err

@@ -107,58 +107,28 @@ func Restore(store *Store, opts RestoreOptions) (*Manager, *RestoreResult, error
 		}
 	}
 
-	if err := store.PutGenesis(genesis); err != nil {
-		return nil, nil, err
-	}
-	for purpose, material := range map[string][]byte{
+	records := append(append([]*protocol.Envelope{}, archive.Contents.Records...),
+		archive.Contents.Conflicts...)
+	inst, err := installation(genesis, chain, deviceID, opts.Password, map[string][]byte{
 		crypto.PurposeDeviceSigningKey:    deviceSigning.Seed(),
 		crypto.PurposeDeviceEncryptionKey: []byte(deviceEncryption.ExportSecret()),
 		crypto.PurposeVaultMetadataKey:    metadata[:],
 		crypto.PurposeVaultSecretKey:      secret[:],
-	} {
-		w, err := crypto.Wrap(opts.Password, genesis.VaultID, deviceID, purpose, material)
-		if err != nil {
-			return nil, nil, fmt.Errorf("restore: wrap %s: %w", purpose, err)
-		}
-		if err := store.PutWrapper(purpose, w); err != nil {
-			return nil, nil, err
-		}
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("restore: %w", err)
 	}
-	if err := store.PutMembershipEvents(chain.Events()); err != nil {
-		return nil, nil, err
-	}
-	for _, d := range chain.Devices() {
-		status := DeviceActive
-		if d.Revoked {
-			status = DeviceRevoked
-		}
-		if err := store.PutDevice(Device{
-			ID:         d.ID,
-			VerifyKey:  d.VerifyKey.Bytes(),
-			Recipient:  d.Recipient,
-			Status:     status,
-			EnrolledAt: d.EnrolledAt,
-		}); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	records := append(append([]*protocol.Envelope{}, archive.Contents.Records...),
-		archive.Contents.Conflicts...)
-	if err := store.ApplyRemoteBatch(archive.Manifest.Checkpoint.Seq.String(), records); err != nil {
-		return nil, nil, fmt.Errorf("restore: install records: %w", err)
-	}
-
-	for k, v := range map[string]string{
+	inst.Heads = records
+	inst.Cursor = archive.Manifest.Checkpoint.Seq.String()
+	inst.Meta = map[string]string{
 		MetaVaultID:           string(genesis.VaultID),
 		MetaDeviceID:          string(deviceID),
 		MetaKeyEpoch:          bundle.KeyEpoch.String(),
 		MetaDeviceLabel:       opts.DeviceLabel,
 		MetaRecoveryConfirmed: "true",
-	} {
-		if err := store.SetMeta(k, v); err != nil {
-			return nil, nil, err
-		}
+	}
+	if err := store.Install(inst); err != nil {
+		return nil, nil, fmt.Errorf("restore: %w", err)
 	}
 
 	m := &Manager{store: store, genesis: genesis, vaultID: genesis.VaultID, deviceID: deviceID}
@@ -216,57 +186,58 @@ func Join(store *Store, opts JoinOptions) (*Manager, error) {
 		return nil, errors.New("join: the chain does not authorize this device")
 	}
 
-	if err := store.PutGenesis(opts.Genesis); err != nil {
-		return nil, err
-	}
-	for purpose, material := range map[string][]byte{
+	inst, err := installation(opts.Genesis, chain, opts.DeviceID, opts.Password, map[string][]byte{
 		crypto.PurposeDeviceSigningKey:    opts.Signing.Seed(),
 		crypto.PurposeDeviceEncryptionKey: []byte(opts.Encryption.ExportSecret()),
 		crypto.PurposeVaultMetadataKey:    metadata[:],
 		crypto.PurposeVaultSecretKey:      secret[:],
-	} {
-		w, err := crypto.Wrap(opts.Password, opts.Genesis.VaultID, opts.DeviceID, purpose, material)
-		if err != nil {
-			return nil, fmt.Errorf("join: wrap %s: %w", purpose, err)
-		}
-		if err := store.PutWrapper(purpose, w); err != nil {
-			return nil, err
-		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("join: %w", err)
 	}
-	if err := store.PutMembershipEvents(chain.Events()); err != nil {
-		return nil, err
+	inst.Heads = opts.Records
+	inst.Cursor = opts.Bundle.Checkpoint.Seq.String()
+	inst.Meta = map[string]string{
+		MetaVaultID:           string(opts.Genesis.VaultID),
+		MetaDeviceID:          string(opts.DeviceID),
+		MetaKeyEpoch:          opts.Bundle.KeyEpoch.String(),
+		MetaDeviceLabel:       opts.DeviceLabel,
+		MetaRecoveryConfirmed: "true",
+	}
+	if err := store.Install(inst); err != nil {
+		return nil, fmt.Errorf("join: install the snapshot: %w", err)
+	}
+
+	m := &Manager{store: store, genesis: opts.Genesis, vaultID: opts.Genesis.VaultID, deviceID: opts.DeviceID}
+	m.current = m.newSession(keys, opts.Signing, opts.Encryption)
+	return m, nil
+}
+
+func installation(genesis *protocol.Genesis, chain *membership.Chain, deviceID protocol.ID, password []byte, secrets map[string][]byte) (Installation, error) {
+	inst := Installation{
+		Genesis:    genesis,
+		Wrappers:   make(map[string]*crypto.Wrapper, len(secrets)),
+		Membership: chain.Events(),
+	}
+	for purpose, material := range secrets {
+		w, err := crypto.Wrap(password, genesis.VaultID, deviceID, purpose, material)
+		if err != nil {
+			return Installation{}, fmt.Errorf("wrap %s: %w", purpose, err)
+		}
+		inst.Wrappers[purpose] = w
 	}
 	for _, d := range chain.Devices() {
 		status := DeviceActive
 		if d.Revoked {
 			status = DeviceRevoked
 		}
-		if err := store.PutDevice(Device{
+		inst.Devices = append(inst.Devices, Device{
 			ID:         d.ID,
 			VerifyKey:  d.VerifyKey.Bytes(),
 			Recipient:  d.Recipient,
 			Status:     status,
 			EnrolledAt: d.EnrolledAt,
-		}); err != nil {
-			return nil, err
-		}
+		})
 	}
-	if err := store.ApplyRemoteBatch(opts.Bundle.Checkpoint.Seq.String(), opts.Records); err != nil {
-		return nil, fmt.Errorf("join: install the snapshot: %w", err)
-	}
-	for k, v := range map[string]string{
-		MetaVaultID:           string(opts.Genesis.VaultID),
-		MetaDeviceID:          string(opts.DeviceID),
-		MetaKeyEpoch:          opts.Bundle.KeyEpoch.String(),
-		MetaDeviceLabel:       opts.DeviceLabel,
-		MetaRecoveryConfirmed: "true",
-	} {
-		if err := store.SetMeta(k, v); err != nil {
-			return nil, err
-		}
-	}
-
-	m := &Manager{store: store, genesis: opts.Genesis, vaultID: opts.Genesis.VaultID, deviceID: opts.DeviceID}
-	m.current = m.newSession(keys, opts.Signing, opts.Encryption)
-	return m, nil
+	return inst, nil
 }

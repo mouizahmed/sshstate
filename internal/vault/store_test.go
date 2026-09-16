@@ -422,3 +422,63 @@ func TestApplyLocalBatchIsAtomic(t *testing.T) {
 		t.Fatalf("a good batch queued %d candidates, want 1", len(pending))
 	}
 }
+
+func TestInstallAcceptsHeadsPastTheirFirstRevision(t *testing.T) {
+	s := newStore(t)
+	f := newFixture(t)
+	create, err := f.writer.Seal(creation(protocol.RecordHost), hostPayload())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, _ := create.Digest()
+	head, err := f.writer.Seal(Mutation{
+		RecordID:     create.Context.RecordID,
+		RecordType:   protocol.RecordHost,
+		Rev:          2,
+		ParentDigest: parent,
+		MutationID:   protocol.MustNewID(),
+	}, hostPayload())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Install(Installation{Genesis: testGenesis(t), Heads: []*protocol.Envelope{head}, Cursor: "7"}); err != nil {
+		t.Fatalf("install a head at rev 2: %v", err)
+	}
+	got, _, err := s.Head(head.Context.RecordID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Context.Rev != 2 {
+		t.Fatalf("installed rev %s, want 2", got.Context.Rev)
+	}
+	if cursor, err := s.Cursor(CursorRecords); err != nil || cursor != "7" {
+		t.Fatalf("cursor %q, %v", cursor, err)
+	}
+}
+
+func TestAFailedInstallLeavesNoVault(t *testing.T) {
+	s := newStore(t)
+	f := newFixture(t)
+	head, err := f.writer.Seal(creation(protocol.RecordHost), hostPayload())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Install(Installation{
+		Genesis: testGenesis(t),
+		Devices: []Device{{ID: protocol.MustNewID(), VerifyKey: []byte{1}, Recipient: "r", Status: DeviceActive, EnrolledAt: "now"}},
+		Heads:   []*protocol.Envelope{head, head},
+		Meta:    map[string]string{MetaVaultID: "x"},
+	})
+	if err == nil {
+		t.Fatal("an install with a record listed twice succeeded")
+	}
+	if ok, err := s.Initialized(); err != nil || ok {
+		t.Fatalf("a failed install left a vault behind: %v %v", ok, err)
+	}
+	if devices, err := s.Devices(); err != nil || len(devices) != 0 {
+		t.Fatalf("a failed install left devices behind: %v %v", devices, err)
+	}
+	if err := s.Install(Installation{Genesis: testGenesis(t), Heads: []*protocol.Envelope{head}}); err != nil {
+		t.Fatalf("retrying after a failed install: %v", err)
+	}
+}

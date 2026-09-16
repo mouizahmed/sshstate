@@ -168,7 +168,15 @@ func (s *Store) Meta(key string) (string, error) {
 }
 
 func (s *Store) SetMeta(key, value string) error {
-	_, err := s.db.Exec(
+	return setMeta(s.db, key, value)
+}
+
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func setMeta(db execer, key, value string) error {
+	_, err := db.Exec(
 		`INSERT INTO meta (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
 	return err
@@ -183,6 +191,10 @@ func (s *Store) Initialized() (bool, error) {
 }
 
 func (s *Store) PutGenesis(g *protocol.Genesis) error {
+	return putGenesis(s.db, g)
+}
+
+func putGenesis(db execer, g *protocol.Genesis) error {
 	doc, err := protocol.Canonical(g)
 	if err != nil {
 		return fmt.Errorf("canonical genesis: %w", err)
@@ -191,7 +203,7 @@ func (s *Store) PutGenesis(g *protocol.Genesis) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO genesis (id, document, digest) VALUES (1, ?, ?)`, string(doc), digest)
+	_, err = db.Exec(`INSERT INTO genesis (id, document, digest) VALUES (1, ?, ?)`, string(doc), digest)
 	if err != nil {
 		return fmt.Errorf("store genesis (a vault already exists here): %w", err)
 	}
@@ -223,11 +235,15 @@ func (s *Store) Genesis() (*protocol.Genesis, []byte, error) {
 }
 
 func (s *Store) PutWrapper(purpose string, w *crypto.Wrapper) error {
+	return putWrapper(s.db, purpose, w)
+}
+
+func putWrapper(db execer, purpose string, w *crypto.Wrapper) error {
 	body, err := json.Marshal(w)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
+	_, err = db.Exec(
 		`INSERT INTO wrappers (purpose, wrapper) VALUES (?, ?)
 		 ON CONFLICT(purpose) DO UPDATE SET wrapper = excluded.wrapper`, purpose, string(body))
 	return err
@@ -286,7 +302,11 @@ type Device struct {
 }
 
 func (s *Store) PutDevice(d Device) error {
-	_, err := s.db.Exec(
+	return putDevice(s.db, d)
+}
+
+func putDevice(db execer, d Device) error {
+	_, err := db.Exec(
 		`INSERT INTO devices (device_id, verify_key, recipient, status, enrolled_at)
 		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(device_id) DO UPDATE SET
@@ -362,6 +382,13 @@ func (s *Store) PutMembershipEvents(events []protocol.SignedMembershipEvent) err
 		return err
 	}
 	defer tx.Rollback()
+	if err := putMembershipEvents(tx, events); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func putMembershipEvents(tx execer, events []protocol.SignedMembershipEvent) error {
 	if _, err := tx.Exec(`DELETE FROM membership`); err != nil {
 		return err
 	}
@@ -380,5 +407,5 @@ func (s *Store) PutMembershipEvents(events []protocol.SignedMembershipEvent) err
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }

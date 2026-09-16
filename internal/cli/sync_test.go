@@ -344,6 +344,29 @@ func TestRestoreFromAnExportWithNoRelay(t *testing.T) {
 	replacement.mustRun(t, "add", "third", "--hostname", "10.0.0.7", "--user", "ubuntu")
 }
 
+func TestRestoreInstallsHostsAtTheirEditedRevision(t *testing.T) {
+	source, kitPath := ready(t)
+	source.mustRun(t, "edit", "prod", "--port", "2201")
+	source.mustRun(t, "edit", "prod", "--port", "2202")
+	archivePath := filepath.Join(t.TempDir(), "vault.export")
+	source.mustRun(t, "export", archivePath)
+
+	replacement := newScripted(t)
+	replacement.secrets = []string{"a different password", "a different password"}
+	if err := replacement.run(t, "restore", archivePath, "--kit", kitPath); err != nil {
+		t.Fatalf("restore after edits: %v", err)
+	}
+	replacement.startDaemon(t)
+	replacement.secrets = []string{"a different password"}
+	replacement.mustRun(t, "unlock")
+	replacement.out.Reset()
+	replacement.mustRun(t, "hosts")
+	if got := replacement.out.String(); !strings.Contains(got, "ubuntu@10.0.0.5:2202") {
+		t.Fatalf("the restored host is not at its latest revision:\n%s", got)
+	}
+	replacement.mustRun(t, "edit", "prod", "--port", "2203")
+}
+
 func TestRestoreNeedsItsOwnPassword(t *testing.T) {
 	source, kitPath := ready(t)
 	archivePath := filepath.Join(t.TempDir(), "vault.export")
@@ -475,17 +498,13 @@ func TestPurgeDeletesTheVaultAfterABackup(t *testing.T) {
 	}
 }
 
-func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
-	r := newTestRelay(t)
-	a, _ := ready(t)
-	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+func pairDevice(t *testing.T, r *testRelay, a *scripted) *scripted {
+	t.Helper()
 	vaultID := vaultIDOf(t, a)
-
 	b := newScripted(t)
 	b.lines = []string{"y"}
 	b.secrets = []string{"b's own password", "b's own password"}
 
-	sessionCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- b.run(t, "pair", r.url, vaultID)
@@ -506,7 +525,6 @@ func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	sessionCh <- session
 
 	a.lines = []string{"y"}
 	a.out.Reset()
@@ -527,6 +545,17 @@ func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
 	b.secrets = []string{"b's own password"}
 	b.mustRun(t, "unlock")
 	b.out.Reset()
+	b.errOut.Reset()
+	return b
+}
+
+func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	vaultID := vaultIDOf(t, a)
+
+	b := pairDevice(t, r, a)
 	b.mustRun(t, "status")
 	status := b.out.String()
 	if !strings.Contains(status, vaultID) {
@@ -555,6 +584,29 @@ func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
 	b.mustRun(t, "add", "after-revocation", "--hostname", "10.0.0.10", "--user", "ubuntu")
 	if err := b.run(t, "sync"); err == nil {
 		t.Fatal("a revoked device published successfully")
+	}
+}
+
+func TestPairingInstallsHostsAtTheirEditedRevision(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "edit", "prod", "--port", "2201")
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	a.mustRun(t, "edit", "prod", "--port", "2202")
+	a.mustRun(t, "sync")
+
+	b := pairDevice(t, r, a)
+	b.mustRun(t, "hosts")
+	if got := b.out.String(); !strings.Contains(got, "ubuntu@10.0.0.5:2202") {
+		t.Fatalf("the joined device did not get the latest revision:\n%s", got)
+	}
+	b.mustRun(t, "edit", "prod", "--port", "2203")
+	b.mustRun(t, "sync")
+	a.mustRun(t, "sync")
+	a.out.Reset()
+	a.mustRun(t, "hosts")
+	if got := a.out.String(); !strings.Contains(got, "ubuntu@10.0.0.5:2203") {
+		t.Fatalf("an edit made on the joined device did not reach the first:\n%s", got)
 	}
 }
 
