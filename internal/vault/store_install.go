@@ -20,7 +20,7 @@ type Installation struct {
 	Meta       map[string]string
 }
 
-func (s *Store) Install(inst Installation) error {
+func (s *Store) Install(inst Installation, announce func() error) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -57,6 +57,11 @@ func (s *Store) Install(inst Installation) error {
 	}
 	for k, v := range inst.Meta {
 		if err := setMeta(tx, k, v); err != nil {
+			return err
+		}
+	}
+	if announce != nil {
+		if err := announce(); err != nil {
 			return err
 		}
 	}

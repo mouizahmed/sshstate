@@ -101,12 +101,6 @@ func Restore(store *Store, opts RestoreOptions) (*Manager, *RestoreResult, error
 	if err != nil {
 		return nil, nil, fmt.Errorf("restore: %w", err)
 	}
-	if opts.Publish != nil {
-		if err := opts.Publish(enrol); err != nil {
-			return nil, nil, fmt.Errorf("restore: announce the replacement device: %w", err)
-		}
-	}
-
 	records := append(append([]*protocol.Envelope{}, archive.Contents.Records...),
 		archive.Contents.Conflicts...)
 	inst, err := installation(genesis, chain, deviceID, opts.Password, map[string][]byte{
@@ -127,7 +121,16 @@ func Restore(store *Store, opts RestoreOptions) (*Manager, *RestoreResult, error
 		MetaDeviceLabel:       opts.DeviceLabel,
 		MetaRecoveryConfirmed: "true",
 	}
-	if err := store.Install(inst); err != nil {
+	var announce func() error
+	if opts.Publish != nil {
+		announce = func() error {
+			if err := opts.Publish(enrol); err != nil {
+				return fmt.Errorf("announce the replacement device: %w", err)
+			}
+			return nil
+		}
+	}
+	if err := store.Install(inst, announce); err != nil {
 		return nil, nil, fmt.Errorf("restore: %w", err)
 	}
 
@@ -204,7 +207,7 @@ func Join(store *Store, opts JoinOptions) (*Manager, error) {
 		MetaDeviceLabel:       opts.DeviceLabel,
 		MetaRecoveryConfirmed: "true",
 	}
-	if err := store.Install(inst); err != nil {
+	if err := store.Install(inst, nil); err != nil {
 		return nil, fmt.Errorf("join: install the snapshot: %w", err)
 	}
 

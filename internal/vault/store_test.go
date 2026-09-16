@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -441,7 +442,7 @@ func TestInstallAcceptsHeadsPastTheirFirstRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Install(Installation{Genesis: testGenesis(t), Heads: []*protocol.Envelope{head}, Cursor: "7"}); err != nil {
+	if err := s.Install(Installation{Genesis: testGenesis(t), Heads: []*protocol.Envelope{head}, Cursor: "7"}, nil); err != nil {
 		t.Fatalf("install a head at rev 2: %v", err)
 	}
 	got, _, err := s.Head(head.Context.RecordID)
@@ -468,6 +469,9 @@ func TestAFailedInstallLeavesNoVault(t *testing.T) {
 		Devices: []Device{{ID: protocol.MustNewID(), VerifyKey: []byte{1}, Recipient: "r", Status: DeviceActive, EnrolledAt: "now"}},
 		Heads:   []*protocol.Envelope{head, head},
 		Meta:    map[string]string{MetaVaultID: "x"},
+	}, func() error {
+		t.Fatal("announced a device whose local install failed")
+		return nil
 	})
 	if err == nil {
 		t.Fatal("an install with a record listed twice succeeded")
@@ -478,7 +482,20 @@ func TestAFailedInstallLeavesNoVault(t *testing.T) {
 	if devices, err := s.Devices(); err != nil || len(devices) != 0 {
 		t.Fatalf("a failed install left devices behind: %v %v", devices, err)
 	}
-	if err := s.Install(Installation{Genesis: testGenesis(t), Heads: []*protocol.Envelope{head}}); err != nil {
+	if err := s.Install(Installation{Genesis: testGenesis(t), Heads: []*protocol.Envelope{head}}, nil); err != nil {
 		t.Fatalf("retrying after a failed install: %v", err)
+	}
+}
+
+func TestAnInstallWhoseAnnouncementFailsLeavesNoVault(t *testing.T) {
+	s := newStore(t)
+	err := s.Install(Installation{Genesis: testGenesis(t)}, func() error {
+		return errors.New("relay refused")
+	})
+	if err == nil || !strings.Contains(err.Error(), "relay refused") {
+		t.Fatalf("want the announcement's error, got %v", err)
+	}
+	if ok, err := s.Initialized(); err != nil || ok {
+		t.Fatalf("an unannounced install was kept: %v %v", ok, err)
 	}
 }
