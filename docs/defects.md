@@ -753,3 +753,91 @@ or paired device cannot. The guide now says so.
 `TestARestoredVaultCannotStartANewRelay` fails without the refusal, and then
 starts the relay from the original machine and recovers from it, so the refusal
 cannot also block the flow that works.
+
+## D20 — The documented relay deployment could not read its own bootstrap secret
+
+- Found: v0.1.1 live deployment on an Ubuntu VM, following `deploy/README.md` exactly
+- Severity: the relay container restarted in a loop and never served
+- Fixed in: `deploy/README.md`, `deploy/compose.yaml`, `docs/cli-flows.md`
+
+### What happened
+
+The guide created the secret with `chmod 600`, owned by the operator. Compose
+bind-mounts a file secret with its host ownership, and the image runs as UID
+65532, so the relay could not open it:
+`read bootstrap secret: open /run/secrets/sshstate_bootstrap: permission denied`.
+
+### Why it survived until a test found it
+
+The image and the relay binary were each tested, but never the two together
+with the secret file the guide produces. Every earlier relay run passed the
+secret to a process running as the file's owner.
+
+### Fix
+
+The guide now hands the file to UID 65532 and keeps mode 600, after the
+operator keeps a copy for the first client. Verified by redeploying from the
+corrected guide with the published image: the relay started on the first
+attempt and a vault connected through nginx over HTTPS. No automated test
+covers this; it depends on Docker and the published image.
+
+## D21 — `setup` on a fresh Mac created the daemon's directory as root
+
+- Found: v0.1.1 live audit, `setup --import` in a fresh home with real launchd
+- Severity: setup failed at the import step, and the directory could not be removed or re-registered without sudo
+- Fixed in: `internal/service/launchd_darwin.go` (`ownDirectory`), `internal/cli/commands.go` (`awaitDaemon`)
+
+### What happened
+
+`~/.ssh/sshstate` did not exist yet when the launchd job was bootstrapped, so
+launchd created it, as root with mode 755, to hold the socket paths. The daemon
+runs as the user and failed with `mkdir …/public: permission denied`. Because
+the root-owned sockets could not be deleted, `sshstate service` could not
+re-register either.
+
+Separately, setup asked the daemon for its status right after bootstrap, before
+launchd was listening, and reported "registered but did not answer".
+
+### Why it survived until a test found it
+
+The launchd activation test registers its job in a temporary directory that
+already exists, and it retries status for 30 seconds. Every earlier real setup
+ran on a machine where `~/.ssh/sshstate` already existed.
+
+### Fix
+
+Install creates the data, SSH, and runtime directories as the user with mode
+700 before bootstrapping, and refuses a directory someone else owns with the
+`sudo rm -rf` needed to clear it. Registering a service now waits up to ten
+seconds for the daemon to answer.
+`TestOwnDirectoryCreatesAMissingDirectoryForTheUser` and
+`TestOwnDirectoryRefusesADirectorySomeoneElseOwns` fail when the mode or the
+ownership check is removed. `TestAwaitDaemonWaitsForAServiceStillStarting`
+fails when the wait stops retrying. A fresh-home `setup --import` with real
+launchd then completed in one run, logged in over `ssh` through the agent,
+connected to an HTTPS relay, and paired a second machine.
+
+### Not guarded
+
+No automated test calls `launchd.Install` itself, because it registers the real
+label. Removing the `ownDirectory` calls from `Install` passes every test.
+
+## D22 — A second config backup in the same second replaced the original
+
+- Found: v0.1.1 live audit, `setup --import`
+- Severity: the only untouched copy of the user's `~/.ssh/config` was lost
+- Fixed in: `internal/sshconfig/install.go` (`backupUserConfig`), `internal/sshconfig/atomic.go` (`atomicCreate`)
+
+### What happened
+
+Backups were named to the second. `setup --import` backs up the config before
+adding the Include, and again before commenting out imported blocks, usually
+within the same second. The second write renamed over the first, so the
+remaining "backup" already held the Include.
+
+### Fix
+
+A backup is linked into place, which fails rather than replaces, and takes a
+numbered name when that second's name is taken.
+`TestBackupsTakenInTheSameSecondKeepEveryVersion` fails when backups are renamed
+into place again.
