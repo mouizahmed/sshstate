@@ -627,3 +627,95 @@ whenever the session expired between the two requests.
 `TestAJoinerPollingMidDeliveryKeepsWaiting` runs the joiner from inside the
 relay's handler for the delivery request, which holds the window open, and fails
 without the mapping.
+
+## D15 — A vault with no hosts could not be paired
+
+- Found: while writing the regression tests for D16 and D17
+- Severity: `approve` failed for any vault whose snapshot was empty
+- Fixed in: `internal/daemon/pair.go`, `internal/vault/manager_sync.go` (`EnrollmentBundle`)
+
+### What happened
+
+`approve` failed with `snapshot_length is zero`. The approver sealed and bound a
+snapshot even when it held no records, and the bundle validator correctly
+refuses a zero length: the protocol says an empty snapshot is sent as no
+snapshot, with digest and length both null.
+
+### Why it survived until a test found it
+
+Every pairing test started from a vault with at least one host in it.
+
+### Fix
+
+With no records, no snapshot is sealed and the bundle carries neither field.
+`TestPairingAVaultWithNoHostsYet` fails if either side goes back to always
+binding one.
+
+## D16 — A device that joined after a removal could not follow a resurrection
+
+- Found: while fixing D11, by reading `Manager.Snapshot`
+- Severity: sync stopped for good on devices restored or paired after a removal
+- Fixed in: `internal/vault/manager_sync.go` (`Snapshot`), `internal/vault/store_records.go` (`AllRecords`)
+
+### What happened
+
+Snapshots were built from live records only, so a removed host's tombstone never
+reached a device that joined later. When another device resurrected the host,
+the next revision arrived with nothing to build on, and every sync after that
+failed with `no stored head to build on`.
+
+### Fix
+
+Snapshots carry every head, tombstones included, which is what the checkpoint's
+`deleted` flag was for. The counts shown to the user still count only live
+records. `TestADeviceThatJoinsAfterARemovalFollowsItsResurrection` fails when
+snapshots go back to live records only, and `TestRestoreKeepsARemovedHostRemoved`
+fails when restore counts the tombstone.
+
+## D17 — An unsynced edit dropped its host from a pairing snapshot
+
+- Found: while fixing D16
+- Severity: the joined device never received the host, and could not sync once the edit was published
+- Fixed in: `internal/daemon/pair.go` (`handlePairDeliver`)
+
+### What happened
+
+A pairing snapshot holds only accepted records, so a head still waiting in the
+outbox was skipped. The store keeps only heads, so when an existing host had an
+unsynced edit, the whole host was dropped. Once the edit was published, the
+joined device received a revision it had no parent for.
+
+### Fix
+
+The approver syncs before it builds the snapshot.
+`TestPairingWhileAnEditIsUnsyncedStillGivesTheJoinerThatHost` fails without the
+sync.
+
+### Not guarded
+
+An edit made on the approving device between that sync and the snapshot still
+drops its host. No test holds that window open.
+
+## D18 — Bootstrapping a second relay broke `connect` and spent the secret
+
+- Found: while writing the recovery-refresh tests for D13
+- Severity: the new relay's one-time bootstrap secret was consumed and the vault was left half-connected
+- Fixed in: `internal/daemon/sync.go` (`handleConnect`)
+
+### What happened
+
+`connect <new-relay> --bootstrap-secret` on a vault already connected elsewhere
+created the vault on the new relay and then failed with
+`since=1 is past through=0`, because the record cursor belonged to the old relay.
+The move could never have worked. A relay accepts a record only from its first
+revision, and a device keeps only each record's latest revision, so there is
+nothing to replay.
+
+### Fix
+
+Bootstrapping is refused before the secret is sent whenever the vault already
+has a relay. `connect` without a secret still switches the address, for a relay
+that has only moved. `TestBootstrappingASecondRelayIsRefusedBeforeTheSecretIsSpent`
+fails without the refusal, and `TestConnectingToTheSameRelayAtANewAddress` fails
+if the refusal also blocks a plain address change. Moving a vault to a new relay
+remains unsupported.
