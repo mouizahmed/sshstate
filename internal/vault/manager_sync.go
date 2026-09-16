@@ -326,7 +326,10 @@ func (m *Manager) EnrollmentBundle(recipientID protocol.ID, recipient string, tr
 			return ErrLocked
 		}
 		id := recipientID
-		length := snapshotLength
+		var length *protocol.Counter
+		if snapshotDigest != nil {
+			length = &snapshotLength
+		}
 		b := protocol.Bundle{
 			Domain:            protocol.BundleDomain,
 			FormatVersion:     protocol.BundleFormatVersion,
@@ -342,7 +345,7 @@ func (m *Manager) EnrollmentBundle(recipientID protocol.ID, recipient string, tr
 			TranscriptDigest:  transcriptDigest,
 			Checkpoint:        checkpoint,
 			SnapshotDigest:    snapshotDigest,
-			SnapshotLength:    &length,
+			SnapshotLength:    length,
 			CreatedAt:         stampOf(m.clock()),
 		}
 		if err := b.Validate(crypto.SuiteID); err != nil {

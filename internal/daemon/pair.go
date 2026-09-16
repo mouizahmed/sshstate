@@ -145,10 +145,14 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	sealedSnapshot, snapshotDigest, snapshotLength, err := enroll.SealSnapshot(body, recipient)
-	if err != nil {
-		writeError(w, err)
-		return
+	var sealedSnapshot, snapshotDigest []byte
+	var snapshotLength protocol.Counter
+	if len(body) > 0 {
+		sealedSnapshot, snapshotDigest, snapshotLength, err = enroll.SealSnapshot(body, recipient)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	bundle, err := d.mgr.EnrollmentBundle(approver.JoinerKeys().ID, recipient.String(), digest,
 		snapshotDigest, snapshotLength, chain.HeadDigest(), d.acceptedSeq())

@@ -604,6 +604,23 @@ func TestPairingInstallsHostsAtTheirEditedRevision(t *testing.T) {
 	}
 }
 
+func TestPairingAVaultWithNoHostsYet(t *testing.T) {
+	r := newTestRelay(t)
+	a := initWithoutDaemon(t)
+	a.startDaemon(t)
+	a.secrets = []string{password}
+	a.mustRun(t, "unlock")
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+	b.mustRun(t, "add", "first", "--hostname", "10.0.0.11", "--user", "ubuntu")
+	b.mustRun(t, "sync")
+	a.mustRun(t, "sync")
+	if !hostAliases(t, a)["first"] {
+		t.Fatal("the first host added on the joined device did not reach the vault's first device")
+	}
+}
+
 func TestApproveCancelledSendsNothing(t *testing.T) {
 	r := newTestRelay(t)
 	a, _ := ready(t)
