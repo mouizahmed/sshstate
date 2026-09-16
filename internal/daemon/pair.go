@@ -14,10 +14,14 @@ import (
 	"github.com/mouizahmed/sshstate/internal/enroll"
 	"github.com/mouizahmed/sshstate/internal/membership"
 	"github.com/mouizahmed/sshstate/internal/protocol"
+	"github.com/mouizahmed/sshstate/internal/relayclient"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
-const joinerWait = 2 * time.Minute
+const (
+	joinerWait       = 2 * time.Minute
+	snapshotAttempts = 3
+)
 
 func (d *Daemon) handlePairApprove(w http.ResponseWriter, r *http.Request) {
 	var req control.PairApproveRequest
@@ -113,8 +117,9 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if _, err := d.engine(client).Sync(ctx); err != nil {
-		writeError(w, fmt.Errorf("sync before handing over the vault: %w", err))
+	snapshot, seq, err := d.syncedSnapshot(ctx, client)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
 
@@ -139,11 +144,6 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snapshot, err := d.mgr.Snapshot(true)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
 	records := append(append([]*protocol.Envelope{}, snapshot.Records...), snapshot.Conflicts...)
 	body, err := enroll.BuildSnapshot(records)
 	if err != nil {
@@ -165,7 +165,7 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	bundle, err := d.mgr.EnrollmentBundle(approver.JoinerKeys().ID, recipient.String(), digest,
-		snapshotDigest, snapshotLength, chain.HeadDigest(), d.acceptedSeq())
+		snapshotDigest, snapshotLength, chain.HeadDigest(), seq, snapshot)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -208,6 +208,22 @@ func (d *Daemon) awaitJoiner(ctx context.Context, approver *enroll.Approver) (bo
 		case <-ctx.Done():
 			return false, ctx.Err()
 		case <-time.After(time.Second):
+		}
+	}
+}
+
+func (d *Daemon) syncedSnapshot(ctx context.Context, client *relayclient.Client) (*vault.ExportSnapshot, protocol.Counter, error) {
+	for attempt := 1; ; attempt++ {
+		if _, err := d.engine(client).Sync(ctx); err != nil {
+			return nil, 0, fmt.Errorf("sync before handing over the vault: %w", err)
+		}
+		seq := d.acceptedSeq()
+		snapshot, err := d.mgr.Snapshot(true)
+		if err == nil {
+			return snapshot, seq, nil
+		}
+		if !errors.Is(err, vault.ErrUnsyncedEdit) || attempt == snapshotAttempts {
+			return nil, 0, fmt.Errorf("hosts kept changing while handing over the vault; pair again: %w", err)
 		}
 	}
 }

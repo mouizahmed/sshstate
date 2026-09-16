@@ -376,3 +376,38 @@ func TestDatabaseHoldsNoPlaintextSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAcceptedSnapshotRefusesAnUnsyncedEditToAnExistingHost(t *testing.T) {
+	m, _, s := newVault(t)
+	id, err := m.AddHost(HostSpec{Alias: "prod", HostName: "10.0.0.5", User: "ubuntu"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := m.Snapshot(true)
+	if err != nil {
+		t.Fatalf("an unsynced new host blocked the snapshot: %v", err)
+	}
+	if len(snapshot.Records) != 0 {
+		t.Fatalf("an unsynced new host was included: %d records", len(snapshot.Records))
+	}
+
+	pending, err := s.Outbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range pending {
+		if err := s.AcceptOutbox(env, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	port := 2201
+	if err := m.EditHost(id, HostEdit{Port: &port}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Snapshot(true); !errors.Is(err, ErrUnsyncedEdit) {
+		t.Fatalf("want ErrUnsyncedEdit for an unsynced edit, got %v", err)
+	}
+	if _, err := m.Snapshot(false); err != nil {
+		t.Fatalf("an export snapshot refused an unsynced edit: %v", err)
+	}
+}

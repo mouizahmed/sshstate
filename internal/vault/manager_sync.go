@@ -169,6 +169,8 @@ type ExportSnapshot struct {
 	Heads     []protocol.Head
 }
 
+var ErrUnsyncedEdit = errors.New("an edit to an existing record has not synced yet")
+
 func (m *Manager) Snapshot(acceptedOnly bool) (*ExportSnapshot, error) {
 	out := &ExportSnapshot{}
 	unpublished := map[protocol.ID]bool{}
@@ -191,6 +193,9 @@ func (m *Manager) Snapshot(acceptedOnly bool) (*ExportSnapshot, error) {
 		}
 		for _, env := range envs {
 			if unpublished[env.Context.MutationID] {
+				if env.Context.Rev > 1 {
+					return nil, fmt.Errorf("record %s: %w", env.Context.RecordID, ErrUnsyncedEdit)
+				}
 				continue
 			}
 			digest, err := env.Digest()
@@ -314,15 +319,11 @@ func (m *Manager) RecoveryBundle(checkpoint protocol.Checkpoint) (*protocol.Sign
 	return out, nil
 }
 
-func (m *Manager) EnrollmentBundle(recipientID protocol.ID, recipient string, transcriptDigest, snapshotDigest []byte, snapshotLength protocol.Counter, membershipDigest []byte, seq protocol.Counter) (*protocol.SignedBundle, error) {
+func (m *Manager) EnrollmentBundle(recipientID protocol.ID, recipient string, transcriptDigest, snapshotDigest []byte, snapshotLength protocol.Counter, membershipDigest []byte, seq protocol.Counter, snapshot *ExportSnapshot) (*protocol.SignedBundle, error) {
 	if m.genesis == nil {
 		return nil, errors.New("enrollment bundle: no genesis")
 	}
 	genesisDigest, err := m.genesis.Digest()
-	if err != nil {
-		return nil, err
-	}
-	snapshot, err := m.Snapshot(true)
 	if err != nil {
 		return nil, err
 	}
