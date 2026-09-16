@@ -857,6 +857,44 @@ func TestRecoveryAfterARevocationKnowsOfIt(t *testing.T) {
 	recoverDevice(t, r, a, kitPath)
 }
 
+func TestBootstrappingASecondRelayIsRefusedBeforeTheSecretIsSpent(t *testing.T) {
+	first := newTestRelay(t)
+	second := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", first.url, "--bootstrap-secret", first.secretPath)
+
+	err := a.run(t, "connect", second.url, "--bootstrap-secret", second.secretPath)
+	if err == nil || !strings.Contains(err.Error(), "already lives on "+first.url) {
+		t.Fatalf("connecting a second relay was not refused clearly: %v", err)
+	}
+	if spent, err := second.store.BootstrapConsumed(); err != nil || spent {
+		t.Fatalf("the refused connect spent the second relay's bootstrap secret: %v %v", spent, err)
+	}
+	a.out.Reset()
+	a.mustRun(t, "status")
+	if got := a.out.String(); !strings.Contains(got, first.url) {
+		t.Fatalf("the vault no longer points at its relay:\n%s", got)
+	}
+	a.mustRun(t, "sync")
+}
+
+func TestConnectingToTheSameRelayAtANewAddress(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+
+	moved := httptest.NewServer(relay.NewServer(r.store, relay.Config{PublicHTTPS: false}).Handler())
+	t.Cleanup(moved.Close)
+	a.mustRun(t, "connect", moved.URL)
+	a.mustRun(t, "add", "after-move", "--hostname", "10.0.0.12", "--user", "ubuntu")
+	a.mustRun(t, "sync")
+	a.out.Reset()
+	a.mustRun(t, "status")
+	if got := a.out.String(); !strings.Contains(got, moved.URL) {
+		t.Fatalf("the vault did not switch to the new address:\n%s", got)
+	}
+}
+
 func TestRecoverRefusesAnotherVault(t *testing.T) {
 	r := newTestRelay(t)
 	source, _ := ready(t)

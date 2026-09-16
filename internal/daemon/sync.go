@@ -68,6 +68,17 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	out := control.ConnectResponse{URL: req.URL, VaultID: d.mgr.VaultID().String()}
 	if req.BootstrapSecret != "" {
+		current, err := d.mgr.RelayURL()
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if current != "" {
+			writeError(w, fmt.Errorf("this vault already lives on %s; moving it to another relay is not supported\n"+
+				"the bootstrap secret was not used\n"+
+				"if that relay only moved to a new address, run: sshstate connect <new-url>", current))
+			return
+		}
 		secret, err := protocol.DecodeBootstrapSecret(req.BootstrapSecret)
 		if err != nil {
 			writeError(w, fmt.Errorf("%v", err))
