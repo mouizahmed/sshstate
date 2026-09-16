@@ -871,6 +871,7 @@ func TestUninstallReportsIncompleteDeregistration(t *testing.T) {
 	r := newTestRelay(t)
 	s, _ := ready(t)
 	s.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	pairSecondDevice(t, r, s, vaultIDOf(t, s))
 	deviceID := deviceIDFrom(t, s)
 
 	s.mustRun(t, "lock")
@@ -896,11 +897,50 @@ func TestUninstallReportsIncompleteDeregistration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 {
+	if len(events) != 2 {
 		t.Fatalf("the chain changed despite the failure: %d events", len(events))
 	}
 	if got := s.out.String(); !strings.Contains(got, "Preserved: the encrypted vault") {
 		t.Fatalf("the local uninstall did not complete:\n%s", got)
+	}
+}
+
+func TestUninstallOfTheOnlyDeviceDoesNotSendYouToAnother(t *testing.T) {
+	r := newTestRelay(t)
+	s, _ := ready(t)
+	s.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	s.out.Reset()
+	s.errOut.Reset()
+	s.mustRun(t, "uninstall", "--yes")
+
+	all := s.out.String() + s.errOut.String()
+	if !strings.Contains(all, "only device") {
+		t.Fatalf("uninstall did not say this is the only device:\n%s", all)
+	}
+	for _, wrong := range []string{"from another device", "did not complete"} {
+		if strings.Contains(all, wrong) {
+			t.Fatalf("uninstall of the only device said %q:\n%s", wrong, all)
+		}
+	}
+}
+
+func TestPurgingTheOnlyDeviceDoesNotSendYouToAnother(t *testing.T) {
+	r := newTestRelay(t)
+	s, _ := ready(t)
+	s.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	s.mustRun(t, "export", filepath.Join(t.TempDir(), "vault.export"))
+	s.out.Reset()
+	s.errOut.Reset()
+	s.mustRun(t, "uninstall", "--purge", "--yes")
+
+	all := s.out.String() + s.errOut.String()
+	if !strings.Contains(all, "only device") {
+		t.Fatalf("purge did not say this is the only device:\n%s", all)
+	}
+	for _, wrong := range []string{"from another device", "did not complete"} {
+		if strings.Contains(all, wrong) {
+			t.Fatalf("purge of the only device said %q:\n%s", wrong, all)
+		}
 	}
 }
 

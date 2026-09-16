@@ -318,6 +318,11 @@ func (e *Env) OfferDeregistration(ctx context.Context, yes bool) {
 	if st.Relay == "" {
 		return
 	}
+	if e.onlyDevice(ctx, st) {
+		e.printf("This is the vault's only device, so it stays registered on %s.\n", st.Relay)
+		e.printf("To remove it there, pair another machine first and revoke it from that one.\n")
+		return
+	}
 	if !yes {
 		ok, err := e.confirm(fmt.Sprintf(
 			"Also deregister this device from %s, so it is no longer an authorized writer?", st.Relay))
@@ -335,6 +340,19 @@ func (e *Env) OfferDeregistration(ctx context.Context, yes bool) {
 	e.warnf("\nDeregistration did not complete: %s.\n", why)
 	e.warnf("This device remains an authorized writer on %s.\n", st.Relay)
 	e.warnf("Revoke it from another device with: sshstate revoke %s\n", st.DeviceID)
+}
+
+func (e *Env) onlyDevice(ctx context.Context, st *control.StatusResponse) bool {
+	listed, err := e.Client().Devices(ctx)
+	if err != nil {
+		return false
+	}
+	for _, d := range listed.Devices {
+		if d.Status == "active" && d.DeviceID != st.DeviceID {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Env) storedRelay() string {
@@ -383,8 +401,15 @@ func (e *Env) purgeVault(ctx context.Context, yes bool) error {
 		}
 	}
 
-	done, why := e.deregister(ctx, st)
+	only := st.Relay != "" && e.onlyDevice(ctx, st)
+	done, why := false, ""
+	if !only {
+		done, why = e.deregister(ctx, st)
+	}
 	switch {
+	case only:
+		e.printf("This was the vault's only device, so it stays registered on %s.\n", st.Relay)
+		e.printf("The recovery kit can still restore the vault from there.\n\n")
 	case done && st.Relay != "":
 		e.printf("Deregistered this device from %s.\n", st.Relay)
 	case !done:
