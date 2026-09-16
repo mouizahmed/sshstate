@@ -642,6 +642,24 @@ func TestPairingAVaultWithNoHostsYet(t *testing.T) {
 	}
 }
 
+func TestPairingWhileAnEditIsUnsyncedStillGivesTheJoinerThatHost(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	a.mustRun(t, "edit", "prod", "--port", "2201")
+
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+	a.mustRun(t, "sync")
+	if err := b.run(t, "sync"); err != nil {
+		t.Fatalf("the joined device could not apply an edit made before it joined: %v", err)
+	}
+	b.out.Reset()
+	b.mustRun(t, "hosts")
+	if got := b.out.String(); !strings.Contains(got, "ubuntu@10.0.0.5:2201") {
+		t.Fatalf("the joined device does not have the edited host:\n%s", got)
+	}
+}
+
 func TestApproveCancelledSendsNothing(t *testing.T) {
 	r := newTestRelay(t)
 	a, _ := ready(t)

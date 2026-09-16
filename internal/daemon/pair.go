@@ -108,6 +108,16 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	client, err := d.relayClient("")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := d.engine(client).Sync(ctx); err != nil {
+		writeError(w, fmt.Errorf("sync before handing over the vault: %w", err))
+		return
+	}
+
 	digest, err := approver.Transcript().Digest()
 	if err != nil {
 		writeError(w, err)
@@ -166,11 +176,6 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := approver.Deliver(ctx, ev, sealed, sealedSnapshot); err != nil {
-		writeError(w, err)
-		return
-	}
-	client, err := d.relayClient("")
-	if err != nil {
 		writeError(w, err)
 		return
 	}
