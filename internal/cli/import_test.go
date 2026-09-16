@@ -423,10 +423,12 @@ func TestCommentSourceCommentsRatherThanDeletes(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body := "Host keepme\n HostName 10.0.0.9\n\nHost prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n\n# a trailing note\n"
-	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte("Host keepme\n HostName 10.0.0.9\n\nHost prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n\n# a trailing note\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	s.mustRun(t, "install", "--skip-trust")
+	body := readFile(t, s.Layout.UserSSHConfig)
+	s.out.Reset()
 
 	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--with-keys", "--comment-source")
 
@@ -505,10 +507,11 @@ func TestCommentSourceWritesNothingOnADryRun(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
-	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte("Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	s.mustRun(t, "install", "--skip-trust")
+	body := readFile(t, s.Layout.UserSSHConfig)
 
 	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--with-keys", "--comment-source", "--dry-run")
 
@@ -521,5 +524,70 @@ func TestCommentSourceWritesNothingOnADryRun(t *testing.T) {
 	}
 	if !strings.Contains(s.out.String(), "would be commented out") {
 		t.Fatalf("the dry run did not say what it would do:\n%s", s.out)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func writeUserConfig(t *testing.T, s *scripted, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCommentSourceRefusesBeforeTheIncludeIsActive(t *testing.T) {
+	s := importReady(t)
+	key := filepath.Join(t.TempDir(), "id")
+	writeTestKey(t, key, "laptop@home")
+	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
+	writeUserConfig(t, s, body)
+
+	err := s.run(t, "import", s.Layout.UserSSHConfig, "--with-keys", "--comment-source")
+	if err == nil || !strings.Contains(err.Error(), "sshstate install") {
+		t.Fatalf("--comment-source without the Include was not refused: %v", err)
+	}
+	if got := readFile(t, s.Layout.UserSSHConfig); got != body {
+		t.Fatalf("the refused import still edited the config:\n%s", got)
+	}
+	hosts, err := s.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 0 {
+		t.Fatalf("the refused import still wrote %d hosts", len(hosts))
+	}
+}
+
+func TestCommentSourceLeavesAConflictingBlockActive(t *testing.T) {
+	s := importReady(t)
+	key := filepath.Join(t.TempDir(), "id")
+	writeTestKey(t, key, "laptop@home")
+	s.mustRun(t, "add-key", key)
+	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.9", "--user", "ubuntu", "--key", "laptop@home")
+	writeUserConfig(t, s, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile "+key+"\n\nHost web\n HostName 10.0.0.7\n User ubuntu\n IdentityFile "+key+"\n")
+	s.mustRun(t, "install", "--skip-trust")
+
+	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--with-keys", "--comment-source")
+
+	text := readFile(t, s.Layout.UserSSHConfig)
+	if !strings.Contains(text, "\nHost prod\n HostName 10.0.0.5") {
+		t.Fatalf("the conflicting prod block was commented out before it was resolved:\n%s", text)
+	}
+	if !strings.Contains(text, "# Host web") {
+		t.Fatalf("the block that imported cleanly was not commented out:\n%s", text)
+	}
+	if !strings.Contains(s.out.String(), "until you resolve them: prod") {
+		t.Fatalf("import did not say why prod was left active:\n%s", s.out)
 	}
 }

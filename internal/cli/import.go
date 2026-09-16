@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -33,27 +34,63 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 		return usageError("import")
 	}
 	path := positional[0]
+	if sameFile(path, env.Layout.UserSSHConfig) {
+		path = env.Layout.UserSSHConfig
+	}
+	_, err := importConfig(ctx, env, path, importOptions{
+		dryRun:        *dryRun,
+		withKeys:      *withKeys,
+		commentSource: *commentSource,
+	})
+	return err
+}
+
+type importOptions struct {
+	dryRun         bool
+	withKeys       bool
+	commentSource  bool
+	retiringSource bool
+}
+
+type importResult struct {
+	conflicts []string
+}
+
+func importConfig(ctx context.Context, env *Env, path string, opts importOptions) (*importResult, error) {
+	ownConfig := path == env.Layout.UserSSHConfig
+	if opts.commentSource {
+		if !ownConfig {
+			return nil, fmt.Errorf("--comment-source only edits %s, and this import read %s", env.Layout.UserSSHConfig, path)
+		}
+		installed, err := sshconfig.IsInstalled(env.Layout)
+		if err != nil {
+			return nil, err
+		}
+		if !installed {
+			return nil, errors.New("--comment-source needs the sshstate Include active first, or the hosts it comments out would stop resolving\nrun: sshstate install")
+		}
+	}
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
 	hosts, problems := sshconfig.ParseImport(string(body))
 	if len(problems) > 0 {
-		return importRefusal(env, path, problems)
+		return nil, importRefusal(env, path, problems)
 	}
 	if len(hosts) == 0 {
-		return fmt.Errorf("%s declares no Host blocks", path)
+		return nil, fmt.Errorf("%s declares no Host blocks", path)
 	}
 
-	if *withKeys && !*dryRun {
+	if opts.withKeys && !opts.dryRun {
 		if err := adoptIdentityFiles(ctx, env, hosts); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	keys, err := env.Client().Keys(ctx)
 	if err != nil {
-		return env.hint(err)
+		return nil, env.hint(err)
 	}
 	byFingerprint := make(map[string]string, len(keys))
 	for _, k := range keys {
@@ -62,10 +99,10 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 
 	me, err := user.Current()
 	if err != nil {
-		return fmt.Errorf("resolve the current user: %w", err)
+		return nil, fmt.Errorf("resolve the current user: %w", err)
 	}
 
-	req := control.ImportRequest{DryRun: *dryRun}
+	req := control.ImportRequest{DryRun: opts.dryRun}
 	var unresolved []sshconfig.ImportProblem
 	missingKeys := map[string]string{}
 	for _, h := range hosts {
@@ -92,7 +129,7 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 			}
 			id, ok := byFingerprint[fingerprint]
 			if !ok {
-				if *dryRun && *withKeys {
+				if opts.dryRun && opts.withKeys {
 					missingKeys[file] = fingerprint
 					continue
 				}
@@ -105,16 +142,17 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 		req.Hosts = append(req.Hosts, entry)
 	}
 	if len(unresolved) > 0 {
-		if !*withKeys {
+		if !opts.withKeys {
 			env.warnf("Import those keys in the same pass with: sshstate import %s --with-keys\n\n", path)
 		}
-		return importRefusal(env, path, unresolved)
+		return nil, importRefusal(env, path, unresolved)
 	}
 
 	res, err := env.Client().Import(ctx, req)
 	if err != nil {
-		return env.hint(err)
+		return nil, env.hint(err)
 	}
+	result := &importResult{}
 
 	for file, fingerprint := range missingKeys {
 		env.printf("  key       %s  %s\n", fingerprint, file)
@@ -131,21 +169,23 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 			env.printf("  unchanged %s\n", o.Alias)
 		case string(vault.ImportConflict):
 			env.printf("  conflict  %s — %s\n", o.Alias, o.Detail)
+			result.conflicts = append(result.conflicts, o.Alias)
 		}
 	}
 	env.printf("\n%d new, %d unchanged, %d conflicting\n",
 		counts[string(vault.ImportCreated)],
 		counts[string(vault.ImportUnchanged)],
 		counts[string(vault.ImportConflict)])
+	retire := withoutAliases(hosts, result.conflicts)
 	if res.DryRun {
 		if len(missingKeys) > 0 {
 			env.printf("%s would be imported as well.\n", count(len(missingKeys), "key", "keys"))
 		}
-		if *commentSource {
-			env.printf("%s in %s would be commented out.\n", count(len(hosts), "block", "blocks"), path)
+		if opts.commentSource {
+			env.printf("%s in %s would be commented out.\n", count(len(retire), "block", "blocks"), path)
 		}
 		env.printf("\nNothing was written. Run it again without --dry-run to apply.\n")
-		return nil
+		return result, nil
 	}
 	if counts[string(vault.ImportCreated)] > 0 {
 		env.printf("\nConfig regenerated at %s\n", env.Layout.Config())
@@ -153,16 +193,31 @@ func runImport(ctx context.Context, env *Env, args []string) error {
 	if counts[string(vault.ImportConflict)] > 0 {
 		env.printf("Existing hosts were left as they are. See: sshstate conflicts\n")
 	}
-	if *commentSource && !res.DryRun {
-		return commentOutSource(env, path, hosts)
+	if opts.commentSource {
+		if len(result.conflicts) > 0 {
+			env.printf("Left active in %s until you resolve them: %s\n", path, strings.Join(result.conflicts, ", "))
+		}
+		return result, commentOutSource(env, path, retire)
 	}
-	warnStillDefined(env, path, hosts)
-	return nil
+	if ownConfig && !opts.retiringSource {
+		warnStillDefined(env, path, hosts)
+	}
+	return result, nil
+}
+
+func withoutAliases(hosts []sshconfig.ImportedHost, aliases []string) []sshconfig.ImportedHost {
+	var out []sshconfig.ImportedHost
+	for _, h := range hosts {
+		if !slices.Contains(aliases, h.Alias) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 func commentOutSource(env *Env, path string, hosts []sshconfig.ImportedHost) error {
-	if path != env.Layout.UserSSHConfig {
-		return fmt.Errorf("--comment-source only edits %s, and this import read %s", env.Layout.UserSSHConfig, path)
+	if len(hosts) == 0 {
+		return nil
 	}
 	res, err := sshconfig.CommentOutBlocks(env.Layout, hosts)
 	if err != nil {
@@ -176,9 +231,6 @@ func commentOutSource(env *Env, path string, hosts []sshconfig.ImportedHost) err
 }
 
 func warnStillDefined(env *Env, path string, hosts []sshconfig.ImportedHost) {
-	if path != env.Layout.UserSSHConfig {
-		return
-	}
 	var withKeys []string
 	for _, h := range hosts {
 		if len(h.IdentityFiles) > 0 {

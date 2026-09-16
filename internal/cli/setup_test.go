@@ -238,37 +238,6 @@ func TestDefaultEnvResolvesFromTheEnvironment(t *testing.T) {
 	}
 }
 
-func TestSetupCommentsOutTheConfigItImported(t *testing.T) {
-	s := importReady(t)
-	dir := t.TempDir()
-	key := filepath.Join(dir, "id")
-	writeTestKey(t, key, "laptop@home")
-	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
-	if err := os.WriteFile(s.Layout.UserSSHConfig, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	args := []string{s.Layout.UserSSHConfig, "--with-keys"}
-	if sameFile(s.Layout.UserSSHConfig, s.Layout.UserSSHConfig) {
-		args = append(args, "--comment-source")
-	}
-	s.mustRun(t, "import", args...)
-
-	after, err := os.ReadFile(s.Layout.UserSSHConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(after), "# Host prod") {
-		t.Fatalf("the imported block still shadows the generated one:\n%s", after)
-	}
-	if strings.Contains(s.errOut.String(), "still defined") {
-		t.Fatalf("setup left a state it then warned about:\n%s", s.errOut)
-	}
-}
-
 func TestSameFileRecognisesTheUsersOwnConfig(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "config")
@@ -489,5 +458,96 @@ func TestDoctorDoesNotCallANonfunctionalMachineHealthy(t *testing.T) {
 	}
 	if !strings.Contains(out, "warning") {
 		t.Fatalf("doctor's summary does not mention its warnings:\n%s", out)
+	}
+}
+
+func setupWithConfig(t *testing.T, body string) (*scripted, string) {
+	t.Helper()
+	s := vaultOnly(t)
+	s.startDaemon(t)
+	key := filepath.Join(t.TempDir(), "id")
+	writeTestKey(t, key, "laptop@home")
+	writeUserConfig(t, s, strings.ReplaceAll(body, "KEY", key))
+	return s, key
+}
+
+func TestSetupCancelledAtTheTrustPromptLeavesYourHostsWorking(t *testing.T) {
+	s, _ := setupWithConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile KEY\n")
+	if err := os.WriteFile(s.Layout.UserKnownHosts(), []byte("10.0.0.5 "+hostKeyLine(t)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := readFile(t, s.Layout.UserSSHConfig)
+	s.Interactive = true
+	s.secrets = []string{password}
+	s.lines = []string{"c"}
+
+	if err := s.run(t, "setup", "--import", s.Layout.UserSSHConfig); err == nil {
+		t.Fatal("setup reported success after the trust prompt was cancelled")
+	}
+	if got := readFile(t, s.Layout.UserSSHConfig); got != before {
+		t.Fatalf("a cancelled setup changed the config, so prod may no longer resolve:\n%s", got)
+	}
+
+	s.lines = []string{"s"}
+	s.errOut.Reset()
+	s.mustRun(t, "setup", "--import", s.Layout.UserSSHConfig)
+	text := readFile(t, s.Layout.UserSSHConfig)
+	installed, err := sshconfig.IsInstalled(s.Layout)
+	if err != nil || !installed {
+		t.Fatalf("setup run again did not activate the Include: %v", err)
+	}
+	if !strings.Contains(text, "# Host prod") {
+		t.Fatalf("setup run again did not retire the imported block:\n%s", text)
+	}
+	if strings.Contains(s.errOut.String(), "still defined") {
+		t.Fatalf("setup warned about a block it was about to retire:\n%s", s.errOut)
+	}
+}
+
+func TestSetupStopsOnAConflictWithoutTouchingTheConfig(t *testing.T) {
+	s, key := setupWithConfig(t, "")
+	s.secrets = []string{password}
+	s.mustRun(t, "setup")
+	s.mustRun(t, "add-key", key)
+	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.9", "--user", "ubuntu", "--key", "laptop@home")
+	body := "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile " + key + "\n"
+	writeUserConfig(t, s, body)
+	s.out.Reset()
+
+	err := s.run(t, "setup", "--import", s.Layout.UserSSHConfig)
+	if err == nil {
+		t.Fatal("setup finished while prod was still in conflict")
+	}
+	if got := readFile(t, s.Layout.UserSSHConfig); got != body {
+		t.Fatalf("setup changed the config while prod was in conflict:\n%s", got)
+	}
+	if !strings.Contains(s.out.String(), "sshstate conflicts") {
+		t.Fatalf("setup did not say how to resolve the conflict:\n%s", s.out)
+	}
+
+	listed, err := s.Client().Conflicts(context.Background())
+	if err != nil || len(listed.Conflicts) != 1 {
+		t.Fatalf("expected one conflict to resolve: %v %+v", err, listed)
+	}
+	s.mustRun(t, "resolve", listed.Conflicts[0].RecordID)
+	s.mustRun(t, "setup", "--import", s.Layout.UserSSHConfig)
+	if !strings.Contains(readFile(t, s.Layout.UserSSHConfig), "# Host prod") {
+		t.Fatal("setup did not finish after the conflict was resolved")
+	}
+}
+
+func TestSetupImportThroughASymlinkFinishes(t *testing.T) {
+	s, _ := setupWithConfig(t, "Host prod\n HostName 10.0.0.5\n User ubuntu\n IdentityFile KEY\n")
+	link := filepath.Join(t.TempDir(), "config")
+	if err := os.Symlink(s.Layout.UserSSHConfig, link); err != nil {
+		t.Fatal(err)
+	}
+	s.secrets = []string{password}
+	s.lines = []string{"s"}
+
+	s.mustRun(t, "setup", "--import", link)
+
+	if !strings.Contains(readFile(t, s.Layout.UserSSHConfig), "# Host prod") {
+		t.Fatal("setup through a symlink did not retire the imported block")
 	}
 }

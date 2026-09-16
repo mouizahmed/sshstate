@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/sshconfig"
@@ -80,19 +81,26 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 	}
 
 	env.printf("\nStep 4 of 4: your hosts.\n")
-	if *importFrom != "" {
-		if hasHostBlocks(*importFrom) {
+	source := *importFrom
+	if source != "" && sameFile(source, env.Layout.UserSSHConfig) {
+		source = env.Layout.UserSSHConfig
+	}
+	retire := false
+	if source != "" {
+		if hasHostBlocks(source) {
 			env.printf("\n")
-			importArgs := []string{*importFrom, "--with-keys"}
-			if sameFile(*importFrom, env.Layout.UserSSHConfig) {
-				importArgs = append(importArgs, "--comment-source")
-			}
-			if err := runImport(ctx, env, importArgs); err != nil {
+			ownConfig := source == env.Layout.UserSSHConfig
+			res, err := importConfig(ctx, env, source, importOptions{withKeys: true, retiringSource: ownConfig})
+			if err != nil {
 				return err
 			}
+			if len(res.conflicts) > 0 {
+				return setupConflicts(env, source, res.conflicts)
+			}
+			retire = ownConfig
 			did++
 		} else {
-			env.printf("  already done: %s has no hosts left to import\n", *importFrom)
+			env.printf("  already done: %s has no hosts left to import\n", source)
 		}
 	}
 
@@ -122,6 +130,11 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 		}
 		did++
 	}
+	if retire {
+		if err := retireImportedBlocks(env); err != nil {
+			return err
+		}
+	}
 
 	if did == 0 {
 		env.printf("\nThis machine is already set up.\n")
@@ -130,6 +143,27 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 	}
 	env.printf("See what it manages with: sshstate hosts\n")
 	return nil
+}
+
+func setupConflicts(env *Env, source string, aliases []string) error {
+	env.printf("\n%s differently from the vault: %s\n",
+		plural(len(aliases), "This host is defined", "These hosts are defined"), strings.Join(aliases, ", "))
+	env.printf("Setup stopped before changing %s, so ssh still uses your definitions.\n", source)
+	env.printf("Compare both versions with: sshstate conflicts\n")
+	env.printf("Take yours with sshstate resolve <id>, or make your blocks match the vault, then run setup again.\n")
+	return errors.New("setup stopped: resolve the conflicting hosts first")
+}
+
+func retireImportedBlocks(env *Env) error {
+	body, err := os.ReadFile(env.Layout.UserSSHConfig)
+	if err != nil {
+		return err
+	}
+	hosts, problems := sshconfig.ParseImport(string(body))
+	if len(problems) > 0 {
+		return importRefusal(env, env.Layout.UserSSHConfig, problems)
+	}
+	return commentOutSource(env, env.Layout.UserSSHConfig, hosts)
 }
 
 func hasHostBlocks(path string) bool {
