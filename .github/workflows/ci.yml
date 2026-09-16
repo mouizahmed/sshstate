@@ -44,12 +44,28 @@ jobs:
         run: go build ./...
       - name: test
         run: go test ./...
-      # Every vault test pays argon2id twice, once to create and once to unlock.
-      # Under -race on a hosted runner that pushes internal/cli and
-      # internal/daemon past Go's default 10-minute per-package limit, which
-      # reports as a timeout panic rather than as slowness.
+
+      # The race detector finds races in this code, not in the operating
+      # system, so the full suite runs under it once rather than on every
+      # matrix cell. Linux is about three times faster than the hosted macOS
+      # runners for identical work, so that is where it runs.
+      #
+      # The timeout is raised because the suite is integration-heavy: almost
+      # every test starts a real daemon, binds two Unix sockets, opens SQLite,
+      # and several spawn ssh, sshd or ssh -G. Measured on an M-series Mac,
+      # internal/daemon takes 212s under -race across 40 tests; argon2id is
+      # about 13% of that and starting real daemons is most of the rest. Go's
+      # default is 10 minutes per package, and a hosted runner crosses it.
       - name: test -race
+        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.27.1'
         run: go test -race -timeout 30m ./...
+
+      # Linux cannot reach these: launchd activation through cgo, the macOS
+      # LOCAL_PEERCRED socket check, and the launchd service definition. They
+      # are small, so covering them under -race here costs seconds.
+      - name: test -race (darwin-only packages)
+        if: matrix.os == 'macos-latest'
+        run: go test -race -timeout 30m ./internal/activation/ ./internal/peercred/ ./internal/service/
 
   cross-build:
     runs-on: ubuntu-latest
