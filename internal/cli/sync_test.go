@@ -1416,8 +1416,21 @@ func TestARevokedDeviceIsToldWhyItNoLongerSyncs(t *testing.T) {
 	}
 	b.out.Reset()
 	b.mustRun(t, "status")
-	if !strings.Contains(b.out.String(), "revoked by another device") {
+	if !strings.Contains(b.out.String(), "revoked; nothing changed here syncs") {
 		t.Fatalf("status on the revoked device does not say so:\n%s", b.out)
+	}
+}
+
+func TestADeviceThatRevokedItselfSaysSoInStatus(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+	b.mustRun(t, "revoke", deviceIDFrom(t, b), "--yes")
+	b.out.Reset()
+	b.mustRun(t, "status")
+	if !strings.Contains(b.out.String(), "revoked; nothing changed here syncs") {
+		t.Fatalf("status on a self-revoked device does not say so:\n%s", b.out)
 	}
 }
 

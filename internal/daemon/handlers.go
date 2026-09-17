@@ -149,8 +149,15 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) revokedHere() bool {
-	notice, err := d.mgr.Store().Meta(vault.MetaRevokedNotice)
-	return err == nil && notice == "true"
+	if notice, err := d.mgr.Store().Meta(vault.MetaRevokedNotice); err == nil && notice == "true" {
+		return true
+	}
+	chain, err := d.chain()
+	if err != nil {
+		return false
+	}
+	self, ok := chain.Device(d.mgr.DeviceID())
+	return ok && self.Revoked
 }
 
 func (d *Daemon) handleChangePassword(w http.ResponseWriter, r *http.Request) {
