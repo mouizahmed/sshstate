@@ -271,7 +271,7 @@ func runRestore(ctx context.Context, env *Env, args []string) error {
 		return errors.New("passwords do not match")
 	}
 
-	mgr, res, err := vault.Restore(store, vault.RestoreOptions{
+	_, res, err := vault.Restore(store, vault.RestoreOptions{
 		Archive:     archive,
 		Kit:         kit,
 		Password:    password,
@@ -281,14 +281,12 @@ func runRestore(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	env.printf("Restored vault %s as new device %s.\n", res.VaultID, res.DeviceID)
-	env.printf("Installed %s, accepted through seq %s.\n",
-		count(res.Records, "record", "records"), res.Seq)
+	env.printf("Installed %s from the export.\n", count(res.Records, "record", "records"))
 	env.printf("\nThis device was authorized by the recovery kit, so it can write.\n")
 	env.printf("The kit still opens this vault: treat it as you did before.\n")
-	env.printf("\nNext: sshstate daemon, then sshstate install\n")
-	if _, err := mgr.RelayURL(); err == nil {
-		env.printf("Point it at a relay with: sshstate connect <url>\n")
-	}
+	env.printf("\nFinish setting up this machine with: sshstate setup\n")
+	env.printf("\nThe restored vault lives on this machine only. A restored vault cannot start a new relay;\n")
+	env.printf("to use the original relay again, recover from it on a fresh machine: sshstate recover\n")
 	return nil
 }
 
@@ -603,6 +601,6 @@ func runRecover(ctx context.Context, env *Env, args []string) error {
 		count(res.Records, "record", "records"))
 	env.printf("\nThe kit authorized this device, so it can write. Any device you have\n")
 	env.printf("lost is still authorized: revoke it with sshstate revoke <device-id>.\n")
-	env.printf("\nNext: sshstate daemon, then sshstate sync\n")
+	env.printf("\nFinish setting up this machine with: sshstate setup\n")
 	return nil
 }
