@@ -195,7 +195,7 @@ func TestSystemdInstallAndUninstall(t *testing.T) {
 	if mgr == nil {
 		t.Fatal("no service manager on linux")
 	}
-	if installed, err := mgr.Installed(); err != nil {
+	if installed, err := mgr.Registered(); err != nil {
 		t.Fatal(err)
 	} else if installed {
 		t.Skipf("sshstate is already registered at %s; this test will not overwrite it", mgr.DefinitionPath())
@@ -245,7 +245,7 @@ func TestSystemdInstallAndUninstall(t *testing.T) {
 	if err := mgr.Install(binary, layout); err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if installed, err := mgr.Installed(); err != nil || !installed {
+	if installed, err := mgr.Installed(layout); err != nil || !installed {
 		t.Fatalf("Installed() reports %v, %v after a successful install", installed, err)
 	}
 	for _, unit := range []string{"sshstate-control.socket", "sshstate-agent.socket"} {
@@ -279,7 +279,7 @@ func TestSystemdInstallAndUninstall(t *testing.T) {
 	if err := mgr.Uninstall(layout); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
-	if installed, err := mgr.Installed(); err != nil || installed {
+	if installed, err := mgr.Installed(layout); err != nil || installed {
 		t.Fatalf("Installed() reports %v, %v after uninstall", installed, err)
 	}
 	dir := filepath.Dir(mgr.DefinitionPath())

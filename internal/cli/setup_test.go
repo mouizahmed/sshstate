@@ -147,7 +147,7 @@ func TestServiceRemoveWhenNotRegistered(t *testing.T) {
 	if service.For() == nil {
 		t.Skip("no service manager on this platform")
 	}
-	installed, err := service.For().Installed()
+	installed, err := service.For().Registered()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +592,10 @@ type staleService struct {
 
 func (f *staleService) Name() string           { return "fake" }
 func (f *staleService) DefinitionPath() string { return "/fake/sshstate.service" }
-func (f *staleService) Installed() (bool, error) {
+func (f *staleService) Registered() (bool, error) {
+	return f.installed, nil
+}
+func (f *staleService) Installed(paths.Layout) (bool, error) {
 	return f.installed, nil
 }
 func (f *staleService) Uninstall(paths.Layout) error {

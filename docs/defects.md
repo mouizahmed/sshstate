@@ -927,6 +927,18 @@ service manager through `Env.Services`, so tests can use a fake.
 `TestSetupRegistersAgainWhenARegisteredServiceDoesNotAnswer` fails with the old
 "already done" branch, with the exact error seen on the VM.
 
+The root cause was that "installed" meant "a definition file exists", and four
+other callers relied on that too. Uninstall would unregister another home's
+service, `service --remove` would remove it, the foreground daemon would refuse
+to start over sockets it did not share, and the unavailable-daemon hint would
+blame a registration that was not this one. `Installed` now takes the layout and
+is true only when the definition names this home's control socket. `Registered`
+answers the weaker question and is used only to say another home's service is
+being replaced or left alone.
+`TestLaunchdInstalledOnlyForTheHomeItWasRegisteredFor` and
+`TestSystemdInstalledOnlyForTheHomeItWasRegisteredFor` fail when ownership is
+not checked. The systemd one was run on the Ubuntu VM.
+
 ## D26 — Doctor warned about OpenSSH default keys that do not exist
 
 - Found: `sshstate doctor` in the VM user's real home, for a host with no managed key

@@ -629,7 +629,7 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 		env.OfferDeregistration(ctx, *yes)
 	}
 	if mgr := env.services(); mgr != nil {
-		if installed, err := mgr.Installed(); err == nil && installed {
+		if installed, err := mgr.Installed(env.Layout); err == nil && installed {
 			if err := mgr.Uninstall(env.Layout); err != nil {
 				return err
 			}

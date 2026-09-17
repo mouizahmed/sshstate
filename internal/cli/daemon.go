@@ -14,7 +14,6 @@ import (
 
 	"github.com/mouizahmed/sshstate/internal/activation"
 	"github.com/mouizahmed/sshstate/internal/daemon"
-	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
@@ -41,7 +40,7 @@ func runDaemon(ctx context.Context, env *Env, args []string) error {
 		env.Layout.UserSSHConfig = *userConfig
 	}
 
-	if err := refuseIfServiceOwnsTheSockets(*runtimeDir); err != nil {
+	if err := refuseIfServiceOwnsTheSockets(env); err != nil {
 		return err
 	}
 
@@ -76,15 +75,15 @@ func runDaemon(ctx context.Context, env *Env, args []string) error {
 	return d.Run(ctx)
 }
 
-func refuseIfServiceOwnsTheSockets(runtimeOverride string) error {
-	if activation.Available() || runtimeOverride != "" {
+func refuseIfServiceOwnsTheSockets(env *Env) error {
+	if activation.Available() {
 		return nil
 	}
-	mgr := service.For()
+	mgr := env.services()
 	if mgr == nil {
 		return nil
 	}
-	installed, err := mgr.Installed()
+	installed, err := mgr.Installed(env.Layout)
 	if err != nil || !installed {
 		return nil
 	}

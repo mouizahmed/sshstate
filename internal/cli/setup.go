@@ -55,8 +55,10 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 		env.printf("  sshstate daemon\n")
 		return errors.New("setup needs a running daemon on this platform")
 	default:
-		if installed, err := mgr.Installed(); err == nil && installed {
+		if installed, err := mgr.Installed(env.Layout); err == nil && installed {
 			env.printf("  registered with %s, but the daemon did not answer; registering it again\n", mgr.Name())
+		} else if registered, err := mgr.Registered(); err == nil && registered {
+			env.printf("  %s has an sshstate service for another home; replacing it with this one\n", mgr.Name())
 		}
 		env.printf("\n")
 		if err := installService(env); err != nil {
@@ -221,11 +223,15 @@ func runService(ctx context.Context, env *Env, args []string) error {
 		return errors.New("no service manager integration ships for this platform; use: sshstate daemon")
 	}
 	if *remove {
-		installed, err := mgr.Installed()
+		installed, err := mgr.Installed(env.Layout)
 		if err != nil {
 			return err
 		}
 		if !installed {
+			if registered, err := mgr.Registered(); err == nil && registered {
+				env.printf("The sshstate service registered with %s belongs to another home; it was left alone.\n", mgr.Name())
+				return nil
+			}
 			env.printf("Not registered with %s.\n", mgr.Name())
 			return nil
 		}

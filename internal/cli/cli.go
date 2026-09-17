@@ -116,7 +116,7 @@ func (e *Env) daemonUnavailable() error {
 	if mgr == nil {
 		return errors.New("the sshstate daemon is not running\nstart it with: sshstate daemon")
 	}
-	if installed, err := mgr.Installed(); err == nil && installed {
+	if installed, err := mgr.Installed(e.Layout); err == nil && installed {
 		return fmt.Errorf("the %s service is registered but did not answer\nre-register it with: sshstate service", mgr.Name())
 	}
 	return errors.New("sshstate is not running on this machine\nfinish setting it up with: sshstate setup")

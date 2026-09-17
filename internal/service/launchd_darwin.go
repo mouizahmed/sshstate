@@ -174,7 +174,7 @@ func (d launchd) bootout() error {
 	return fmt.Errorf("launchctl bootout: %w: %s", err, text)
 }
 
-func (d launchd) Installed() (bool, error) {
+func (d launchd) Registered() (bool, error) {
 	path := d.DefinitionPath()
 	if path == "" {
 		return false, nil
@@ -184,6 +184,21 @@ func (d launchd) Installed() (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+func (d launchd) Installed(l paths.Layout) (bool, error) {
+	path := d.DefinitionPath()
+	if path == "" {
+		return false, nil
+	}
+	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(string(body), "<string>"+escape(l.ControlSocket())+"</string>"), nil
 }
 
 func domain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }

@@ -199,7 +199,7 @@ func notLoaded(out string) bool {
 		strings.Contains(out, "No such file or directory")
 }
 
-func (systemd) Installed() (bool, error) {
+func (systemd) Registered() (bool, error) {
 	dir := unitDir()
 	if dir == "" {
 		return false, nil
@@ -209,6 +209,25 @@ func (systemd) Installed() (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+func (systemd) Installed(l paths.Layout) (bool, error) {
+	dir := unitDir()
+	if dir == "" {
+		return false, nil
+	}
+	body, err := os.ReadFile(filepath.Join(dir, unitControl))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	socket, err := unitValue(l.ControlSocket())
+	if err != nil {
+		return false, nil
+	}
+	return strings.Contains(string(body), "\nListenStream="+socket+"\n"), nil
 }
 
 func requireUserManager() error {

@@ -12,7 +12,8 @@ type Manager interface {
 	DefinitionPath() string
 	Install(binary string, l paths.Layout) error
 	Uninstall(l paths.Layout) error
-	Installed() (bool, error)
+	Registered() (bool, error)
+	Installed(l paths.Layout) (bool, error)
 }
 
 func For() Manager { return platformManager() }
