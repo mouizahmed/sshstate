@@ -1296,3 +1296,33 @@ request is refused as expired, the error says how far and in which direction
 this machine's clock differs from the relay's, and asks for automatic time on
 both. `TestASkewedClockIsNamedWithTheDifference` signs ten minutes in the future
 and fails without the explanation.
+
+## D40 — A vault past about 150 hosts could not connect, pair, or recover
+
+- Found: connecting and pairing a 304-host vault through a local relay
+- Severity: `connect` failed at the recovery upload and `approve` failed at delivery, both with `malformed_encoding: object is 2179228 bytes, limit is 1048576`
+- Fixed in: `internal/relay/server.go`, `internal/relay/handlers.go`, `internal/relay/pairing.go`, `internal/relayclient/client.go`, `internal/enroll/pairing.go`, `internal/daemon/sync.go`, `internal/cli/sync.go`
+
+### What happened
+
+Every record carries a post-quantum signature of about 3.3 KB, so a snapshot or
+export grows by roughly 5 KB per host. The spec bounds a parsed JSON object at
+1 MiB and a request at 4 MiB, and says snapshots and export archives are
+streamed under a separate 256 MiB bound. The implementation embedded both inside
+JSON bodies as base64 instead, so the 1 MiB bound applied. The relay's storage
+already kept snapshots in their own column for exactly this reason. Only the
+transport was wrong.
+
+### Why it survived until a test found it
+
+Every test vault had a handful of hosts.
+
+### Fix
+
+The pairing snapshot and the recovery archive now travel as raw request and
+response bodies on their own endpoints, bounded by the streamed limit. The JSON
+requests stay small. For small objects the relay still returns them inline, so
+an older client keeps working with a small vault. The nginx example allows
+256 MiB bodies. `TestALargeVaultConnectsPairsAndRecovers` connects, pairs, and
+recovers a 261-host vault, and fails with the original error if either upload
+goes back to JSON. The relay and clients have to be upgraded together.

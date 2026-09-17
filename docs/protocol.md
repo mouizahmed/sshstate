@@ -818,10 +818,22 @@ Approver request:
 ```json
 {
   "membership_event": {"event": {...}, "signature": "..."},
-  "bundle": "<age-ciphertext-base64url>",
-  "snapshot": "<age-ciphertext-base64url>"
+  "bundle": "<age-ciphertext-base64url>"
 }
 ```
+
+```
+PUT /v1/pairings/:id/snapshot
+GET /v1/pairings/:id/snapshot
+```
+
+The sealed snapshot (§6.3) travels as a raw `application/octet-stream` body,
+bounded by the streamed-object limit rather than the 4 MiB request bound. The
+approver uploads it after both confirmations and before `complete`, and the
+joiner downloads it once the bundle names a snapshot. The bundle binds its
+digest and length, so the body needs no signature of its own. A session response
+and a `complete` request may still carry a `snapshot` field inline when it is at
+most 1 MiB, but a client must be able to fetch it from this endpoint.
 
 Rejected with `pairing_incomplete` unless both confirmations are present and the
 session has not expired.
@@ -869,7 +881,17 @@ is never a valid recipient, and the relay rejects a `PUT` naming one.
 ```
 POST /v1/recovery/challenge
 POST /v1/recovery/complete
+PUT  /v1/recovery/archive?key_epoch=<n>
+GET  /v1/recovery/archive?vault_id=<id>
 ```
+
+The recovery archive is an export (§8) sealed to the recovery recipient. It
+travels as a raw `application/octet-stream` body under the streamed-object bound.
+`PUT` is signed by an authorized device and replaces any recovery archive at the
+same or an earlier epoch. `GET` needs no signature, because the archive opens only
+with the recovery kit. The challenge response below carries it inline as
+`recovery_envelope` only when it is at most 1 MiB; otherwise a client fetches it
+from `GET /v1/recovery/archive`.
 
 `challenge` request: `{"vault_id": "<id>"}`.
 Response `200`:

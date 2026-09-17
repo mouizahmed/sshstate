@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mouizahmed/sshstate/internal/crypto"
 	"github.com/mouizahmed/sshstate/internal/httpsig"
 	"github.com/mouizahmed/sshstate/internal/protocol"
 )
@@ -90,6 +91,10 @@ func (c *Client) send(ctx context.Context, method, path string, in any, headers 
 			return reply{}, fmt.Errorf("encode request: %w", err)
 		}
 	}
+	return c.transfer(ctx, method, path, body, headers, MaxResponseBytes)
+}
+
+func (c *Client) transfer(ctx context.Context, method, path string, body []byte, headers map[string]string, limit int) (reply, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.base.String()+path, bytes.NewReader(body))
 	if err != nil {
 		return reply{}, err
@@ -108,13 +113,13 @@ func (c *Client) send(ctx context.Context, method, path string, in any, headers 
 	}
 	defer resp.Body.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
 	if err != nil {
 		return reply{}, fmt.Errorf("read the relay's response: %w", err)
 	}
-	if len(raw) > MaxResponseBytes {
+	if len(raw) > limit {
 		return reply{}, protocol.Errorf(protocol.CodeBodyTooLarge,
-			"the relay returned more than %d bytes", MaxResponseBytes)
+			"the relay returned more than %d bytes", limit)
 	}
 	date, _ := http.ParseTime(resp.Header.Get("Date"))
 	return reply{status: resp.StatusCode, body: raw, req: req, sent: c.localTime(), date: date}, nil
@@ -253,6 +258,40 @@ func decodeError(status int, raw []byte, signatureHeaderBytes int) error {
 		Message: body.Error.Message,
 		Detail:  body.Error.Detail,
 	}
+}
+
+func (c *Client) stream(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	headers := map[string]string{}
+	if body != nil {
+		headers["Content-Type"] = "application/octet-stream"
+	}
+	rep, err := c.transfer(ctx, method, path, body, headers, crypto.MaxStreamBytes)
+	if err != nil {
+		return nil, err
+	}
+	if rep.status >= 300 {
+		return nil, explainClock(decodeError(rep.status, rep.body, signatureBytes(rep.req)), rep)
+	}
+	return rep.body, nil
+}
+
+func (c *Client) PutPairingSnapshot(ctx context.Context, sessionID protocol.ID, snapshot []byte) error {
+	_, err := c.stream(ctx, http.MethodPut, "/v1/pairings/"+sessionID.String()+"/snapshot", snapshot)
+	return c.asPairing(sessionID, err)
+}
+
+func (c *Client) PairingSnapshot(ctx context.Context, sessionID protocol.ID) ([]byte, error) {
+	return c.stream(ctx, http.MethodGet, "/v1/pairings/"+sessionID.String()+"/snapshot", nil)
+}
+
+func (c *Client) PutRecoveryArchive(ctx context.Context, epoch protocol.Counter, archive []byte) error {
+	_, err := c.stream(ctx, http.MethodPut, "/v1/recovery/archive?key_epoch="+epoch.String(), archive)
+	return c.asMember(err)
+}
+
+func (c *Client) RecoveryArchive(ctx context.Context, vaultID protocol.ID) ([]byte, error) {
+	body, err := c.stream(ctx, http.MethodGet, "/v1/recovery/archive?vault_id="+vaultID.String(), nil)
+	return body, c.asVaultID(vaultID, err)
 }
 
 func (c *Client) Bootstrap(ctx context.Context, secret []byte, g *protocol.Genesis, root protocol.SignedMembershipEvent) (protocol.ID, error) {

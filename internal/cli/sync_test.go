@@ -6,6 +6,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1496,5 +1497,34 @@ func TestConflictsShowWhatDiffersAndCanBeDiscarded(t *testing.T) {
 	a.mustRun(t, "conflicts")
 	if !strings.Contains(a.out.String(), "No conflicts") {
 		t.Fatalf("the discard did not reach the other device:\n%s", a.out)
+	}
+}
+
+func TestALargeVaultConnectsPairsAndRecovers(t *testing.T) {
+	r := newTestRelay(t)
+	a, kitPath := ready(t)
+	var cfg strings.Builder
+	for i := 0; i < 260; i++ {
+		fmt.Fprintf(&cfg, "Host bulk%03d\n HostName 10.9.%d.%d\n User deploy\n\n", i, i/250, i%250)
+	}
+	path := filepath.Join(t.TempDir(), "bulk.cfg")
+	if err := os.WriteFile(path, []byte(cfg.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a.mustRun(t, "import", path)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+	hosts, err := b.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 261 {
+		t.Fatalf("the joined device has %d hosts, want 261", len(hosts))
+	}
+
+	replacement, _ := recoverDevice(t, r, a, kitPath)
+	if !strings.Contains(replacement.out.String(), "Installed 261 records") {
+		t.Fatalf("recovery did not install the whole vault:\n%s", replacement.out)
 	}
 }

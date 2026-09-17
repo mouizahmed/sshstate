@@ -87,7 +87,7 @@ location / {
     proxy_set_header Host $http_host;
 
     proxy_http_version 1.1;
-    client_max_body_size 4m;          # the relay's own body limit
+    client_max_body_size 256m;        # pairing snapshots and recovery archives stream up to 256 MiB
     # large_client_header_buffers 4 8k is nginx's default and is enough; see below.
 }
 ```

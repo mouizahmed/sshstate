@@ -171,16 +171,7 @@ func (d *Daemon) publishRecovery(ctx context.Context, client *relayclient.Client
 	if err != nil {
 		return err
 	}
-	id, err := protocol.NewID()
-	if err != nil {
-		return err
-	}
-	return client.PutEnvelope(ctx, protocol.EnvelopeBody{
-		ID:         id,
-		Purpose:    protocol.PurposeRecovery,
-		KeyEpoch:   1,
-		Ciphertext: sealed,
-	})
+	return client.PutRecoveryArchive(ctx, 1, sealed)
 }
 
 func (d *Daemon) membershipRoot() (protocol.SignedMembershipEvent, error) {

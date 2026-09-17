@@ -247,10 +247,14 @@ func (j *Joiner) Receive(ctx context.Context) (*Delivery, error) {
 		Membership: extended.Events(),
 	}
 	if bundle.SnapshotDigest != nil {
-		if len(session.Snapshot) == 0 {
-			return nil, errors.New("the bundle binds a snapshot that was not delivered")
+		sealed := session.Snapshot
+		if len(sealed) == 0 {
+			sealed, err = j.client.PairingSnapshot(ctx, j.sessionID)
+			if err != nil {
+				return nil, fmt.Errorf("fetch the snapshot the bundle binds: %w", err)
+			}
 		}
-		records, err := OpenSnapshot(session.Snapshot, j.id.Encryption,
+		records, err := OpenSnapshot(sealed, j.id.Encryption,
 			bundle.SnapshotDigest, *bundle.SnapshotLength)
 		if err != nil {
 			return nil, err
@@ -407,10 +411,14 @@ func (a *Approver) Deliver(ctx context.Context, ev protocol.SignedMembershipEven
 	if a.session.JoinerConfirmation == nil {
 		return errors.New("the joining device has not confirmed the fingerprint")
 	}
+	if len(snapshot) > 0 {
+		if err := a.client.PutPairingSnapshot(ctx, a.sessionID, snapshot); err != nil {
+			return err
+		}
+	}
 	if _, err := a.client.CompletePairing(ctx, a.sessionID, protocol.CompletePairingRequest{
 		MembershipEvent: &ev,
 		Bundle:          bundle,
-		Snapshot:        snapshot,
 		Genesis:         a.genesis,
 	}); err != nil {
 		return err

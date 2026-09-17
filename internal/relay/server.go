@@ -12,15 +12,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mouizahmed/sshstate/internal/crypto"
 	"github.com/mouizahmed/sshstate/internal/httpsig"
 	"github.com/mouizahmed/sshstate/internal/protocol"
 )
 
 const MaxBodyBytes = 4 << 20
 
+const DefaultMaxStreamBytes = crypto.MaxStreamBytes
+
+const inlineStreamBytes = 1 << 20
+
 type Config struct {
 	PublicHTTPS     bool
 	BootstrapSecret []byte
+	MaxStreamBytes  int
+}
+
+func (c Config) streamLimit() int {
+	if c.MaxStreamBytes > 0 {
+		return c.MaxStreamBytes
+	}
+	return DefaultMaxStreamBytes
 }
 
 type Server struct {
@@ -49,6 +62,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/pairings/{id}", s.wrap(s.handleGetPairing))
 	mux.HandleFunc("POST /v1/pairings/{id}/confirm", s.wrap(s.handleConfirmPairing))
 	mux.HandleFunc("POST /v1/pairings/{id}/complete", s.wrap(s.handleCompletePairing))
+	mux.HandleFunc("PUT /v1/pairings/{id}/snapshot", s.wrapStream(s.handlePutPairingSnapshot))
+	mux.HandleFunc("GET /v1/pairings/{id}/snapshot", s.wrap(s.handleGetPairingSnapshot))
+	mux.HandleFunc("PUT /v1/recovery/archive", s.wrapStream(s.signed(s.handlePutRecoveryArchive)))
+	mux.HandleFunc("GET /v1/recovery/archive", s.wrap(s.handleGetRecoveryArchive))
 	mux.HandleFunc("GET /v1/membership", s.wrap(s.signed(s.handleGetMembership)))
 	mux.HandleFunc("POST /v1/membership", s.wrap(s.signed(s.handleAppendMembership)))
 	mux.HandleFunc("GET /v1/envelopes", s.wrap(s.signed(s.handleGetEnvelopes)))
@@ -84,6 +101,19 @@ type request struct {
 
 type handler func(http.ResponseWriter, *http.Request, *request) error
 
+func (s *Server) wrapStream(h handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := readLimited(r, s.cfg.streamLimit())
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if err := h(w, r, &request{Body: body}); err != nil {
+			s.fail(w, err)
+		}
+	}
+}
+
 func (s *Server) wrap(h handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := readBody(r)
@@ -116,19 +146,30 @@ func (s *Server) signed(h handler) handler {
 }
 
 func readBody(r *http.Request) ([]byte, error) {
+	return readLimited(r, MaxBodyBytes)
+}
+
+func readLimited(r *http.Request, limit int) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
 	defer r.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(r.Body, MaxBodyBytes+1))
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(limit)+1))
 	if err != nil {
 		return nil, protocol.Errorf(protocol.CodeInvalidRequest, "could not read the request body")
 	}
-	if len(body) > MaxBodyBytes {
+	if len(body) > limit {
 		return nil, protocol.Errorf(protocol.CodeBodyTooLarge,
-			"the request body exceeds %d bytes", MaxBodyBytes)
+			"the request body exceeds %d bytes", limit)
 	}
 	return body, nil
+}
+
+func writeStream(w http.ResponseWriter, body []byte) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 func decode(req *request, v any) error {

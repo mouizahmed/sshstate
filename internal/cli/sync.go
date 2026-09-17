@@ -429,9 +429,8 @@ func (e *Env) purgeVault(ctx context.Context, yes bool) error {
 		return fmt.Errorf("--purge needs the daemon running so it can deregister first: %w\nNothing was deleted", e.hint(err))
 	}
 	if st.LastExportPath == "" {
-		return errors.New("--purge needs a backup first.\n" +
-			"Run: sshstate export <path>\n" +
-			"Check you can open it, then try again. Nothing was deleted.")
+		return errors.New("--purge needs a backup first, and nothing was deleted\n" +
+			"run: sshstate export <path>, check you can open it, then try again")
 	}
 	if _, err := os.Stat(st.LastExportPath); err != nil {
 		return fmt.Errorf("the last export (%s) is not there any more.\n"+
@@ -572,8 +571,15 @@ func runRecover(ctx context.Context, env *Env, args []string) error {
 	if err != nil {
 		return env.hint(err)
 	}
-	if len(challenge.RecoveryEnvelope) == 0 {
-		return errors.New("that relay holds no recovery material for this vault")
+	archive := challenge.RecoveryEnvelope
+	if len(archive) == 0 {
+		archive, err = client.RecoveryArchive(ctx, vaultID)
+		if protocol.CodeOf(err) == protocol.CodeNotFound {
+			return errors.New("that relay holds no recovery material for this vault")
+		}
+		if err != nil {
+			return env.hint(err)
+		}
 	}
 	digest, err := challenge.Genesis.Digest()
 	if err != nil {
@@ -602,7 +608,7 @@ func runRecover(ctx context.Context, env *Env, args []string) error {
 	}
 
 	mgr, res, err := vault.Restore(store, vault.RestoreOptions{
-		Archive:     challenge.RecoveryEnvelope,
+		Archive:     archive,
 		Kit:         kit,
 		Password:    password,
 		DeviceLabel: *label,

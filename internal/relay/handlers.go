@@ -64,6 +64,83 @@ func (s *Server) handleGetPairing(w http.ResponseWriter, r *http.Request, req *r
 	return nil
 }
 
+func inlineSnapshot(snapshot []byte) []byte {
+	if len(snapshot) > inlineStreamBytes {
+		return nil
+	}
+	return snapshot
+}
+
+func (s *Server) handlePutPairingSnapshot(w http.ResponseWriter, r *http.Request, req *request) error {
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	if err := s.store.PutPairingSnapshot(id, req.Body); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) handleGetPairingSnapshot(w http.ResponseWriter, r *http.Request, req *request) error {
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	session, err := s.store.Pairing(id)
+	if err != nil {
+		return err
+	}
+	if len(session.Snapshot) == 0 {
+		return protocol.Errorf(protocol.CodeNotFound, "this pairing session carries no snapshot")
+	}
+	writeStream(w, session.Snapshot)
+	return nil
+}
+
+func (s *Server) handlePutRecoveryArchive(w http.ResponseWriter, r *http.Request, req *request) error {
+	epoch, err := queryCounter(r, "key_epoch")
+	if err != nil {
+		return err
+	}
+	if epoch == 0 {
+		epoch = 1
+	}
+	id, err := protocol.NewID()
+	if err != nil {
+		return err
+	}
+	if err := s.store.PutKeyEnvelope(req.Signed.VaultID, KeyEnvelope{
+		ID:         id,
+		Purpose:    protocol.PurposeRecovery,
+		KeyEpoch:   epoch,
+		Ciphertext: req.Body,
+		CreatedAt:  stampOf(s.store.now()),
+	}); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) handleGetRecoveryArchive(w http.ResponseWriter, r *http.Request, req *request) error {
+	requested := protocol.ID(r.URL.Query().Get("vault_id"))
+	vaultID, err := s.store.VaultID()
+	if err != nil {
+		return err
+	}
+	if requested != vaultID {
+		return protocol.Errorf(protocol.CodeNotFound, "no such vault")
+	}
+	env, err := s.store.RecoveryEnvelope(vaultID)
+	if err != nil {
+		return err
+	}
+	writeStream(w, env.Ciphertext)
+	return nil
+}
+
 func pairingResponse(p *PairingSession) protocol.PairingResponse {
 	offer := p.Offer.Offer
 	return protocol.PairingResponse{
@@ -75,7 +152,7 @@ func pairingResponse(p *PairingSession) protocol.PairingResponse {
 		ApproverConfirmation: p.ApproverConfirmation,
 		JoinerConfirmation:   p.JoinerConfirmation,
 		Bundle:               p.Bundle,
-		Snapshot:             p.Snapshot,
+		Snapshot:             inlineSnapshot(p.Snapshot),
 		MembershipEvent:      p.MembershipEvent,
 		Genesis:              p.Genesis,
 		ExpiresAt:            stampOf(p.ExpiresAt),
@@ -234,7 +311,7 @@ func (s *Server) handleRecoveryChallenge(w http.ResponseWriter, r *http.Request,
 		Genesis:   genesis,
 	}
 	if env, err := s.store.RecoveryEnvelope(vaultID); err == nil {
-		out.RecoveryEnvelope = env.Ciphertext
+		out.RecoveryEnvelope = inlineSnapshot(env.Ciphertext)
 	} else if protocol.CodeOf(err) != protocol.CodeNotFound {
 		return err
 	}

@@ -244,10 +244,30 @@ func (s *Store) Complete(sessionID protocol.ID, ev protocol.SignedMembershipEven
 		}
 		p.MembershipEvent = &ev
 		p.Bundle = bundle
-		p.Snapshot = snapshot
+		if len(snapshot) > 0 {
+			p.Snapshot = snapshot
+		}
 		p.Genesis = genesis
 		return nil
 	})
+}
+
+func (s *Store) PutPairingSnapshot(sessionID protocol.ID, snapshot []byte) error {
+	_, err := s.advance(sessionID, func(p *PairingSession, chain *membership.Chain) error {
+		if p.State != PairingConfirmed {
+			return protocol.Errorf(protocol.CodePairingIncomplete,
+				"both devices must confirm before a snapshot is delivered")
+		}
+		if p.Bundle != nil {
+			return protocol.Errorf(protocol.CodePairingConsumed, "this session already carries a bundle")
+		}
+		if len(snapshot) == 0 {
+			return protocol.Errorf(protocol.CodeInvalidRequest, "the snapshot is empty")
+		}
+		p.Snapshot = snapshot
+		return nil
+	})
+	return err
 }
 
 func (s *Store) Acknowledge(sessionID protocol.ID) (*PairingSession, error) {
