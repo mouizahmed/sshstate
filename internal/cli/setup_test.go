@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mouizahmed/sshstate/internal/control"
@@ -589,6 +590,7 @@ func TestSetupDoesNotRetireABlockThatChangedDuringTheTrustPrompt(t *testing.T) {
 type staleService struct {
 	t         *testing.T
 	s         *scripted
+	mu        sync.Mutex
 	installed bool
 	installs  int
 }
@@ -596,20 +598,30 @@ type staleService struct {
 func (f *staleService) Name() string           { return "fake" }
 func (f *staleService) DefinitionPath() string { return "/fake/sshstate.service" }
 func (f *staleService) Registered() (bool, error) {
-	return f.installed, nil
+	return f.state(), nil
 }
 func (f *staleService) Installed(paths.Layout) (bool, error) {
-	return f.installed, nil
+	return f.state(), nil
+}
+func (f *staleService) state() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.installed
+}
+func (f *staleService) set(installed bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.installed = installed
 }
 func (f *staleService) Uninstall(paths.Layout) error {
-	f.installed = false
+	f.set(false)
 	return nil
 }
 func (f *staleService) Install(string, paths.Layout) error {
 	f.installs++
-	f.installed = false
+	f.set(false)
 	f.s.startDaemon(f.t)
-	f.installed = true
+	f.set(true)
 	return nil
 }
 
