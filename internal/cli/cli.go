@@ -63,7 +63,7 @@ func Commands() []Command {
 		{"import", GroupHosts, "<ssh-config> [--with-keys] [--comment-source] [--dry-run]", "import hosts from an existing SSH config", runImport},
 		{"trust", GroupHosts, "[<id>...] [--all | --revoke]", "review, approve, or revoke host keys seen on connection", runTrust},
 
-		{"connect", GroupMachines, "<relay-url> [--bootstrap-secret file]", "connect this vault to a relay so other machines can join", runConnect},
+		{"connect", GroupMachines, "<relay-url> [--bootstrap-secret file [--yes] | --rejoin]", "connect this vault to a relay, start a new relay from it, or rejoin one", runConnect},
 		{"pair", GroupMachines, "<relay-url> <vault-id> [--label name]", "join this machine to a vault on another machine", runPair},
 		{"approve", GroupMachines, "<session-id>", "let another machine join this vault", runApprove},
 		{"sync", GroupMachines, "", "sync with the relay now", runSync},

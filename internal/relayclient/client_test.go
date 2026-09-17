@@ -479,7 +479,7 @@ func TestARelayThatLostTheVaultSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = client.Membership(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "does not hold this vault") || !strings.Contains(err.Error(), "restored from a backup") {
+	if err == nil || !strings.Contains(err.Error(), "does not hold this vault") || !strings.Contains(err.Error(), "--bootstrap-secret") {
 		t.Fatalf("a relay that lost the vault was not explained: %v", err)
 	}
 	if protocol.CodeOf(err) != protocol.CodeNotFound {

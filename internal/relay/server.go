@@ -74,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/recovery/complete", s.wrap(s.handleRecoveryComplete))
 	mux.HandleFunc("GET /v1/records", s.wrap(s.signed(s.handleGetRecords)))
 	mux.HandleFunc("PUT /v1/records/{id}", s.wrap(s.signed(s.handlePutRecord)))
+	mux.HandleFunc("POST /v1/records/import", s.wrap(s.signed(s.handleImportRecords)))
 
 	for _, pattern := range []string{
 		"POST /v1/rotations",

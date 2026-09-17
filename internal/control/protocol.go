@@ -64,6 +64,7 @@ const (
 	CodeRecoveryUnconfirmed = "recovery_unconfirmed"
 	CodeBadRequest          = "bad_request"
 	CodeConflict            = "conflict"
+	CodeSeedUnconfirmed     = "seed_unconfirmed"
 	CodeInternal            = "internal"
 )
 
@@ -281,13 +282,21 @@ type DoctorResponse struct {
 type ConnectRequest struct {
 	URL             string `json:"url"`
 	BootstrapSecret string `json:"bootstrap_secret,omitempty"`
+	Seed            bool   `json:"seed,omitempty"`
+	Rejoin          bool   `json:"rejoin,omitempty"`
 }
 
 type ConnectResponse struct {
-	URL       string `json:"url"`
-	VaultID   string `json:"vault_id"`
-	Uploaded  int    `json:"uploaded"`
-	Bootstrap bool   `json:"bootstrap"`
+	URL                string `json:"url"`
+	VaultID            string `json:"vault_id"`
+	Uploaded           int    `json:"uploaded"`
+	Bootstrap          bool   `json:"bootstrap"`
+	Seeded             bool   `json:"seeded,omitempty"`
+	Rejoined           bool   `json:"rejoined,omitempty"`
+	Restored           int    `json:"restored,omitempty"`
+	KeptAside          int    `json:"kept_aside,omitempty"`
+	MembershipRestored int    `json:"membership_restored,omitempty"`
+	Applied            int    `json:"applied,omitempty"`
 }
 
 type SyncResponse struct {

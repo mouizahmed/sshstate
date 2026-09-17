@@ -18,9 +18,9 @@ while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 > and reviewed migration. Keep the recovery kit, encrypted exports, and a backup
 > of the relay data: each protects different state and none replaces another.
 >
-> **Losing relay data is not yet recoverable from a client.** A copy of the
-> relay's data volume, taken while the relay is stopped, is currently the only
-> rebuild source. Windows is not supported. The project has not been
+> **A lost relay is rebuilt from your machines.** Start a new relay from the most
+> up-to-date machine and rejoin the others; a relay restored from an older backup
+> is rejoined the same way. Windows is not supported. The project has not been
 > independently audited or exercised by users beyond its author.
 >
 > What comes next is in the [roadmap](docs/roadmap.md).

@@ -48,6 +48,8 @@ func (d *Daemon) engine(client *relayclient.Client) *syncengine.Engine {
 	}
 }
 
+var errSeedUnconfirmed = errors.New("this vault already has a relay history")
+
 func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 	var req control.ConnectRequest
 	if err := decode(r, &req); err != nil {
@@ -58,59 +60,81 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("a relay url is required"))
 		return
 	}
+	if req.Rejoin && req.BootstrapSecret != "" {
+		writeError(w, errors.New("--rejoin joins a relay that already holds this vault; --bootstrap-secret starts a new one, so give only one"))
+		return
+	}
 	client, err := d.relayClient(req.URL)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	ctx := r.Context()
-
+	engine := d.engine(client)
 	out := control.ConnectResponse{URL: req.URL, VaultID: d.mgr.VaultID().String()}
+
 	if req.BootstrapSecret != "" {
-		current, err := d.mgr.RelayURL()
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if current != "" {
-			writeError(w, fmt.Errorf("this vault already lives on %s; moving it to another relay is not supported\n"+
-				"the bootstrap secret was not used\n"+
-				"if that relay only moved to a new address, run: sshstate connect <new-url>", current))
-			return
-		}
-		chain, err := d.chain()
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if chain.Len() > 1 {
-			writeError(w, errors.New("this vault came from a restore, a recovery, or a pairing, so it cannot start a new relay\n"+
-				"a new relay needs every host from its first revision, which only the machine that created the vault has before it first connects\n"+
-				"the bootstrap secret was not used"))
-			return
-		}
 		secret, err := protocol.DecodeBootstrapSecret(req.BootstrapSecret)
 		if err != nil {
 			writeError(w, fmt.Errorf("%v", err))
 			return
 		}
-		root, err := d.membershipRoot()
+		seeding, err := d.hasRelayHistory()
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		if _, err := client.Bootstrap(ctx, secret, d.mgr.Genesis(), root); err != nil {
-			writeError(w, err)
+		if seeding && !req.Seed {
+			writeError(w, errSeedUnconfirmed)
 			return
 		}
-		out.Bootstrap = true
+		if seeding {
+			events, err := d.mgr.Store().MembershipEvents()
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if _, err := client.Seed(ctx, secret, d.mgr.Genesis(), events); err != nil {
+				writeError(w, err)
+				return
+			}
+		} else {
+			root, err := d.membershipRoot()
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if _, err := client.Bootstrap(ctx, secret, d.mgr.Genesis(), root); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+		out.Bootstrap, out.Seeded = true, seeding
 		if err := d.mgr.SetRelayURL(req.URL); err != nil {
 			writeError(w, err)
 			return
 		}
+		if seeding {
+			if err := d.rejoin(ctx, engine, &out); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+	} else if req.Rejoin {
+		needed, err := engine.NeedsRejoin(ctx)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if needed {
+			if err := d.rejoin(ctx, engine, &out); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
 	}
 
-	report, err := d.engine(client).Sync(ctx)
+	report, err := engine.Sync(ctx)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -122,6 +146,7 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out.Uploaded = report.Pushed
+	out.Applied = report.Applied
 	if err := d.refreshRecovery(ctx, client); err != nil {
 		writeError(w, err)
 		return
@@ -131,6 +156,46 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (d *Daemon) rejoin(ctx context.Context, engine *syncengine.Engine, out *control.ConnectResponse) error {
+	report, err := engine.Rejoin(ctx)
+	if err != nil {
+		return err
+	}
+	out.Rejoined = true
+	out.Restored = report.Imported
+	out.KeptAside = report.Diverged
+	out.MembershipRestored = report.MembershipUploaded
+	return nil
+}
+
+func (d *Daemon) hasRelayHistory() (bool, error) {
+	if url, err := d.mgr.RelayURL(); err != nil {
+		return false, err
+	} else if url != "" {
+		return true, nil
+	}
+	chain, err := d.chain()
+	if err != nil {
+		return false, err
+	}
+	if chain.Len() > 1 {
+		return true, nil
+	}
+	for _, name := range []string{vault.CursorRecords, vault.CursorHistory} {
+		raw, err := d.mgr.Store().Cursor(name)
+		if errors.Is(err, vault.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if raw != "" && raw != "0" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (d *Daemon) syncAndRefresh(ctx context.Context, client *relayclient.Client) (*syncengine.Report, error) {

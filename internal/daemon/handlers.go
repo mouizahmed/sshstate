@@ -87,6 +87,8 @@ func writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, control.Error{Error: err.Error(), Code: control.CodeRecoveryUnconfirmed})
 	case errors.Is(err, vault.ErrNotInitialized):
 		writeJSON(w, http.StatusConflict, control.Error{Error: err.Error(), Code: control.CodeNotInitialized})
+	case errors.Is(err, errSeedUnconfirmed):
+		writeJSON(w, http.StatusConflict, control.Error{Error: err.Error(), Code: control.CodeSeedUnconfirmed})
 	case errors.Is(err, vault.ErrParentMismatch):
 		writeJSON(w, http.StatusConflict, control.Error{Error: err.Error(), Code: control.CodeConflict})
 	default:

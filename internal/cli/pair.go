@@ -153,6 +153,7 @@ func runPair(ctx context.Context, env *Env, args []string) error {
 	if err := mgr.SetRelayURL(strings.TrimSuffix(relayURL, "/")); err != nil {
 		return err
 	}
+	recordRelayHistory(ctx, mgr, client)
 	if err := joiner.Acknowledge(ctx); err != nil {
 		env.warnf("The vault is installed, but the pairing session could not be closed: %v\n", err)
 	}
@@ -230,4 +231,12 @@ func pollUntil(ctx context.Context, within time.Duration, check func() (bool, er
 		case <-time.After(pairPoll):
 		}
 	}
+}
+
+func recordRelayHistory(ctx context.Context, mgr *vault.Manager, client *relayclient.Client) {
+	latest, err := client.Records(ctx, 0, 0, 1)
+	if err != nil || latest.History == "" {
+		return
+	}
+	_ = mgr.Store().SetCursor(vault.CursorHistory, latest.History)
 }

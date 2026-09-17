@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS record_head (
     PRIMARY KEY (vault_id, record_id)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS record_ancestor (
+    vault_id  TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    digest    BLOB NOT NULL,
+    PRIMARY KEY (vault_id, record_id, digest)
+) STRICT;
+
 -- The immutable accepted-change log. No garbage collection in v1 (§5.1): a
 -- client that has been away must be able to replay what it missed.
 CREATE TABLE IF NOT EXISTS change_log (
@@ -195,6 +202,14 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.ensureHistory(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.backfillAncestors(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -239,23 +254,18 @@ func (s *Store) CreateVault(g *protocol.Genesis, root protocol.SignedMembershipE
 	if err != nil {
 		return err
 	}
-	canonRoot, err := protocol.Canonical(&root)
-	if err != nil {
-		return err
-	}
-
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := createVaultTx(tx, g, string(canonGenesis), digest, string(canonRoot), chain.HeadDigest()); err != nil {
+	if err := createVaultTx(tx, g, string(canonGenesis), digest, chain, protocol.HistoryCreated); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func createVaultTx(tx *sql.Tx, g *protocol.Genesis, canonGenesis string, digest []byte, canonRoot string, head []byte) error {
+func createVaultTx(tx *sql.Tx, g *protocol.Genesis, canonGenesis string, digest []byte, chain *membership.Chain, origin string) error {
 	var existing int
 	if err := tx.QueryRow(`SELECT count(*) FROM vault`).Scan(&existing); err != nil {
 		return err
@@ -268,10 +278,23 @@ func createVaultTx(tx *sql.Tx, g *protocol.Genesis, canonGenesis string, digest 
 		g.VaultID, canonGenesis, digest, g.CreatedAt); err != nil {
 		return err
 	}
-	_, err := tx.Exec(
-		`INSERT INTO membership (vault_id, chain_seq, event, digest) VALUES (?, 1, ?, ?)`,
-		g.VaultID, canonRoot, head)
-	return err
+	events := chain.Events()
+	for i, ev := range events {
+		prefix, err := membership.Validate(g, events[:i+1])
+		if err != nil {
+			return err
+		}
+		canon, err := protocol.Canonical(&ev)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO membership (vault_id, chain_seq, event, digest) VALUES (?, ?, ?, ?)`,
+			g.VaultID, i+1, string(canon), prefix.HeadDigest()); err != nil {
+			return err
+		}
+	}
+	return startHistoryTx(tx, origin)
 }
 
 func (s *Store) Genesis(vaultID protocol.ID) (*protocol.Genesis, error) {
@@ -495,6 +518,9 @@ func (s *Store) PutRecord(vaultID protocol.ID, env *protocol.Envelope, now strin
 		   rev = excluded.rev, digest = excluded.digest, seq = excluded.seq,
 		   deleted = excluded.deleted, envelope = excluded.envelope`,
 		vaultID, env.Context.RecordID, rev, digest, seq, deleted, string(canon)); err != nil {
+		return nil, err
+	}
+	if err := rememberAncestorsTx(tx, vaultID, env.Context.RecordID, digest, env.Context.ParentDigest); err != nil {
 		return nil, err
 	}
 	out := &PutOutcome{Accepted: true, Seq: protocol.Counter(seq), Digest: digest}

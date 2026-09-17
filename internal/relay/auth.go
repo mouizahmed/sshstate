@@ -12,8 +12,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/mouizahmed/sshstate/internal/crypto"
-	"github.com/mouizahmed/sshstate/internal/membership"
 	"github.com/mouizahmed/sshstate/internal/protocol"
 )
 
@@ -82,55 +80,7 @@ func (s *Store) BootstrapConsumed() (bool, error) {
 }
 
 func (s *Store) Bootstrap(secret []byte, g *protocol.Genesis, root protocol.SignedMembershipEvent) error {
-	if err := g.Validate(crypto.SuiteID); err != nil {
-		return protocol.Errorf(protocol.CodeInvalidRequest, "%v", err)
-	}
-	chain, err := membership.Validate(g, []protocol.SignedMembershipEvent{root})
-	if err != nil {
-		return protocol.Errorf(protocol.CodeInvalidRequest, "membership root: %v", err)
-	}
-	canonGenesis, err := protocol.Canonical(g)
-	if err != nil {
-		return err
-	}
-	digest, err := g.Digest()
-	if err != nil {
-		return err
-	}
-	canonRoot, err := protocol.Canonical(&root)
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256(secret)
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var stored []byte
-	var consumed sql.NullString
-	err = tx.QueryRow(`SELECT secret_hash, consumed_at FROM bootstrap WHERE id = 1`).Scan(&stored, &consumed)
-	if errors.Is(err, sql.ErrNoRows) {
-		return protocol.Errorf(protocol.CodeNotAuthorized, "this relay has no bootstrap secret configured")
-	}
-	if err != nil {
-		return err
-	}
-	if consumed.Valid {
-		return protocol.Errorf(protocol.CodeBootstrapConsumed, "bootstrap was already used")
-	}
-	if subtle.ConstantTimeCompare(stored, sum[:]) != 1 {
-		return protocol.Errorf(protocol.CodeNotAuthorized, "the bootstrap secret does not match")
-	}
-	if err := createVaultTx(tx, g, string(canonGenesis), digest, string(canonRoot), chain.HeadDigest()); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`UPDATE bootstrap SET consumed_at = ? WHERE id = 1`, g.CreatedAt); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return s.BootstrapHistory(secret, g, []protocol.SignedMembershipEvent{root}, false)
 }
 
 func (s *Store) Use(deviceID protocol.ID, nonce string, until time.Time) (bool, error) {

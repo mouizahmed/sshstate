@@ -23,12 +23,14 @@ import (
 func runConnect(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "connect")
 	secretPath := fs.String("bootstrap-secret", "", "path to the relay's one-time bootstrap secret file")
+	rejoin := fs.Bool("rejoin", false, "rejoin a relay that was started from another machine or restored from a backup")
+	yes := fs.Bool("yes", false, "start a new relay from this machine without asking, when the vault already had one")
 	positional, err := fs.parsePositional(args, 1)
 	if err != nil {
 		return err
 	}
-	url := positional[0]
-	req := control.ConnectRequest{URL: strings.TrimSuffix(url, "/")}
+	url := strings.TrimSuffix(positional[0], "/")
+	req := control.ConnectRequest{URL: url, Rejoin: *rejoin}
 	if *secretPath != "" {
 		raw, err := readUserFile("bootstrap secret", *secretPath)
 		if err != nil {
@@ -38,20 +40,64 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 			return fmt.Errorf("%s: %w", *secretPath, err)
 		}
 		req.BootstrapSecret = strings.TrimSpace(string(raw))
+		req.Seed = *yes
 	}
 
 	out, err := env.Client().Connect(ctx, req)
+	var api *control.APIError
+	if errors.As(err, &api) && api.Code == control.CodeSeedUnconfirmed {
+		env.printf("This vault already has a relay history. Starting %s from this machine uploads\n", url)
+		env.printf("everything this machine holds; every other machine then rejoins it.\n")
+		env.printf("Do this only if the old relay is gone for good: two relays taking changes\n")
+		env.printf("for one vault drift apart.\n\n")
+		ok, cerr := env.confirm("Start " + url + " from this machine?")
+		if cerr != nil {
+			return withBypass(cerr, "--yes")
+		}
+		if !ok {
+			return errors.New("nothing changed; the bootstrap secret was not used")
+		}
+		req.Seed = true
+		out, err = env.Client().Connect(ctx, req)
+	}
 	if err != nil {
 		return env.hint(err)
 	}
-	if out.Bootstrap {
+	switch {
+	case out.Seeded:
+		env.printf("Started %s from this machine.\n", out.URL)
+		env.printf("The bootstrap secret is now spent; the relay will not accept another vault.\n")
+	case out.Bootstrap:
 		env.printf("Connected to %s and created the vault there.\n", out.URL)
 		env.printf("The bootstrap secret is now spent; the relay will not accept another vault.\n")
-	} else {
+	case out.Rejoined:
+		env.printf("Rejoined %s.\n", out.URL)
+	case *rejoin:
+		env.printf("Connected to %s; it already matched this machine, so there was nothing to rejoin.\n", out.URL)
+	default:
 		env.printf("Connected to %s.\n", out.URL)
 	}
-	env.printf("Published %s.\n", count(out.Uploaded, "record", "records"))
-	if !out.Bootstrap {
+	if out.Rejoined {
+		env.printf("Put %s back on the relay", count(out.Restored, "record", "records"))
+		if out.MembershipRestored > 0 {
+			env.printf(" and %s", count(out.MembershipRestored, "device-list change", "device-list changes"))
+		}
+		env.printf(".\n")
+		if out.Applied > 0 {
+			env.printf("Applied %s from other machines.\n", count(out.Applied, "change", "changes"))
+		}
+		if out.KeptAside > 0 {
+			env.printf("Kept %s of this machine's aside because the relay has a different version.\n",
+				count(out.KeptAside, "edit", "edits"))
+			env.printf("Review them with: sshstate conflicts\n")
+		}
+	} else {
+		env.printf("Published %s.\n", count(out.Uploaded, "record", "records"))
+	}
+	switch {
+	case out.Seeded:
+		env.printf("\nEvery other machine in this vault continues with: sshstate connect %s --rejoin\n", out.URL)
+	case !out.Bootstrap:
 		env.printf("\nOther machines already in this vault switch with: sshstate connect %s\n", out.URL)
 	}
 	env.printf("To add a new machine, run there: sshstate pair %s %s\n", out.URL, out.VaultID)
@@ -679,6 +725,11 @@ func runRecover(ctx context.Context, env *Env, args []string) error {
 	}
 	if err := mgr.SetRelayURL(relayURL); err != nil {
 		return err
+	}
+	if signer, err := mgr.RequestSigner(); err == nil {
+		if signed, err := relayclient.New(relayclient.Options{BaseURL: relayURL, Signer: signer}); err == nil {
+			recordRelayHistory(ctx, mgr, signed)
+		}
 	}
 
 	env.printf("Recovered vault %s as new device %s.\n", res.VaultID, res.DeviceID)

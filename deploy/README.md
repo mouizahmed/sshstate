@@ -214,10 +214,20 @@ While the old relay is down and a machine still points at it, `sshstate sync`
 says it cannot reach the relay at the old address; that machine only needs the
 `connect` in step 5.
 
+#### Losing the relay's data, or restoring an older backup
+
+The machines hold the vault too. Give the relay an empty volume and a new
+bootstrap secret, start it, and run `sshstate connect <url> --bootstrap-secret
+<file>` on the most up-to-date machine; then `sshstate connect <url> --rejoin`
+on every other machine. A relay restored from a backup older than your machines
+needs no secret: rejoin every machine, most up-to-date first. See
+[Lose or restore the relay](../docs/cli-flows.md#8c-lose-or-restore-the-relay).
+
 The recovery kit restores *access* to retained ciphertext — it is not a backup
 of storage that no longer exists (project brief §7.2). Keep an encrypted client
 export as well; it carries its own checkpoint and works with the relay
-unavailable. None replaces the relay backup.
+unavailable. A relay backup is no longer the only way back after losing the
+relay: your machines can start a new one. It still saves every machine a rejoin.
 
 ### No telemetry
 

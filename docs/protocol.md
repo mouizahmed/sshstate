@@ -706,6 +706,13 @@ written to routine logs.
 
 Request: `{"genesis": {...}, "membership_root": {"event": {...}, "signature": "..."}}`
 
+A vault that already had a relay seeds a new one with its whole membership
+chain: `"membership"` carries the events after the root, in order, and
+`"seeded": true` records that the relay's history did not start with this
+vault. The relay validates the complete chain from genesis before spending the
+secret; an invalid chain is `invalid_request` and the secret stays unspent. The
+records follow through `POST /v1/records/import`.
+
 Response `201`: `{"vault_id": "<id>"}`
 
 Subsequent calls return `bootstrap_consumed`.
@@ -928,9 +935,20 @@ Response `200`:
   "changes": [ { "context": {...}, "nonce": "...", "ciphertext": "...", "signature": "...", "seq": "439" } ],
   "next_cursor": "441",
   "snapshot_cursor": "512",
-  "has_more": true
+  "has_more": true,
+  "history": "<id>",
+  "history_origin": "created"
 }
 ```
+
+`history` names the relay's numbering of `seq`. It is chosen when the vault is
+created (`history_origin` `created`, or `seeded` for a seeded bootstrap) and
+replaced (`restarted`) when an import changes records for a caller whose stored
+history still matched, which is what a relay restored from a backup looks like.
+A client stores the history with its cursor. When they differ, or when the
+client's cursor is past `snapshot_cursor`, the client stops syncing and asks the
+user to rejoin. A client with no stored history adopts it only if its cursor is
+0 or the origin is `created`.
 
 `limit` defaults to 200 and is capped at 500; the 4 MiB page bound takes
 precedence and may return fewer. An invalid bound — `since` above `through`, a
@@ -957,7 +975,48 @@ with different bytes is `idempotency_mismatch`. Mutation outcomes are retained
 alongside the accepted log; neither has garbage collection.
 
 An accepted write atomically updates the head, appends the log with a fresh `seq`,
-and stores the idempotency outcome.
+and stores the idempotency outcome. The relay also remembers, per record, the
+digest of every version it accepted and each version's parent digest.
+
+```
+POST /v1/records/import
+```
+
+Rejoin: puts a device's current heads back on a relay that was seeded or
+restored. Signed like any request by an active member; bounded at 4 MiB, so a
+client sends several batches.
+
+Request:
+```json
+{
+  "history": "<the caller's stored history, or empty>",
+  "records": [ { "envelope": { "context": {...}, "nonce": "...", "ciphertext": "...", "signature": "..." },
+                 "ancestors": ["<digest>", "..."] } ]
+}
+```
+
+`ancestors` are the digests of every version of that record the caller has seen.
+Each envelope must be for this vault and epoch, carry no `seq`, and verify
+against a device in the membership chain, **including one revoked since**: the
+record was accepted before the revocation, and the importer is an active member.
+One failing record refuses the whole batch. Per record, the relay answers:
+
+| Outcome | When | Effect |
+| --- | --- | --- |
+| `imported` | no head, or the head's digest is the envelope's parent or in `ancestors` | the envelope becomes the head with a fresh `seq`, as if accepted |
+| `current` | the head is this envelope | nothing |
+| `behind` | the envelope's digest is a version this relay accepted before | nothing; the caller pulls |
+| `diverged` | none of the above | nothing; `head` carries the relay's version |
+
+Response `200`: `{"history": "<id>", "outcomes": [{"record_id": "...", "outcome": "imported", "seq": "12"}]}`
+
+The client adopts `imported` and `current`, drops unsynced edits the relay
+already has for `behind`, and for `diverged` verifies the relay's head, makes it
+current, and keeps its own version as a conflict record. It then resets its
+cursor to 0, forgets revocation positions from the old numbering, stores the
+returned history, and syncs normally. A rejected conflict-record upload is
+dropped in favour of the relay's copy: conflict record IDs are derived from the
+preserved candidate, so the same ID is the same kept edit.
 
 ### 10.7 Rotation
 
@@ -1083,6 +1142,12 @@ A compromised relay can deny service, withhold updates, and maintain isolated
 forks that never meet. It cannot substitute enrollment keys without defeating
 full-fingerprint verification, forge an authorized writer's signature, or alter an
 authenticated record field undetectably.
+
+Rejoining relaxes one check: while a client pulls from 0 after an import it has
+no revocation positions, so it accepts records from revoked writers that the relay
+serves. A relay that holds a revoked device's signing key can inject that
+device's writes into a rejoining client. Rejoin only when you started or restored
+the relay yourself.
 
 `seq` is transport bookkeeping, not trusted time. A recovery kit without a recent
 export has no recent checkpoint, so it cannot prove the relay supplied the latest

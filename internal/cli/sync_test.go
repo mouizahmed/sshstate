@@ -871,18 +871,22 @@ func TestAMovedRelayIsReachedAtItsNewAddress(t *testing.T) {
 	}
 }
 
-func TestBootstrappingASecondRelayIsRefusedBeforeTheSecretIsSpent(t *testing.T) {
+func TestStartingASecondRelayAsksFirstAndSpendsNothingWhenDeclined(t *testing.T) {
 	first := newTestRelay(t)
 	second := newTestRelay(t)
 	a, _ := ready(t)
 	a.mustRun(t, "connect", first.url, "--bootstrap-secret", first.secretPath)
 
+	a.lines = []string{"n"}
 	err := a.run(t, "connect", second.url, "--bootstrap-secret", second.secretPath)
-	if err == nil || !strings.Contains(err.Error(), "already lives on "+first.url) {
-		t.Fatalf("connecting a second relay was not refused clearly: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "the bootstrap secret was not used") {
+		t.Fatalf("declining to start a second relay was not reported clearly: %v", err)
+	}
+	if !strings.Contains(a.out.String(), "gone for good") {
+		t.Fatalf("the question did not warn about running two relays:\n%s", a.out)
 	}
 	if spent, err := second.store.BootstrapConsumed(); err != nil || spent {
-		t.Fatalf("the refused connect spent the second relay's bootstrap secret: %v %v", spent, err)
+		t.Fatalf("the declined connect spent the second relay's bootstrap secret: %v %v", spent, err)
 	}
 	a.out.Reset()
 	a.mustRun(t, "status")
@@ -892,7 +896,7 @@ func TestBootstrappingASecondRelayIsRefusedBeforeTheSecretIsSpent(t *testing.T) 
 	a.mustRun(t, "sync")
 }
 
-func TestARestoredVaultCannotStartANewRelay(t *testing.T) {
+func TestARestoredVaultCanStartANewRelay(t *testing.T) {
 	r := newTestRelay(t)
 	source, kitPath := ready(t)
 	source.mustRun(t, "edit", "prod", "--port", "2201")
@@ -906,21 +910,22 @@ func TestARestoredVaultCannotStartANewRelay(t *testing.T) {
 	restored.secrets = []string{"restored password"}
 	restored.mustRun(t, "unlock")
 
-	err := restored.run(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
-	if err == nil || !strings.Contains(err.Error(), "cannot start a new relay") {
-		t.Fatalf("a restored vault was allowed to start a relay: %v", err)
-	}
-	if spent, err := r.store.BootstrapConsumed(); err != nil || spent {
-		t.Fatalf("the refused connect spent the relay's bootstrap secret: %v %v", spent, err)
-	}
 	restored.out.Reset()
-	restored.mustRun(t, "status")
-	if got := restored.out.String(); !strings.Contains(got, "relay        none") {
-		t.Fatalf("the refused connect left a relay configured:\n%s", got)
+	restored.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath, "--yes")
+	if got := restored.out.String(); !strings.Contains(got, "Started "+r.url) || !strings.Contains(got, "--rejoin") {
+		t.Fatalf("seeding did not say what happened or how other machines follow:\n%s", got)
 	}
 
-	source.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
-	recoverDevice(t, r, source, kitPath)
+	replacement, _ := recoverDevice(t, r, restored, kitPath)
+	replacement.startDaemon(t)
+	replacement.secrets = []string{"recovered password"}
+	replacement.mustRun(t, "unlock")
+	replacement.mustRun(t, "sync")
+	replacement.out.Reset()
+	replacement.mustRun(t, "hosts")
+	if got := replacement.out.String(); !strings.Contains(got, "ubuntu@10.0.0.5:2201") {
+		t.Fatalf("a machine recovered from the seeded relay does not have the vault's hosts:\n%s", got)
+	}
 }
 
 func TestAConnectThatFailsRecordsNoRelay(t *testing.T) {

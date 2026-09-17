@@ -88,7 +88,10 @@ func putRecordTx(tx *sql.Tx, env *protocol.Envelope) error {
 		   seq         = excluded.seq`,
 		string(env.Context.RecordID), string(env.Context.RecordType),
 		int64(env.Context.Rev), digest, deleted, string(body), seq)
-	return err
+	if err != nil {
+		return err
+	}
+	return rememberTx(tx, env.Context.RecordID, digest, env.Context.ParentDigest)
 }
 
 func (s *Store) Head(id protocol.ID) (*protocol.Envelope, []byte, error) {
@@ -252,6 +255,7 @@ func (s *Store) Cursor(name string) (string, error) {
 
 const (
 	CursorRecords         = "records"
+	CursorHistory         = "history"
 	CursorRevokedAtPrefix = "revoked-at:"
 )
 
@@ -262,7 +266,7 @@ func (s *Store) ApplyRemoteBatch(cursor string, envs []*protocol.Envelope) error
 	}
 	defer tx.Rollback()
 	for _, env := range envs {
-		if err := putRecordTx(tx, env); err != nil {
+		if err := applyRemoteTx(tx, env); err != nil {
 			return err
 		}
 	}
@@ -273,6 +277,24 @@ func (s *Store) ApplyRemoteBatch(cursor string, envs []*protocol.Envelope) error
 		return err
 	}
 	return tx.Commit()
+}
+
+func applyRemoteTx(tx *sql.Tx, env *protocol.Envelope) error {
+	var haveRev int64
+	err := tx.QueryRow(`SELECT rev FROM records WHERE record_id = ?`, string(env.Context.RecordID)).Scan(&haveRev)
+	if errors.Is(err, sql.ErrNoRows) {
+		if env.Context.Rev == 1 {
+			return putRecordTx(tx, env)
+		}
+		return replaceHeadTx(tx, env)
+	}
+	if err != nil {
+		return err
+	}
+	if int64(env.Context.Rev) > haveRev+1 {
+		return replaceHeadTx(tx, env)
+	}
+	return putRecordTx(tx, env)
 }
 
 func (s *Store) ResolveConflict(candidate protocol.ID, conflict, head *protocol.Envelope) error {
@@ -331,7 +353,10 @@ func replaceHeadTx(tx *sql.Tx, env *protocol.Envelope) error {
 		   seq         = excluded.seq`,
 		string(env.Context.RecordID), string(env.Context.RecordType),
 		int64(env.Context.Rev), digest, deleted, string(body), seq)
-	return err
+	if err != nil {
+		return err
+	}
+	return rememberTx(tx, env.Context.RecordID, digest, env.Context.ParentDigest)
 }
 
 func (s *Store) AcceptOutbox(env *protocol.Envelope, seq protocol.Counter) error {
@@ -347,6 +372,165 @@ func (s *Store) AcceptOutbox(env *protocol.Envelope, seq protocol.Counter) error
 	}
 	if _, err := tx.Exec(`DELETE FROM outbox WHERE mutation_id = ?`,
 		string(env.Context.MutationID)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func rememberTx(tx *sql.Tx, recordID protocol.ID, digests ...[]byte) error {
+	for _, d := range digests {
+		if len(d) == 0 {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO record_history (record_id, digest) VALUES (?, ?)`,
+			string(recordID), d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) Ancestors(recordID protocol.ID) ([][]byte, error) {
+	rows, err := s.db.Query(`SELECT digest FROM record_history WHERE record_id = ? ORDER BY digest`, string(recordID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][]byte
+	for rows.Next() {
+		var d []byte
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) Heads() ([]*protocol.Envelope, error) {
+	rows, err := s.db.Query(`SELECT envelope FROM records ORDER BY record_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*protocol.Envelope
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		env, err := decodeEnvelope(body)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, env)
+	}
+	return out, rows.Err()
+}
+
+func dropPendingTx(tx *sql.Tx, recordID protocol.ID, throughRev protocol.Counter) error {
+	rows, err := tx.Query(`SELECT mutation_id, envelope FROM outbox WHERE record_id = ?`, string(recordID))
+	if err != nil {
+		return err
+	}
+	var drop []string
+	for rows.Next() {
+		var id, body string
+		if err := rows.Scan(&id, &body); err != nil {
+			rows.Close()
+			return err
+		}
+		env, err := decodeEnvelope(body)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		if env.Context.Rev <= throughRev {
+			drop = append(drop, id)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range drop {
+		if _, err := tx.Exec(`DELETE FROM outbox WHERE mutation_id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) AcceptImported(env *protocol.Envelope, seq protocol.Counter) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stamped := *env
+	stamped.Seq = seq
+	if err := replaceHeadTx(tx, &stamped); err != nil {
+		return err
+	}
+	if err := dropPendingTx(tx, env.Context.RecordID, env.Context.Rev); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) DropPending(recordID protocol.ID, throughRev protocol.Counter) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := dropPendingTx(tx, recordID, throughRev); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) Supersede(conflict, head *protocol.Envelope) error {
+	if head == nil {
+		return errors.New("supersede: the relay's head is required")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if conflict != nil {
+		if err := enqueueOutboxTx(tx, conflict); err != nil {
+			return fmt.Errorf("persist the preserved copy: %w", err)
+		}
+		if err := putRecordTx(tx, conflict); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM outbox WHERE record_id = ?`, string(head.Context.RecordID)); err != nil {
+		return err
+	}
+	if err := replaceHeadTx(tx, head); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) RestartHistory(history string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := setCursor(tx, CursorRecords, "0"); err != nil {
+		return err
+	}
+	if err := setCursor(tx, CursorHistory, history); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM cursors WHERE name LIKE ?`, CursorRevokedAtPrefix+"%"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM meta WHERE key = ?`, MetaRecoveryPublished); err != nil {
 		return err
 	}
 	return tx.Commit()

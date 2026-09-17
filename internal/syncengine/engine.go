@@ -159,6 +159,12 @@ func (e *Engine) push(ctx context.Context, report *Report) error {
 			report.Pushed++
 			continue
 		}
+		if isConflictRecord(candidate) && res.Head != nil {
+			if err := e.Store.Supersede(nil, res.Head); err != nil {
+				return err
+			}
+			continue
+		}
 		conflict, err := e.Preserve(candidate, res.Head)
 		if err != nil {
 			return fmt.Errorf("preserve rejected candidate %s: %w", candidate.Context.MutationID, err)
@@ -292,6 +298,7 @@ func (e *Engine) checkRevokedWriter(id protocol.ID, seq protocol.Counter) error 
 }
 
 type RelayBehindError struct {
+	URL   string
 	Relay protocol.Counter
 	Local protocol.Counter
 }
@@ -299,25 +306,58 @@ type RelayBehindError struct {
 func (e *RelayBehindError) Error() string {
 	return fmt.Sprintf("the relay's history ends at change %s, but this machine has already seen change %s, "+
 		"so the relay was probably restored from an older backup\n"+
-		"this machine's vault is intact; changes made after that backup are no longer on the relay, "+
-		"and sync stays stopped so nothing is overwritten\n"+
-		"restore the relay from its most recent backup; rebuilding a relay from your machines is not supported yet",
-		e.Relay, e.Local)
+		"this machine's vault is intact, and sync is stopped so nothing is overwritten\n"+
+		"to put this machine's changes back on the relay, run: sshstate connect %s --rejoin",
+		e.Relay, e.Local, e.URL)
+}
+
+type HistoryChangedError struct {
+	URL string
+}
+
+func (e *HistoryChangedError) Error() string {
+	return fmt.Sprintf("the relay at %s was started again from another machine or restored from a backup, "+
+		"so its change numbers no longer match this machine's\n"+
+		"this machine's vault is intact, and sync is stopped so nothing is missed\n"+
+		"to continue, run: sshstate connect %s --rejoin", e.URL, e.URL)
 }
 
 func (e *Engine) checkRelayNotBehind(ctx context.Context) error {
 	since, err := e.cursor()
-	if err != nil || since == 0 {
+	if err != nil {
 		return err
 	}
 	latest, err := e.Client.Records(ctx, 0, 0, 1)
 	if err != nil {
 		return err
 	}
+	stored, err := e.history()
+	if err != nil {
+		return err
+	}
+	if latest.History != "" {
+		switch {
+		case stored == "" && since != 0 && latest.HistoryOrigin != protocol.HistoryCreated:
+			return &HistoryChangedError{URL: e.Client.URL()}
+		case stored != "" && stored != latest.History:
+			return &HistoryChangedError{URL: e.Client.URL()}
+		}
+	}
 	if since > latest.SnapshotCursor {
-		return &RelayBehindError{Relay: latest.SnapshotCursor, Local: since}
+		return &RelayBehindError{URL: e.Client.URL(), Relay: latest.SnapshotCursor, Local: since}
+	}
+	if stored == "" && latest.History != "" {
+		return e.Store.SetCursor(vault.CursorHistory, latest.History)
 	}
 	return nil
+}
+
+func (e *Engine) history() (string, error) {
+	raw, err := e.Store.Cursor(vault.CursorHistory)
+	if errors.Is(err, vault.ErrNotFound) {
+		return "", nil
+	}
+	return raw, err
 }
 
 func (e *Engine) cursor() (protocol.Counter, error) {
@@ -341,4 +381,9 @@ func localChainLength(store *vault.Store) int {
 		return 0
 	}
 	return len(events)
+}
+
+func isConflictRecord(env *protocol.Envelope) bool {
+	t := env.Context.RecordType
+	return t == protocol.RecordConflictMetadata || t == protocol.RecordConflictSecret
 }

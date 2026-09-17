@@ -82,6 +82,12 @@ CREATE TABLE IF NOT EXISTS records (
 
 CREATE INDEX IF NOT EXISTS records_by_type ON records (record_type);
 
+CREATE TABLE IF NOT EXISTS record_history (
+    record_id TEXT NOT NULL,
+    digest    BLOB NOT NULL,
+    PRIMARY KEY (record_id, digest)
+) STRICT;
+
 -- Outbound candidates persisted before transmission (§5.3), so a retry can
 -- reuse the exact signed bytes instead of producing a second mutation.
 CREATE TABLE IF NOT EXISTS outbox (
@@ -137,6 +143,10 @@ func OpenStore(path string) (*Store, error) {
 	if err := s.checkSchemaVersion(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO record_history (record_id, digest) SELECT record_id, digest FROM records`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("record revision history: %w", err)
 	}
 	return s, nil
 }

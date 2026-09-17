@@ -152,7 +152,12 @@ func (c *Client) asMember(err error) error {
 	switch protocol.CodeOf(err) {
 	case protocol.CodeNotFound:
 		return fmt.Errorf("the relay at %s does not hold this vault; if the relay was reset or started on a new database, "+
-			"this machine still has the vault, and the relay's data has to be restored from a backup of its volume: %w", c.base.String(), err)
+			"this machine still has the vault: give the relay a new bootstrap secret, then run on your most up-to-date machine: "+
+			"sshstate connect %s --bootstrap-secret <file>: %w", c.base.String(), c.base.String(), err)
+	case protocol.CodeDeviceUnknown:
+		return fmt.Errorf("the relay at %s does not know this device, which happens when it was restored from a backup older than this device; "+
+			"run sshstate connect %s --rejoin on a machine that has been in the vault longer, then run it here: %w",
+			c.base.String(), c.base.String(), err)
 	case protocol.CodeDeviceRevoked:
 		return fmt.Errorf("the relay refuses this device because another device revoked it, so nothing changed here will sync\n"+
 			"to use this machine with the vault again: sshstate uninstall --purge, then sshstate pair: %w", err)
@@ -325,6 +330,39 @@ func (c *Client) Bootstrap(ctx context.Context, secret []byte, g *protocol.Genes
 		map[string]string{"Authorization": "Bootstrap " + protocol.EncodeBootstrapSecret(secret)})
 	return out.VaultID, err
 }
+
+func (c *Client) Seed(ctx context.Context, secret []byte, g *protocol.Genesis, events []protocol.SignedMembershipEvent) (protocol.ID, error) {
+	if len(events) == 0 {
+		return "", fmt.Errorf("seed: no membership chain")
+	}
+	var out protocol.BootstrapResponse
+	err := c.call(ctx, http.MethodPost, "/v1/bootstrap",
+		protocol.BootstrapRequest{Genesis: *g, MembershipRoot: events[0], Membership: events[1:], Seeded: true}, &out,
+		map[string]string{"Authorization": "Bootstrap " + protocol.EncodeBootstrapSecret(secret)})
+	return out.VaultID, err
+}
+
+func (c *Client) ImportRecords(ctx context.Context, req *protocol.ImportRequest) (*protocol.ImportResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+	rep, err := c.transfer(ctx, http.MethodPost, "/v1/records/import", body,
+		map[string]string{"Content-Type": "application/json"}, MaxResponseBytes)
+	if err != nil {
+		return nil, err
+	}
+	if rep.status >= 300 {
+		return nil, c.asMember(explainClock(decodeError(rep.status, rep.body, signatureBytes(rep.req)), rep))
+	}
+	var out protocol.ImportResponse
+	if err := json.Unmarshal(rep.body, &out); err != nil {
+		return nil, fmt.Errorf("decode the relay's response: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *Client) URL() string { return c.base.String() }
 
 func (c *Client) Membership(ctx context.Context) ([]protocol.SignedMembershipEvent, error) {
 	var out protocol.MembershipResponse

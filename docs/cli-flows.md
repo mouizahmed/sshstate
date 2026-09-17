@@ -381,13 +381,9 @@ ssh <alias>
 
 `restore` asks for a new device password and authorizes the new device using
 the kit. `setup` starts its service, unlocks, and installs its SSH `Include`.
-The restored data is as current as the export. A restored vault cannot start a
-**new, empty relay**: a new relay needs every host from its first revision, and
-only the machine that created the vault has that history, before it first
-connects. `connect --bootstrap-secret` refuses without spending the secret. If
-the original relay is still available and you want to rejoin it, use the relay
-recovery path below on a fresh machine instead, and keep backing up the relay's
-volume so that path stays open.
+The restored data is as current as the export. If the original relay is gone,
+the restored machine can start a new one; see
+[Lose or restore the relay](#8c-lose-or-restore-the-relay).
 
 ### 8B. Recover from a relay
 
@@ -405,6 +401,56 @@ sshstate devices
 `recover` creates a new authorized device and device password. Its success
 depends on the relay retaining valid recovery material and records. Revoke
 devices you no longer control, then take a new encrypted export.
+
+
+### 8C. Lose or restore the relay
+
+The relay's data is one copy of the vault's history, and every enrolled machine
+holds another. If the relay's data is lost, or the relay is restored from a
+backup older than your machines, start from the **most up-to-date machine**:
+
+```sh
+# on the relay host: create a new bootstrap secret, start an empty relay
+# on your most up-to-date machine:
+sshstate connect https://relay.example.com --bootstrap-secret /path/to/bootstrap.secret
+```
+
+The vault already had a relay, so `connect` asks before it starts a new one.
+Answer yes only if the old relay is gone for good: two relays taking changes for
+one vault drift apart. The machine uploads its device list, including every
+revocation, and every host, key, and trust record it holds.
+
+For a relay **restored from an older backup** there is no new secret: run the
+rejoin below on the most up-to-date machine first. Its `sync` already says so:
+
+```text
+the relay's history ends at change 41, but this machine has already seen change 57, ...
+to put this machine's changes back on the relay, run: sshstate connect https://relay.example.com --rejoin
+```
+
+Then, on **every other machine**, before editing anything:
+
+```sh
+sshstate connect https://relay.example.com --rejoin
+```
+
+Rejoining uploads what the relay is missing: newer versions of records, edits
+not yet synced, and device-list changes such as a revocation made after the
+backup. Each machine remembers the fingerprint of every version of a record it
+has seen, so it can tell a version the relay has that it already built on from
+one that went a different way. Nothing is overwritten silently: when the relay
+holds a different version of a record, the relay's copy stays current and this
+machine's copy is kept aside, listed by `sshstate conflicts`. Versions from before
+this machine recorded fingerprints can be kept aside even when they did not
+really diverge; `sshstate resolve <id> --discard` drops such a copy.
+
+Once one machine rejoins a restored relay, every other machine's `sync` says the
+relay was started again and names the same command. A machine revoked after the
+backup stays revoked once any machine that saw the revocation rejoins. A machine
+enrolled after the backup is unknown to the restored relay until a machine that
+was enrolled earlier rejoins; its error says so.
+
+`--rejoin` on a machine that already matches the relay changes nothing.
 
 ## 9. Stop using sshstate on a machine
 

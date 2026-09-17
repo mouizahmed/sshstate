@@ -19,7 +19,8 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request, req *re
 	if err := decode(req, &body); err != nil {
 		return err
 	}
-	if err := s.store.Bootstrap(secret, &body.Genesis, body.MembershipRoot); err != nil {
+	events := append([]protocol.SignedMembershipEvent{body.MembershipRoot}, body.Membership...)
+	if err := s.store.BootstrapHistory(secret, &body.Genesis, events, body.Seeded); err != nil {
 		return err
 	}
 	writeJSON(w, http.StatusCreated, protocol.BootstrapResponse{VaultID: body.Genesis.VaultID})
@@ -399,11 +400,17 @@ func (s *Server) handleGetRecords(w http.ResponseWriter, r *http.Request, req *r
 	if err != nil {
 		return err
 	}
+	history, origin, err := s.store.History()
+	if err != nil {
+		return err
+	}
 	out := protocol.RecordsResponse{
 		Changes:        make([]protocol.Envelope, 0, len(page.Changes)),
 		NextCursor:     page.NextCursor,
 		SnapshotCursor: page.SnapshotCursor,
 		HasMore:        page.HasMore,
+		History:        history,
+		HistoryOrigin:  origin,
 	}
 	for _, env := range page.Changes {
 		out.Changes = append(out.Changes, *env)
@@ -448,5 +455,21 @@ func (s *Server) handlePutRecord(w http.ResponseWriter, r *http.Request, req *re
 	writeJSON(w, http.StatusOK, protocol.PutRecordResponse{
 		Accepted: true, Seq: out.Seq, Digest: out.Digest,
 	})
+	return nil
+}
+
+func (s *Server) handleImportRecords(w http.ResponseWriter, r *http.Request, req *request) error {
+	var body protocol.ImportRequest
+	if len(req.Body) == 0 {
+		return protocol.Errorf(protocol.CodeInvalidRequest, "the request has no body")
+	}
+	if err := protocol.StrictUnmarshalLimit(req.Body, &body, protocol.MaxImportBytes); err != nil {
+		return protocol.Errorf(protocol.CodeMalformedEncoding, "%v", err)
+	}
+	result, err := s.store.ImportRecords(req.Signed.VaultID, &body, stampOf(s.store.now()))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, protocol.ImportResponse{History: result.History, Outcomes: result.Outcomes})
 	return nil
 }

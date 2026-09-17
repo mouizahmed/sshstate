@@ -499,3 +499,34 @@ func TestAnInstallWhoseAnnouncementFailsLeavesNoVault(t *testing.T) {
 		t.Fatalf("an unannounced install was kept: %v %v", ok, err)
 	}
 }
+
+func TestRestartingTheHistoryForgetsPositionsFromTheOldOne(t *testing.T) {
+	s := newStore(t)
+	for name, value := range map[string]string{
+		CursorRecords:                  "41",
+		CursorHistory:                  "old",
+		CursorRevokedAtPrefix + "dead": "12",
+	} {
+		if err := s.SetCursor(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetMeta(MetaRecoveryPublished, "stale"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RestartHistory("new"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Cursor(CursorRecords); got != "0" {
+		t.Fatalf("the record cursor is %q after a restart", got)
+	}
+	if got, _ := s.Cursor(CursorHistory); got != "new" {
+		t.Fatalf("the stored history is %q after a restart", got)
+	}
+	if _, err := s.Cursor(CursorRevokedAtPrefix + "dead"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a revocation position from the old history survived: %v", err)
+	}
+	if _, err := s.Meta(MetaRecoveryPublished); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the recovery copy is still marked current: %v", err)
+	}
+}

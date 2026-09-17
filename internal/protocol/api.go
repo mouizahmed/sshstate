@@ -24,8 +24,10 @@ type ErrorResponse struct {
 }
 
 type BootstrapRequest struct {
-	Genesis        Genesis               `json:"genesis"`
-	MembershipRoot SignedMembershipEvent `json:"membership_root"`
+	Genesis        Genesis                 `json:"genesis"`
+	MembershipRoot SignedMembershipEvent   `json:"membership_root"`
+	Membership     []SignedMembershipEvent `json:"membership,omitempty"`
+	Seeded         bool                    `json:"seeded,omitempty"`
 }
 
 type BootstrapResponse struct {
@@ -143,6 +145,45 @@ type RecordsResponse struct {
 	NextCursor     Counter    `json:"next_cursor"`
 	SnapshotCursor Counter    `json:"snapshot_cursor"`
 	HasMore        bool       `json:"has_more"`
+	History        string     `json:"history,omitempty"`
+	HistoryOrigin  string     `json:"history_origin,omitempty"`
+}
+
+const (
+	HistoryCreated   = "created"
+	HistorySeeded    = "seeded"
+	HistoryRestarted = "restarted"
+)
+
+const MaxImportBytes = 4 << 20
+
+type ImportRecord struct {
+	Envelope  Envelope `json:"envelope"`
+	Ancestors []Bytes  `json:"ancestors,omitempty"`
+}
+
+type ImportRequest struct {
+	History string         `json:"history"`
+	Records []ImportRecord `json:"records"`
+}
+
+const (
+	ImportImported = "imported"
+	ImportCurrent  = "current"
+	ImportBehind   = "behind"
+	ImportDiverged = "diverged"
+)
+
+type ImportOutcome struct {
+	RecordID ID        `json:"record_id"`
+	Outcome  string    `json:"outcome"`
+	Seq      Counter   `json:"seq,omitempty"`
+	Head     *Envelope `json:"head,omitempty"`
+}
+
+type ImportResponse struct {
+	History  string          `json:"history"`
+	Outcomes []ImportOutcome `json:"outcomes"`
 }
 
 type PutRecordResponse struct {

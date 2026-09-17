@@ -99,8 +99,12 @@ func Canonical(v any) ([]byte, error) {
 }
 
 func StrictUnmarshal(data []byte, v any) error {
-	if len(data) > MaxObjectBytes {
-		return fmt.Errorf("object is %d bytes, limit is %d", len(data), MaxObjectBytes)
+	return StrictUnmarshalLimit(data, v, MaxObjectBytes)
+}
+
+func StrictUnmarshalLimit(data []byte, v any, limit int) error {
+	if len(data) > limit {
+		return fmt.Errorf("object is %d bytes, limit is %d", len(data), limit)
 	}
 	if err := checkNoDuplicateKeys(data); err != nil {
 		return err
