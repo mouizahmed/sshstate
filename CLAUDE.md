@@ -4,15 +4,7 @@
 
 Do not write comments in Go code. None.
 
-The only comments in this repository are the two license header lines every
-file starts with:
-
-```go
-// Copyright (C) 2026 Mouiz Ahmed
-// SPDX-License-Identifier: AGPL-3.0-only
-```
-
-and `//go:build` constraints where a file needs one.
+The only comments in Go files are `//go:build` constraints where a file needs one.
 
 This includes doc comments on exported identifiers, comments inside test
 functions explaining what an assertion proves, and one-line notes above a

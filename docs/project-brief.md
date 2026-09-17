@@ -457,7 +457,7 @@ CI runs formatting checks, build, vet, tests, race checks where supported, and d
 
 ## 9. License and distribution
 
-AGPLv3 is selected, consistent with the repository LICENSE. Use AGPL-3.0-only as the project identifier; do not assume an “or later” grant from the standard license's example text. Preserve the existing license text and add project notices during setup.
+MIT is selected, consistent with the repository LICENSE. Use MIT as the project identifier and include the copyright and permission notice in distributed copies.
 
 Self-hosted server: one static non-root container, one persistent SQLite volume, a loopback-published application port, and an operator-managed HTTPS reverse proxy. Docker Compose is the supported packaged path. Keep the single-vault relay free of PostgreSQL, database credentials, bundled TLS automation, and database-selection configuration; Pin the relay image by release or verified digest and bound its logs and shutdown time. License choice is not a prohibition on commercial use or hosting. No monetization, hosted service, or enterprise support commitment is planned.
 
@@ -479,7 +479,7 @@ The original entries were accepted on 2026-09-12 unless an amendment or later de
 | R6: config/trust | Explicit managed defaults, strict import, ordered keys, doctor, separate capture and generated trust files | Respect OpenSSH accumulation and avoid two writers replacing one file |
 | R7: Git | **Withdrawn 2026-09-17**: no sshstate Git-signing helper; manual native Git/OpenSSH configuration remains outside the product | Avoid a second signing workflow that does not advance the managed-host problem |
 | R8: memory | Go, bounded secret lifetime, best-effort owned-buffer wiping and core-dump controls | Make achievable protections explicit without promising complete erasure |
-| R9: setup | One repo/two binaries; macOS-first with doctor/install/uninstall in M1; recovery/revocation/container in M2; Linux and three-machine workflow in M3a; supported Go and AGPLv3 | Historical stages that produced the stable MVP |
+| R9: setup | One repo/two binaries; macOS-first with doctor/install/uninstall in M1; recovery/revocation/container in M2; Linux and three-machine workflow in M3a; supported Go and MIT | Historical stages that produced the stable MVP |
 | R10: master-key rotation | ~~Required in v1~~ — **amended 2026-09-17**: staged atomic epoch transition remains accepted, but rotation is unscheduled and demand-triggered; see decision record 0004 and `docs/rotation.md` | Preserve the design without inventing a release gate |
 | R11: TUI | ~~Focused v1 frontend over the daemon control API~~ — **withdrawn 2026-09-15**; the CLI carries what it was to show | A second frontend is cost this project does not need to pay |
 | R12: post-quantum devices | Assessment complete and passed; adopt age hybrid ML-KEM-768+X25519 and ML-DSA-65 from genesis, per decision record 0001 | Stdlib and upstream support, library-enforced downgrade rejection, short recovery secrets, acceptable sizes; claim scoped to metadata rather than SSH keys |

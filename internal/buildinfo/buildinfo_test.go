@@ -1,6 +1,3 @@
-// Copyright (C) 2026 Mouiz Ahmed
-// SPDX-License-Identifier: AGPL-3.0-only
-
 package buildinfo
 
 import (
@@ -25,12 +22,12 @@ func TestStringPrefersTheStampedVersion(t *testing.T) {
 
 func TestNoticeCarriesTheLicenceTerms(t *testing.T) {
 	n := Notice()
-	for _, want := range []string{License, Copyright, SourceURL, "NO WARRANTY"} {
+	for _, want := range []string{License, Copyright, SourceURL, "warranty disclaimer"} {
 		if !strings.Contains(n, want) {
 			t.Errorf("the notice omits %q:\n%s", want, n)
 		}
 	}
-	if !strings.Contains(n, "AGPL") && !strings.Contains(n, "Affero") {
+	if !strings.Contains(n, "License: MIT") {
 		t.Fatalf("the notice does not name the licence:\n%s", n)
 	}
 }
