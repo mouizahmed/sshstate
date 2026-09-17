@@ -123,15 +123,51 @@ func TestDoctorDetectsManagedFieldOverrides(t *testing.T) {
 }
 
 func TestDoctorReportsAccumulatedIdentities(t *testing.T) {
-	_, findings := doctorFixture(t, "Host prod\n    IdentityFile /tmp/unmanaged_key\n")
+	present := filepath.Join(t.TempDir(), "unmanaged_key")
+	if err := os.WriteFile(present, []byte("key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "never_created_key")
+	_, findings := doctorFixture(t, "Host prod\n    IdentityFile "+present+"\n    IdentityFile "+missing+"\n")
 	var warned bool
 	for _, f := range findings {
-		if f.Check == "accumulated identities" && strings.Contains(f.Detail, "/tmp/unmanaged_key") {
+		if f.Check != "accumulated identities" {
+			continue
+		}
+		if strings.Contains(f.Detail, present) {
 			warned = true
+		}
+		if strings.Contains(f.Detail, missing) {
+			t.Fatalf("a key file that does not exist, and so is never offered, was reported: %+v", f)
 		}
 	}
 	if !warned {
 		t.Fatalf("an unmanaged IdentityFile was not reported: %+v", findings)
+	}
+}
+
+func TestDoctorOnlyReportsDefaultKeysThatExistForAHostWithoutKeys(t *testing.T) {
+	h, _ := doctorFixture(t, "")
+	if _, err := h.client.AddHost(context.Background(), control.AddHostRequest{
+		Alias: "bare", HostName: "10.0.0.6", User: "ubuntu",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	findings, err := h.daemon.diagnose(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Check != "accumulated identities" || !strings.Contains(f.Detail, `"bare"`) {
+			continue
+		}
+		path := strings.TrimSuffix(strings.SplitN(f.Detail, " also offers ", 2)[1], ", which sshstate does not manage")
+		if _, err := os.Stat(expandTilde(path)); err != nil {
+			t.Fatalf("doctor reported a default key that does not exist: %s", f.Detail)
+		}
+		if !strings.Contains(f.Remedy, "sshstate edit bare --key") {
+			t.Fatalf("the remedy for a keyless host does not point at attaching a key: %s", f.Remedy)
+		}
 	}
 }
 

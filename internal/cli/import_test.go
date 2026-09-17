@@ -607,3 +607,22 @@ func TestImportTakesAHostWithoutHostNameAsItsAlias(t *testing.T) {
 		t.Fatalf("the host was not imported with its alias as HostName: %+v", hosts)
 	}
 }
+
+func TestUninstallReactivatesTheBlocksImportCommentedOut(t *testing.T) {
+	s := importReady(t)
+	original := "Host keepme\n HostName 10.0.0.9\n\nHost prod\n HostName 10.0.0.5\n User ubuntu\n\n# a trailing note\n"
+	writeUserConfig(t, s, original)
+	s.mustRun(t, "install", "--skip-trust")
+	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--comment-source")
+	if strings.Contains(readFile(t, s.Layout.UserSSHConfig), "\nHost prod") {
+		t.Fatal("prod was not commented out by the import")
+	}
+	s.out.Reset()
+	s.mustRun(t, "uninstall", "--yes")
+	if got := readFile(t, s.Layout.UserSSHConfig); got != original {
+		t.Fatalf("uninstall did not give back the config as it was.\nwant:\n%s\ngot:\n%s", original, got)
+	}
+	if !strings.Contains(s.out.String(), "Reactivated the Host blocks sshstate had commented out: keepme, prod") {
+		t.Fatalf("uninstall did not say what it reactivated:\n%s", s.out)
+	}
+}

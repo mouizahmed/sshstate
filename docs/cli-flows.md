@@ -381,10 +381,11 @@ sshstate uninstall
 ```
 
 This removes the managed `Include` from `~/.ssh/config`, unregisters the local
-service, and preserves the encrypted vault and your SSH files. If `setup
---import` commented out host blocks in your config, `uninstall` does not
-reactivate them; restore the relevant blocks from the config backup or edit
-them back before relying on those aliases. For a connected vault, uninstall
+service, and preserves the encrypted vault and your SSH files. Host blocks that
+`setup --import` or `import --comment-source` commented out are reactivated, so
+those aliases keep working through your own config. They are your definitions
+from before sshstate managed them; edits made in sshstate since then are not in
+them. Every change to `~/.ssh/config` is backed up first. For a connected vault, uninstall
 offers to deregister this device. Check its result; if deregistration cannot
 finish, revoke the device from another machine.
 

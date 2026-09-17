@@ -26,6 +26,14 @@ type Env struct {
 	ReadSecret  func(prompt string) ([]byte, error)
 	ReadLine    func(prompt string) (string, error)
 	Interactive bool
+	Services    func() service.Manager
+}
+
+func (e *Env) services() service.Manager {
+	if e.Services != nil {
+		return e.Services()
+	}
+	return service.For()
 }
 
 type Command struct {
@@ -104,7 +112,7 @@ func (e *Env) daemonUnavailable() error {
 	if !e.vaultExists() {
 		return errors.New("sshstate is not set up on this machine\nrun: sshstate setup")
 	}
-	mgr := service.For()
+	mgr := e.services()
 	if mgr == nil {
 		return errors.New("the sshstate daemon is not running\nstart it with: sshstate daemon")
 	}

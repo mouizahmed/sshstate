@@ -905,3 +905,68 @@ file containing only the wanted Host blocks.
 `TestImportRefusesTheWholeFileForOneBadLine` fails without the hint. Wildcard
 blocks such as a macOS `Host *` with `UseKeychain` are still refused, as the
 brief requires.
+
+## D25 — Setup trusted a service registration that was not this one
+
+- Found: live `setup --import` in the VM user's real home, where an older install's systemd units already existed
+- Severity: setup said the daemon step was done, then failed at unlock with "registered but did not answer"
+- Fixed in: `internal/cli/setup.go`, `internal/cli/cli.go` (`Env.Services`)
+
+### What happened
+
+Setup treated "a unit file exists" as "the daemon is registered". Those units
+started a different binary with a different home, so nothing answered on this
+home's sockets. The same happens after moving the binary, or when an earlier
+install was left stopped.
+
+### Fix
+
+Setup only reaches the daemon step when the daemon did not answer, so it now
+always registers again there. Registration is idempotent. The CLI takes its
+service manager through `Env.Services`, so tests can use a fake.
+`TestSetupRegistersAgainWhenARegisteredServiceDoesNotAnswer` fails with the old
+"already done" branch, with the exact error seen on the VM.
+
+## D26 — Doctor warned about OpenSSH default keys that do not exist
+
+- Found: `sshstate doctor` in the VM user's real home, for a host with no managed key
+- Severity: five false warnings telling the user to remove lines their config never had
+- Fixed in: `internal/daemon/doctor.go` (`checkHost`)
+
+### What happened
+
+`ssh -G` lists OpenSSH's default identity paths for a host with no
+`IdentityFile`, whether or not those files exist. Doctor reported each one as an
+unmanaged key the host "also offers" and told the user to remove it from
+`~/.ssh/config`.
+
+### Fix
+
+Identity files that do not exist are skipped, because OpenSSH skips them too.
+For a host with no managed key, the remedy now says to attach one.
+`TestDoctorReportsAccumulatedIdentities` fails if a missing file is reported,
+and `TestDoctorOnlyReportsDefaultKeysThatExistForAHostWithoutKeys` fails without
+the skip.
+
+## D27 — Uninstall left every imported host commented out
+
+- Found: live uninstall in the VM user's real home after `setup --import`
+- Severity: after uninstalling, `ssh <alias>` stopped resolving for every host setup had imported
+- Fixed in: `internal/sshconfig/comment.go` (`ReactivateBlocks`), `internal/cli/commands.go` (`runUninstall`)
+
+### What happened
+
+`setup --import` comments out the blocks it imports, after installing the
+Include. Uninstall removed the Include but left those blocks commented, so the
+aliases resolved nowhere. The guide documented this as a limitation, which is
+not the same as it being acceptable.
+
+### Fix
+
+Uninstall uncomments the runs sshstate marked, after taking a backup, and names
+the aliases it brought back. A run ends at the first line that could not have
+been part of an imported block, so a user's own comment right after a block is
+left alone.
+`TestReactivatingRestoresExactlyTheBlocksThatWereCommentedOut` requires a
+byte-for-byte round trip, and fails if the run swallows the following comment.
+`TestUninstallReactivatesTheBlocksImportCommentedOut` fails without the call.

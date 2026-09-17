@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/mouizahmed/sshstate/internal/control"
+	"github.com/mouizahmed/sshstate/internal/paths"
 
 	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/sshconfig"
@@ -579,5 +580,45 @@ func TestSetupDoesNotRetireABlockThatChangedDuringTheTrustPrompt(t *testing.T) {
 	}
 	if !strings.Contains(s.out.String(), "changed during setup: web, added") {
 		t.Fatalf("setup did not name the blocks it left active:\n%s", s.out)
+	}
+}
+
+type staleService struct {
+	t         *testing.T
+	s         *scripted
+	installed bool
+	installs  int
+}
+
+func (f *staleService) Name() string           { return "fake" }
+func (f *staleService) DefinitionPath() string { return "/fake/sshstate.service" }
+func (f *staleService) Installed() (bool, error) {
+	return f.installed, nil
+}
+func (f *staleService) Uninstall(paths.Layout) error {
+	f.installed = false
+	return nil
+}
+func (f *staleService) Install(string, paths.Layout) error {
+	f.installs++
+	f.installed = true
+	f.s.startDaemon(f.t)
+	return nil
+}
+
+func TestSetupRegistersAgainWhenARegisteredServiceDoesNotAnswer(t *testing.T) {
+	s := initWithoutDaemon(t)
+	stale := &staleService{t: t, s: s, installed: true}
+	s.Env.Services = func() service.Manager { return stale }
+	s.secrets = []string{password}
+	s.out.Reset()
+	if err := s.run(t, "setup"); err != nil {
+		t.Fatalf("setup trusted a registration whose daemon never answered: %v\n%s", err, s.out)
+	}
+	if stale.installs != 1 {
+		t.Fatalf("the service was registered %d times, want once", stale.installs)
+	}
+	if got := s.out.String(); !strings.Contains(got, "did not answer; registering it again") || strings.Contains(got, "already done: registered") {
+		t.Fatalf("setup did not say why it registered again:\n%s", got)
 	}
 }

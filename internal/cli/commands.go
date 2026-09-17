@@ -18,7 +18,6 @@ import (
 	"github.com/mouizahmed/sshstate/internal/control"
 	"github.com/mouizahmed/sshstate/internal/crypto"
 	"github.com/mouizahmed/sshstate/internal/daemon"
-	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/sshconfig"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
@@ -629,7 +628,7 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 	if !*purge {
 		env.OfferDeregistration(ctx, *yes)
 	}
-	if mgr := service.For(); mgr != nil {
+	if mgr := env.services(); mgr != nil {
 		if installed, err := mgr.Installed(); err == nil && installed {
 			if err := mgr.Uninstall(env.Layout); err != nil {
 				return err
@@ -648,6 +647,14 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 			env.printf("Backed up your SSH config to %s\n", res.BackupPath)
 		}
 		env.printf("Removed the managed Include from %s\n", env.Layout.UserSSHConfig)
+	}
+	reactivated, err := sshconfig.ReactivateBlocks(env.Layout)
+	if err != nil {
+		return fmt.Errorf("the Include is gone, but the Host blocks sshstate commented out are still commented: %w", err)
+	}
+	if len(reactivated.Aliases) > 0 {
+		env.printf("Reactivated the Host blocks sshstate had commented out: %s\n", strings.Join(reactivated.Aliases, ", "))
+		env.printf("They are your definitions from before sshstate managed them; later edits in sshstate are not in them.\n")
 	}
 	if *purge {
 		env.printf("\nDeleted: the encrypted vault at %s\n", env.Layout.Database())
@@ -711,7 +718,7 @@ func (e *Env) awaitDaemon(ctx context.Context, wait time.Duration) error {
 }
 
 func installService(env *Env) error {
-	mgr := service.For()
+	mgr := env.services()
 	if mgr == nil {
 		return errors.New("no service manager integration ships for this platform yet; use: sshstate daemon")
 	}

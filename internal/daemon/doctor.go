@@ -232,9 +232,16 @@ func (d *Daemon) checkHost(ctx context.Context, h vault.HostView, wantIdentities
 			managed = append(managed, expanded)
 			continue
 		}
+		if _, err := os.Stat(expanded); err != nil {
+			continue
+		}
+		unmanagedRemedy := "remove it from ~/.ssh/config, or accept that it is tried alongside managed keys"
+		if len(wantIdentities) == 0 {
+			unmanagedRemedy = fmt.Sprintf("this host has no managed key, so OpenSSH falls back to its default keys; attach one with: sshstate edit %s --key <key>", h.Alias)
+		}
 		add(sevWarn, "accumulated identities",
 			fmt.Sprintf("host %q also offers %s, which sshstate does not manage", h.Alias, path),
-			"remove it from ~/.ssh/config, or accept that it is tried alongside managed keys")
+			unmanagedRemedy)
 	}
 	if !slices.Equal(managed, wantIdentities) {
 		add(sevProblem, "accumulated identities",

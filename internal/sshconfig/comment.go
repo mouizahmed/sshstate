@@ -75,3 +75,60 @@ func CommentOutBlocks(l paths.Layout, blocks []ImportedHost) (CommentResult, err
 	}
 	return res, nil
 }
+
+func ReactivateBlocks(l paths.Layout) (CommentResult, error) {
+	var res CommentResult
+	body, existed, err := readUserConfig(l.UserSSHConfig)
+	if err != nil || !existed {
+		return res, err
+	}
+	lines := strings.Split(string(body), "\n")
+	out := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], supersededMarker) {
+			out = append(out, lines[i])
+			continue
+		}
+		j := i + 1
+		for ; j < len(lines) && commentedBlockLine(lines[j]); j++ {
+			original := strings.TrimPrefix(strings.TrimPrefix(lines[j], "#"), " ")
+			if keyword, args, err := splitDirective(original); err == nil && strings.EqualFold(keyword, "host") && len(args) > 0 {
+				res.Aliases = append(res.Aliases, args[0])
+			}
+			out = append(out, original)
+			res.Lines++
+		}
+		i = j - 1
+	}
+	if res.Lines == 0 {
+		return CommentResult{}, nil
+	}
+	backup, err := backupUserConfig(l.UserSSHConfig, body)
+	if err != nil {
+		return res, err
+	}
+	res.BackupPath = backup
+	if err := replaceUserConfig(l.UserSSHConfig, body, []byte(strings.Join(out, "\n")), true); err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+func commentedBlockLine(line string) bool {
+	if line == "#" {
+		return true
+	}
+	if !strings.HasPrefix(line, "# ") {
+		return false
+	}
+	original := strings.TrimSpace(strings.TrimPrefix(line, "# "))
+	if original == "" || strings.HasPrefix(original, "#") {
+		return true
+	}
+	keyword, _, err := splitDirective(original)
+	if err != nil {
+		return false
+	}
+	lowered := strings.ToLower(keyword)
+	return lowered == "host" || supportedInHost[lowered]
+}

@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/sshconfig"
 )
 
@@ -46,7 +45,7 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 	}
 
 	env.printf("\nStep 2 of 4: the daemon.\n")
-	mgr := service.For()
+	mgr := env.services()
 	switch {
 	case statusErr == nil:
 		env.printf("  already done: the daemon is running\n")
@@ -57,14 +56,13 @@ func runSetup(ctx context.Context, env *Env, args []string) error {
 		return errors.New("setup needs a running daemon on this platform")
 	default:
 		if installed, err := mgr.Installed(); err == nil && installed {
-			env.printf("  already done: registered with %s\n", mgr.Name())
-		} else {
-			env.printf("\n")
-			if err := installService(env); err != nil {
-				return err
-			}
-			did++
+			env.printf("  registered with %s, but the daemon did not answer; registering it again\n", mgr.Name())
 		}
+		env.printf("\n")
+		if err := installService(env); err != nil {
+			return err
+		}
+		did++
 	}
 
 	env.printf("\nStep 3 of 4: unlocking.\n")
@@ -218,7 +216,7 @@ func runService(ctx context.Context, env *Env, args []string) error {
 	if fs.NArg() != 0 {
 		return usageError("service")
 	}
-	mgr := service.For()
+	mgr := env.services()
 	if mgr == nil {
 		return errors.New("no service manager integration ships for this platform; use: sshstate daemon")
 	}
