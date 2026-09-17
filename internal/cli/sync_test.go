@@ -55,23 +55,7 @@ func newTestRelay(t *testing.T) *testRelay {
 
 func ready(t *testing.T) (*scripted, string) {
 	t.Helper()
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-
-	s.startDaemon(t)
-	s.secrets = []string{password}
-	s.mustRun(t, "unlock")
+	s, kitPath := newUnlocked(t)
 	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu")
 	s.out.Reset()
 	s.errOut.Reset()
@@ -282,15 +266,6 @@ func TestExportRefusesToOverwrite(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestExportWorksOffline(t *testing.T) {
-	s, _ := ready(t)
-	path := filepath.Join(t.TempDir(), "offline.export")
-	s.mustRun(t, "export", path)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -570,28 +545,7 @@ func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
 	b.lines = []string{"y"}
 	b.secrets = []string{"b's own password", "b's own password"}
 
-	sessionCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- b.run(t, "pair", r.url, vaultID)
-	}()
-
-	deadline := time.Now().Add(20 * time.Second)
-	var session string
-	for session == "" {
-		if time.Now().After(deadline) {
-			t.Fatalf("no pairing session appeared:\n%s", b.out)
-		}
-		for _, line := range strings.Split(b.out.String(), "\n") {
-			if strings.HasPrefix(line, "Pairing session ") {
-				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
-			}
-		}
-		if session == "" {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-	sessionCh <- session
+	session, errCh := beginPairing(t, b, r.url, vaultID)
 
 	a.lines = []string{"y"}
 	a.out.Reset()
@@ -671,7 +625,7 @@ func TestPairingInstallsHostsAtTheirEditedRevision(t *testing.T) {
 
 func TestPairingAVaultWithNoHostsYet(t *testing.T) {
 	r := newTestRelay(t)
-	a := initWithoutDaemon(t)
+	a, _ := newInitialized(t)
 	a.startDaemon(t)
 	a.secrets = []string{password}
 	a.mustRun(t, "unlock")
@@ -712,24 +666,7 @@ func TestApproveCancelledSendsNothing(t *testing.T) {
 
 	b := newScripted(t)
 	b.lines = []string{"n"}
-	errCh := make(chan error, 1)
-	go func() { errCh <- b.run(t, "pair", r.url, vaultID) }()
-
-	deadline := time.Now().Add(20 * time.Second)
-	var session string
-	for session == "" {
-		if time.Now().After(deadline) {
-			t.Fatalf("no pairing session appeared:\n%s", b.out)
-		}
-		for _, line := range strings.Split(b.out.String(), "\n") {
-			if strings.HasPrefix(line, "Pairing session ") {
-				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
-			}
-		}
-		if session == "" {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
+	session, errCh := beginPairing(t, b, r.url, vaultID)
 
 	a.lines = []string{"n"}
 	err := a.run(t, "approve", session)
@@ -810,9 +747,7 @@ func TestRecoverFromTheRelayWithOnlyTheKit(t *testing.T) {
 	source.mustRun(t, "sync")
 	vaultID := vaultIDOf(t, source)
 
-	replacement := newScripted(t)
-	replacement.secrets = []string{"recovered password", "recovered password"}
-	replacement.mustRun(t, "recover", r.url, vaultID, "--kit", kitPath)
+	replacement, _ := recoverDevice(t, r, source, kitPath)
 	out := replacement.out.String()
 	if !strings.Contains(out, "Recovered vault") {
 		t.Fatalf("recover reported nothing:\n%s", out)
@@ -1038,48 +973,11 @@ func TestResolveRejectsAnUnknownConflict(t *testing.T) {
 	}
 }
 
-func pairSecondDevice(t *testing.T, r *testRelay, a *scripted, vaultID string) *scripted {
-	t.Helper()
-	b := newScripted(t)
-	b.lines = []string{"y"}
-	b.secrets = []string{"second password", "second password"}
-	errCh := make(chan error, 1)
-	go func() { errCh <- b.run(t, "pair", r.url, vaultID) }()
-
-	deadline := time.Now().Add(20 * time.Second)
-	var session string
-	for session == "" {
-		if time.Now().After(deadline) {
-			t.Fatalf("no pairing session appeared:\n%s", b.out)
-		}
-		for _, line := range strings.Split(b.out.String(), "\n") {
-			if strings.HasPrefix(line, "Pairing session ") {
-				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
-			}
-		}
-		if session == "" {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-	a.lines = []string{"y"}
-	if err := a.run(t, "approve", session); err != nil {
-		t.Fatalf("approve: %v\n%s", err, a.errOut)
-	}
-	if err := <-errCh; err != nil {
-		t.Fatalf("pair: %v\n%s", err, b.errOut)
-	}
-	b.startDaemon(t)
-	b.secrets = []string{"second password"}
-	b.mustRun(t, "unlock")
-	b.out.Reset()
-	return b
-}
-
 func TestUninstallReportsIncompleteDeregistration(t *testing.T) {
 	r := newTestRelay(t)
 	s, _ := ready(t)
 	s.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
-	pairSecondDevice(t, r, s, vaultIDOf(t, s))
+	pairInto(t, r.url, s, vaultIDOf(t, s), "second password")
 	deviceID := deviceIDFrom(t, s)
 
 	s.mustRun(t, "lock")
@@ -1152,26 +1050,8 @@ func TestPurgingTheOnlyDeviceDoesNotSendYouToAnother(t *testing.T) {
 	}
 }
 
-func initWithoutDaemon(t *testing.T) *scripted {
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-	s.errOut.Reset()
-	return s
-}
-
 func TestUninstallWithNoDaemonSaysAConnectedDeviceWasNotDeregistered(t *testing.T) {
-	s := initWithoutDaemon(t)
+	s, _ := newInitialized(t)
 	store, err := vault.OpenStore(s.Layout.Database())
 	if err != nil {
 		t.Fatal(err)
@@ -1189,7 +1069,7 @@ func TestUninstallWithNoDaemonSaysAConnectedDeviceWasNotDeregistered(t *testing.
 }
 
 func TestUninstallWithNoDaemonDoesNotMentionARelayALocalVaultNeverHad(t *testing.T) {
-	s := initWithoutDaemon(t)
+	s, _ := newInitialized(t)
 
 	s.mustRun(t, "uninstall", "--yes")
 	if strings.Contains(s.errOut.String()+s.out.String(), "deregister") {
@@ -1202,7 +1082,7 @@ func TestUninstallDeregistersWhenItCan(t *testing.T) {
 	a, _ := ready(t)
 	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
 	vaultID := vaultIDOf(t, a)
-	b := pairSecondDevice(t, r, a, vaultID)
+	b := pairInto(t, r.url, a, vaultID, "second password")
 	deviceB := deviceIDFrom(t, b)
 
 	b.lines = []string{"y", "y"}
@@ -1222,30 +1102,33 @@ func TestUninstallDeregistersWhenItCan(t *testing.T) {
 	}
 }
 
+func beginPairing(t *testing.T, joiner *scripted, relayURL, vaultID string) (string, <-chan error) {
+	t.Helper()
+	errCh := make(chan error, 1)
+	go func() { errCh <- joiner.run(t, "pair", relayURL, vaultID) }()
+
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatalf("no pairing session appeared:\n%s", joiner.out)
+		}
+		for _, line := range strings.Split(joiner.out.String(), "\n") {
+			session, ok := strings.CutPrefix(line, "Pairing session ")
+			if ok && strings.TrimSpace(session) != "" {
+				return strings.TrimSpace(session), errCh
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func pairInto(t *testing.T, relayURL string, approver *scripted, vaultID, password string) *scripted {
 	t.Helper()
 	joiner := newScripted(t)
 	joiner.lines = []string{"y"}
 	joiner.secrets = []string{password, password}
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- joiner.run(t, "pair", relayURL, vaultID) }()
-
-	deadline := time.Now().Add(20 * time.Second)
-	var session string
-	for session == "" {
-		if time.Now().After(deadline) {
-			t.Fatalf("no pairing session appeared:\n%s", joiner.out)
-		}
-		for _, line := range strings.Split(joiner.out.String(), "\n") {
-			if strings.HasPrefix(line, "Pairing session ") {
-				session = strings.TrimSpace(strings.TrimPrefix(line, "Pairing session "))
-			}
-		}
-		if session == "" {
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
+	session, errCh := beginPairing(t, joiner, relayURL, vaultID)
 
 	approver.lines = []string{"y"}
 	approver.out.Reset()

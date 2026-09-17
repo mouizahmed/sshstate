@@ -72,7 +72,7 @@ func TestPositionalVerbsAcceptFlagsFirst(t *testing.T) {
 }
 
 func TestLockOnALockedVaultSaysSo(t *testing.T) {
-	s, _ := ready(t)
+	s, _ := newUnlocked(t)
 	s.mustRun(t, "lock")
 	s.out.Reset()
 	s.mustRun(t, "lock")

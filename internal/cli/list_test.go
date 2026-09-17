@@ -5,34 +5,16 @@ package cli
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mouizahmed/sshstate/internal/control"
-	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
 func listReady(t *testing.T) (*scripted, string, string) {
 	t.Helper()
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-	s.startDaemon(t)
-	s.secrets = []string{password}
-	s.mustRun(t, "unlock")
-
+	s, _ := newUnlocked(t)
 	dir := t.TempDir()
 	first := filepath.Join(dir, "first")
 	second := filepath.Join(dir, "second")
@@ -123,7 +105,7 @@ func TestAKeyCanBeNamedByPrefixFingerprintOrComment(t *testing.T) {
 }
 
 func TestAnUnknownKeyReferenceIsRefused(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 	err := s.run(t, "add", "y", "--hostname", "10.0.0.5", "--user", "ubuntu", "--key", "nosuchkey")
 	if err == nil || !strings.Contains(err.Error(), "sshstate keys") {
 		t.Fatalf("expected a refusal pointing at the listing, got %v", err)

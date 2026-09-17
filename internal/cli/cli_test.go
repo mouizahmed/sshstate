@@ -102,6 +102,45 @@ func newScripted(t *testing.T) *scripted {
 	return s
 }
 
+func initializeVault(t *testing.T, s *scripted) string {
+	t.Helper()
+	kitPath := filepath.Join(t.TempDir(), "kit.txt")
+	s.secrets = []string{password, password}
+	s.answer = func(string) (string, error) {
+		body, err := os.ReadFile(kitPath)
+		if err != nil {
+			return "", err
+		}
+		kit, err := vault.ParseKit(string(body))
+		if err != nil {
+			return "", err
+		}
+		return kit.Checksum(), nil
+	}
+	s.mustRun(t, "init", "--kit", kitPath)
+	s.answer = nil
+	s.out.Reset()
+	s.errOut.Reset()
+	return kitPath
+}
+
+func newInitialized(t *testing.T) (*scripted, string) {
+	t.Helper()
+	s := newScripted(t)
+	return s, initializeVault(t, s)
+}
+
+func newUnlocked(t *testing.T) (*scripted, string) {
+	t.Helper()
+	s, kitPath := newInitialized(t)
+	s.startDaemon(t)
+	s.secrets = []string{password}
+	s.mustRun(t, "unlock")
+	s.out.Reset()
+	s.errOut.Reset()
+	return s, kitPath
+}
+
 func (s *scripted) run(t *testing.T, name string, args ...string) error {
 	t.Helper()
 	for _, c := range Commands() {
@@ -226,20 +265,7 @@ func TestInitRejectsMismatchedPasswords(t *testing.T) {
 }
 
 func TestLocalWorkflow(t *testing.T) {
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-
+	s, _ := newInitialized(t)
 	s.startDaemon(t)
 
 	err := s.run(t, "add", "prod", "--hostname", "10.0.0.5")
@@ -328,19 +354,7 @@ func TestLocalWorkflow(t *testing.T) {
 }
 
 func TestPurgeIsRefusedWithoutDeletingData(t *testing.T) {
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
+	s, _ := newInitialized(t)
 
 	err := s.run(t, "uninstall", "--purge")
 	if err == nil {
@@ -418,7 +432,7 @@ func TestAHostWithoutKeysPointsAtEditToAttachOne(t *testing.T) {
 }
 
 func TestChangePasswordRewrapsTheDeviceSecrets(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 
 	s.secrets = []string{"not the password", "new pass", "new pass"}
 	if err := s.run(t, "change-password"); err == nil || !strings.Contains(err.Error(), "current password is wrong") {

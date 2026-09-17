@@ -29,7 +29,7 @@ func fdWith(t *testing.T, body string) int {
 }
 
 func TestUnlockReadsThePasswordFromAFileDescriptor(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 	if _, err := s.Env.Client().Lock(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestUnlockReadsThePasswordFromAFileDescriptor(t *testing.T) {
 }
 
 func TestAWrongPasswordOnTheDescriptorIsRefused(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 	if _, err := s.Env.Client().Lock(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestPromptsWithABypassNameIt(t *testing.T) {
 }
 
 func TestUnlockWithNoTerminalNamesPasswordFD(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 	s.mustRun(t, "lock")
 	s.Env.ReadSecret = func(string) ([]byte, error) {
 		return nil, fmt.Errorf("%w (open /dev/tty: device not configured)", errNoTerminal)
@@ -253,7 +253,7 @@ func TestUnlockWithNoTerminalNamesPasswordFD(t *testing.T) {
 }
 
 func TestAMissingFileIsNamedTheSameWayEverywhere(t *testing.T) {
-	s, _, _ := listReady(t)
+	s := newScripted(t)
 	missing := filepath.Join(t.TempDir(), "absent")
 	for _, args := range [][]string{
 		{"import", missing},

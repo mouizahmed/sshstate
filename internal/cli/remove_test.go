@@ -42,7 +42,7 @@ func TestRemoveDropsTheHostAndRegenerates(t *testing.T) {
 }
 
 func TestRemoveRefusesWhileAnotherHostJumpsThroughIt(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 	s.mustRun(t, "add", "bastion", "--hostname", "10.0.0.1", "--user", "ubuntu")
 	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu", "--jump", "bastion")
 

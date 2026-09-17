@@ -18,7 +18,6 @@ import (
 
 	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/sshconfig"
-	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
 func TestSetupOnAFinishedMachineSaysSoAndChangesNothing(t *testing.T) {
@@ -46,22 +45,7 @@ func TestSetupOnAFinishedMachineSaysSoAndChangesNothing(t *testing.T) {
 }
 
 func TestTrustTakesPositionalIDs(t *testing.T) {
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-	s.startDaemon(t)
-	s.secrets = []string{password}
-	s.mustRun(t, "unlock")
+	s, _ := newUnlocked(t)
 	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu")
 
 	captureFile := s.Layout.CaptureFile()
@@ -108,7 +92,7 @@ func TestTrustTakesPositionalIDs(t *testing.T) {
 }
 
 func TestTrustRefusesIDsAndAllTogether(t *testing.T) {
-	s, _, _ := listReady(t)
+	s := newScripted(t)
 	err := s.run(t, "trust", "abcdef01", "--all")
 	if err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Fatalf("expected a refusal, got %v", err)
@@ -116,9 +100,7 @@ func TestTrustRefusesIDsAndAllTogether(t *testing.T) {
 }
 
 func TestDoctorReportsThroughTheCLI(t *testing.T) {
-	s, _, _ := listReady(t)
-	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu")
-	s.out.Reset()
+	s, _ := ready(t)
 
 	if err := s.run(t, "doctor"); err != nil && !strings.Contains(err.Error(), "problem") {
 		t.Fatalf("doctor: %v\n%s", err, s.errOut)
@@ -144,7 +126,7 @@ func TestDoctorOnAFreshMachinePointsAtSetup(t *testing.T) {
 }
 
 func TestServiceRemoveWhenNotRegistered(t *testing.T) {
-	s, _, _ := listReady(t)
+	s := newScripted(t)
 	if service.For() == nil {
 		t.Skip("no service manager on this platform")
 	}
@@ -163,7 +145,7 @@ func TestServiceRemoveWhenNotRegistered(t *testing.T) {
 }
 
 func TestServiceRejectsExtraArguments(t *testing.T) {
-	s, _, _ := listReady(t)
+	s := newScripted(t)
 	if err := s.run(t, "service", "install"); err == nil {
 		t.Fatal("a stray argument was accepted")
 	}
@@ -261,21 +243,7 @@ func vaultOnly(t *testing.T) *scripted {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-	s.out.Reset()
-	s.errOut.Reset()
+	s, _ := newInitialized(t)
 	return s
 }
 
@@ -443,7 +411,7 @@ func TestUnlockDoesNotAskForAPasswordItCannotUse(t *testing.T) {
 }
 
 func TestUnlockOnAnUnlockedVaultDoesNotAsk(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 	s.secrets = []string{password}
 	s.mustRun(t, "unlock")
 	if len(s.secrets) != 1 {
@@ -455,7 +423,7 @@ func TestUnlockOnAnUnlockedVaultDoesNotAsk(t *testing.T) {
 }
 
 func TestDoctorDoesNotCallANonfunctionalMachineHealthy(t *testing.T) {
-	s, _, _ := listReady(t)
+	s, _ := newUnlocked(t)
 	s.mustRun(t, "doctor")
 	out := s.out.String()
 	if strings.Contains(out, "No problems found.") {
@@ -626,7 +594,7 @@ func (f *staleService) Install(string, paths.Layout) error {
 }
 
 func TestSetupRegistersAgainWhenARegisteredServiceDoesNotAnswer(t *testing.T) {
-	s := initWithoutDaemon(t)
+	s, _ := newInitialized(t)
 	stale := &staleService{t: t, s: s, installed: true}
 	s.Env.Services = func() service.Manager { return stale }
 	s.secrets = []string{password}

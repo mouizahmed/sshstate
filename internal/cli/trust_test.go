@@ -14,8 +14,6 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
-
-	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
 func hostKeyLine(t *testing.T) string {
@@ -33,23 +31,7 @@ func hostKeyLine(t *testing.T) string {
 
 func installReady(t *testing.T, knownHosts string) *scripted {
 	t.Helper()
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-
-	s.startDaemon(t)
-	s.secrets = []string{password}
-	s.mustRun(t, "unlock")
+	s, _ := newUnlocked(t)
 	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu")
 
 	if knownHosts != "" {

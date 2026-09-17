@@ -10,30 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
 func importReady(t *testing.T) *scripted {
 	t.Helper()
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-	s.startDaemon(t)
-	s.secrets = []string{password}
-	s.mustRun(t, "unlock")
-	s.out.Reset()
-	s.errOut.Reset()
+	s, _ := newUnlocked(t)
 	return s
 }
 

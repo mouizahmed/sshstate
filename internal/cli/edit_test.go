@@ -6,31 +6,13 @@ package cli
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
 func editReady(t *testing.T) *scripted {
 	t.Helper()
-	s := newScripted(t)
-	kitPath := filepath.Join(t.TempDir(), "kit.txt")
-	s.secrets = []string{password, password}
-	s.answer = func(string) (string, error) {
-		body, _ := os.ReadFile(kitPath)
-		kit, err := vault.ParseKit(string(body))
-		if err != nil {
-			return "", err
-		}
-		return kit.Checksum(), nil
-	}
-	s.mustRun(t, "init", "--kit", kitPath)
-	s.answer = nil
-	s.startDaemon(t)
-	s.secrets = []string{password}
-	s.mustRun(t, "unlock")
+	s, _ := newUnlocked(t)
 	s.mustRun(t, "add", "bastion", "--hostname", "10.0.0.1", "--user", "ubuntu")
 	s.mustRun(t, "add", "prod", "--hostname", "10.0.0.5", "--user", "ubuntu", "--jump", "bastion")
 	s.mustRun(t, "add", "staging", "--hostname", "10.0.0.7", "--user", "ubuntu")
