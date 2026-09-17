@@ -84,9 +84,12 @@ func (c *Client) do(ctx context.Context, method, route string, in, out any) erro
 	}
 	defer resp.Body.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxRequestBytes))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxRequestBytes+1))
 	if err != nil {
 		return err
+	}
+	if len(raw) > MaxRequestBytes {
+		return fmt.Errorf("the daemon's reply to %s exceeds %d bytes", route, MaxRequestBytes)
 	}
 	if resp.StatusCode >= 300 {
 		var e Error

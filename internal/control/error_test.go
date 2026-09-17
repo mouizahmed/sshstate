@@ -4,8 +4,15 @@
 package control
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -29,5 +36,32 @@ func TestAPIErrorMatchesOnCodeNotMessage(t *testing.T) {
 	}
 	if errors.Is(errors.New("plain"), ErrLocked) {
 		t.Fatal("a plain error matched an API error")
+	}
+}
+
+func TestAnOversizedReplySaysSoInsteadOfFailingToParse(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ctl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "control.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(append([]byte(`{"vault_id":"`), bytes.Repeat([]byte("a"), MaxRequestBytes)...))
+	})}
+	go srv.Serve(listener)
+	t.Cleanup(func() { srv.Close() })
+
+	_, err = NewClient(socket).Status(context.Background())
+	if err == nil {
+		t.Fatal("a reply past the limit was accepted")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("a truncated reply was reported as %v", err)
 	}
 }
