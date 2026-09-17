@@ -13,7 +13,7 @@ while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 > that is never written to disk. Several machines work too: the sync protocol is
 > frozen, the relay runs, and three devices pair, sync, resolve conflicts, revoke
 > each other, and restore from an encrypted backup with the relay unavailable.
-> The daemon starts on demand through launchd or systemd user units.
+> The service manager owns both sockets, and the daemon always starts locked.
 >
 > **Not here yet:** master-key rotation, which is specified in
 > [docs/rotation.md](docs/rotation.md) and ships in M3b. If a vault key were
@@ -109,7 +109,7 @@ Or step by step:
 
 ```sh
 ./sshstate init --kit ~/sshstate-recovery-kit.txt
-./sshstate service                     # starts on demand; or: ./sshstate daemon &
+./sshstate service                     # service-managed; or: ./sshstate daemon &
 ./sshstate unlock
 ./sshstate add-key ~/.ssh/id_ed25519
 ./sshstate keys                        # fingerprints and comments
@@ -167,11 +167,12 @@ not.
 that is still on disk and typed the vault id back.
 
 `install --service` registers the daemon with the platform's service manager,
-so it starts on demand when SSH or the CLI connects, and starts locked. On macOS
-that is a launchd agent; on Linux it is three systemd user units — one service
-and one socket unit per socket, because systemd names every descriptor in a
-socket unit alike and the daemon adopts its two sockets by name, never by
-position. Everywhere else, run `sshstate daemon` in the foreground.
+which owns both sockets and starts the daemon locked. Systemd starts it when SSH
+or the CLI first connects. Current macOS releases can start the launchd agent as
+soon as launchd registers its Unix sockets. Linux uses three systemd user units
+— one service and one socket unit per socket — because systemd names every
+descriptor in a socket unit alike and the daemon adopts its two sockets by name,
+never by position. Everywhere else, run `sshstate daemon` in the foreground.
 
 ## Installing
 

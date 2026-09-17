@@ -78,12 +78,20 @@ func TestLaunchdSocketActivation(t *testing.T) {
 		t.Fatalf("launchctl bootstrap: %v: %s", err, out)
 	}
 
-	if out, _ := exec.Command("pgrep", "-f", binary).Output(); len(out) > 0 {
-		t.Fatalf("the daemon was already running before activation: %s", out)
-	}
-	before, err := os.Stat(layout.ControlSocket())
-	if err != nil {
-		t.Fatalf("launchd did not create the control socket: %v", err)
+	var before os.FileInfo
+	socketDeadline := time.Now().Add(30 * time.Second)
+	for {
+		before, err = os.Stat(layout.ControlSocket())
+		if err == nil {
+			break
+		}
+		if !os.IsNotExist(err) {
+			t.Fatalf("stat launchd control socket: %v", err)
+		}
+		if time.Now().After(socketDeadline) {
+			t.Fatalf("launchd did not create the control socket: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	client := control.NewClient(layout.ControlSocket())
