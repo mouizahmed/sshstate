@@ -614,7 +614,7 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 
 func runInstall(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "install")
-	withService := fs.Bool("service", false, "also register the daemon with launchd or systemd so it starts on demand")
+	withService := fs.Bool("service", false, "also register the daemon with launchd or systemd")
 	importTrust := fs.Bool("import-trust", false, "import matching entries from ~/.ssh/known_hosts without asking")
 	skipTrust := fs.Bool("skip-trust", false, "activate the Include without importing existing host-key trust")
 	if err := fs.Parse(args); err != nil {
@@ -685,6 +685,9 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 	if !*purge {
 		env.OfferDeregistration(ctx, *yes)
 	}
+	if err := env.Client().Shutdown(ctx); err != nil && !errors.Is(err, control.ErrDaemonUnavailable) {
+		return fmt.Errorf("stop the daemon before uninstalling: %w", err)
+	}
 	if mgr := env.services(); mgr != nil {
 		if installed, err := mgr.Installed(env.Layout); err == nil && installed {
 			if err := mgr.Uninstall(env.Layout); err != nil {
@@ -692,9 +695,6 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 			}
 			env.printf("Unregistered the %s service.\n", mgr.Name())
 		}
-	}
-	if err := env.Client().Shutdown(ctx); err != nil && !errors.Is(err, control.ErrDaemonUnavailable) {
-		return fmt.Errorf("stop the daemon before uninstalling: %w", err)
 	}
 	res, err := sshconfig.Uninstall(env.Layout)
 	var symlink *sshconfig.SymlinkError
@@ -810,7 +810,7 @@ func installService(env *Env) error {
 			mgr.Name(), serviceStartWait, err)
 	}
 	env.printf("Registered with %s: %s\n", mgr.Name(), mgr.DefinitionPath())
-	env.printf("The daemon now starts on demand when SSH or the CLI connects.\n")
+	env.printf("The service manager now owns the daemon sockets.\n")
 	env.printf("It starts locked; run sshstate unlock after login.\n")
 	return nil
 }

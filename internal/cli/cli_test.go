@@ -23,6 +23,7 @@ import (
 
 	"github.com/mouizahmed/sshstate/internal/control"
 	"github.com/mouizahmed/sshstate/internal/paths"
+	"github.com/mouizahmed/sshstate/internal/service"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
@@ -303,6 +304,8 @@ func TestLocalWorkflow(t *testing.T) {
 		t.Fatal("lock reported nothing")
 	}
 
+	stoppingService := &shutdownCheckingService{s: s}
+	s.Env.Services = func() service.Manager { return stoppingService }
 	s.lines = []string{"y"}
 	s.mustRun(t, "uninstall")
 	if _, err := os.Stat(s.Layout.Database()); err != nil {
@@ -436,4 +439,35 @@ func TestChangePasswordRewrapsTheDeviceSecrets(t *testing.T) {
 	s.secrets = []string{"new pass"}
 	s.mustRun(t, "unlock")
 	s.mustRun(t, "hosts")
+}
+
+type shutdownCheckingService struct {
+	s           *scripted
+	uninstalled bool
+}
+
+func (s *shutdownCheckingService) Name() string           { return "test service" }
+func (s *shutdownCheckingService) DefinitionPath() string { return "/test/service" }
+func (s *shutdownCheckingService) Registered() (bool, error) {
+	return !s.uninstalled, nil
+}
+func (s *shutdownCheckingService) Installed(paths.Layout) (bool, error) {
+	return !s.uninstalled, nil
+}
+func (s *shutdownCheckingService) Install(string, paths.Layout) error {
+	return errors.New("unexpected install")
+}
+func (s *shutdownCheckingService) Uninstall(paths.Layout) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		_, err := s.s.Env.Client().Status(context.Background())
+		if errors.Is(err, control.ErrDaemonUnavailable) {
+			s.uninstalled = true
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("daemon still running when service was unregistered: %w", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }

@@ -89,9 +89,9 @@ func refuseIfServiceOwnsTheSockets(env *Env) error {
 	}
 	return fmt.Errorf(`the %s service owns this vault's sockets, and a foreground daemon would replace them
 
-That breaks on-demand start: the service would keep watching sockets this
-process had unlinked, and ssh would find nothing there.
+The service manager would keep watching socket descriptors that this process
+had unlinked, and ssh would find nothing at their paths.
 
-  sshstate status     to use the service, which starts on demand
+  sshstate status     to use the registered service
   sshstate uninstall  to unregister it and run in the foreground instead`, mgr.Name())
 }
