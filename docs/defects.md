@@ -1276,3 +1276,23 @@ imports. `TestImportRefusesAJumpLoop` fails without the check.
 Separately, an unreachable relay that fails with `no route to host` now says so.
 On macOS the message also points to the Local Network privacy setting, the
 likely cause for a relay on the LAN when sshstate runs as a background service.
+
+## D39 — A wrong clock read as a signature failure
+
+- Found: reading the relay's request signature checks while auditing error messages
+- Severity: a device whose clock was off by more than about a minute failed every relay command with `signature_expired: signature was created in the future`
+- Fixed in: `internal/relayclient/client.go` (`explainClock`)
+
+### What happened
+
+The relay refuses a signature whose `created` or `expires` falls outside its own
+clock plus a minute of tolerance. Nothing told the user that a clock was the
+problem.
+
+### Fix
+
+The client reads the relay's HTTP `Date` header on every response. When a
+request is refused as expired, the error says how far and in which direction
+this machine's clock differs from the relay's, and asks for automatic time on
+both. `TestASkewedClockIsNamedWithTheDifference` signs ten minutes in the future
+and fails without the explanation.

@@ -461,3 +461,28 @@ func TestAnUntrustedCertificateIsExplained(t *testing.T) {
 		t.Fatalf("an untrusted certificate was not explained: %v", err)
 	}
 }
+
+func TestASkewedClockIsNamedWithTheDifference(t *testing.T) {
+	f := newFixture(t)
+	srv := httptest.NewServer(relay.NewServer(f.store, relay.Config{PublicHTTPS: false}).Handler())
+	t.Cleanup(srv.Close)
+	client, err := New(Options{
+		BaseURL: srv.URL,
+		Signer: &httpsig.Signer{
+			VaultID:  f.vaultID,
+			DeviceID: f.first.id,
+			Key:      f.first.signing,
+			Now:      func() time.Time { return time.Now().Add(10 * time.Minute) },
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Membership(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "this machine's clock is 10m") || !strings.Contains(err.Error(), "ahead of the relay's") {
+		t.Fatalf("a skewed clock was not explained: %v", err)
+	}
+	if protocol.CodeOf(err) != protocol.CodeSignatureExpired {
+		t.Fatalf("the explanation hid the protocol code: %v", err)
+	}
+}

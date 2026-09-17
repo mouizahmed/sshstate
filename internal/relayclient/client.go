@@ -73,51 +73,61 @@ func isLoopback(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
 }
 
-func (c *Client) send(ctx context.Context, method, path string, in any, headers map[string]string) (int, []byte, *http.Request, error) {
+type reply struct {
+	status int
+	body   []byte
+	req    *http.Request
+	sent   time.Time
+	date   time.Time
+}
+
+func (c *Client) send(ctx context.Context, method, path string, in any, headers map[string]string) (reply, error) {
 	var body []byte
 	if in != nil {
 		var err error
 		body, err = json.Marshal(in)
 		if err != nil {
-			return 0, nil, nil, fmt.Errorf("encode request: %w", err)
+			return reply{}, fmt.Errorf("encode request: %w", err)
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base.String()+path, bytes.NewReader(body))
 	if err != nil {
-		return 0, nil, nil, err
+		return reply{}, err
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 	if c.signer != nil {
 		if err := c.signer.Sign(req, body, c.https); err != nil {
-			return 0, nil, nil, err
+			return reply{}, err
 		}
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, nil, nil, &UnreachableError{URL: c.base.String(), Err: err}
+		return reply{}, &UnreachableError{URL: c.base.String(), Err: err}
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("read the relay's response: %w", err)
+		return reply{}, fmt.Errorf("read the relay's response: %w", err)
 	}
 	if len(raw) > MaxResponseBytes {
-		return 0, nil, nil, protocol.Errorf(protocol.CodeBodyTooLarge,
+		return reply{}, protocol.Errorf(protocol.CodeBodyTooLarge,
 			"the relay returned more than %d bytes", MaxResponseBytes)
 	}
-	return resp.StatusCode, raw, req, nil
+	date, _ := http.ParseTime(resp.Header.Get("Date"))
+	return reply{status: resp.StatusCode, body: raw, req: req, sent: c.localTime(), date: date}, nil
 }
 
 func (c *Client) call(ctx context.Context, method, path string, in, out any, headers map[string]string) error {
-	status, raw, req, err := c.send(ctx, method, path, in, headers)
+	rep, err := c.send(ctx, method, path, in, headers)
 	if err != nil {
 		return err
 	}
+	status, raw := rep.status, rep.body
 	if status >= 300 {
-		return decodeError(status, raw, signatureBytes(req))
+		return explainClock(decodeError(status, raw, signatureBytes(rep.req)), rep)
 	}
 	if out == nil {
 		return nil
@@ -154,6 +164,30 @@ func (c *Client) asVaultID(vaultID protocol.ID, err error) error {
 			c.base.String(), vaultID, err)
 	}
 	return err
+}
+
+func (c *Client) localTime() time.Time {
+	if c.signer != nil && c.signer.Now != nil {
+		return c.signer.Now()
+	}
+	return time.Now()
+}
+
+func explainClock(err error, rep reply) error {
+	if protocol.CodeOf(err) != protocol.CodeSignatureExpired {
+		return err
+	}
+	if rep.date.IsZero() {
+		return fmt.Errorf("the relay refused this request's timestamp, so this machine's clock and the relay's disagree; "+
+			"make sure both set their time automatically, then try again: %w", err)
+	}
+	skew := rep.sent.Sub(rep.date).Round(time.Minute)
+	direction := "ahead of"
+	if skew < 0 {
+		skew, direction = -skew, "behind"
+	}
+	return fmt.Errorf("the relay refused this request's timestamp: this machine's clock is %s %s the relay's; "+
+		"make sure both set their time automatically, then try again: %w", skew, direction, err)
 }
 
 type UnreachableError struct {
@@ -273,11 +307,12 @@ type PutResult struct {
 func (c *Client) PutRecord(ctx context.Context, env *protocol.Envelope) (*PutResult, error) {
 	out := *env
 	out.Seq = 0
-	status, raw, req, err := c.send(ctx, http.MethodPut, "/v1/records/"+env.Context.RecordID.String(), out,
+	rep, err := c.send(ctx, http.MethodPut, "/v1/records/"+env.Context.RecordID.String(), out,
 		map[string]string{httpsig.HeaderIdempotency: env.Context.MutationID.String()})
 	if err != nil {
 		return nil, err
 	}
+	status, raw := rep.status, rep.body
 	if status < 300 {
 		var accepted protocol.PutRecordResponse
 		if err := json.Unmarshal(raw, &accepted); err != nil {
@@ -288,10 +323,10 @@ func (c *Client) PutRecord(ctx context.Context, env *protocol.Envelope) (*PutRes
 
 	var body protocol.ErrorResponse
 	if err := json.Unmarshal(raw, &body); err != nil || !protocol.KnownCode(body.Error.Code) {
-		return nil, decodeError(status, raw, signatureBytes(req))
+		return nil, decodeError(status, raw, signatureBytes(rep.req))
 	}
 	if body.Error.Code != protocol.CodeParentMismatch {
-		return nil, c.asMember(&protocol.Error{Code: body.Error.Code, Message: body.Error.Message, Detail: body.Error.Detail})
+		return nil, c.asMember(explainClock(&protocol.Error{Code: body.Error.Code, Message: body.Error.Message, Detail: body.Error.Detail}, rep))
 	}
 	if body.Head == nil {
 		return nil, protocol.Errorf(protocol.CodeInternal,
