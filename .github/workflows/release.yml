@@ -197,12 +197,29 @@ jobs:
           audited or used by anyone but its author.
           EOF
 
+      # Uploads to uploads.github.com answer 500 often enough to lose a release
+      # that attaches its files in one call. The release is staged as a draft,
+      # each file is uploaded on its own with retries, and the draft is only
+      # published once every file is attached, so a rerun resumes instead of
+      # starting over.
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -eux
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --notes-file notes.md \
-            dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" --draft --title "${tag}" --notes-file notes.md
+          fi
+          for file in dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle; do
+            attempt=1
+            until gh release upload "${tag}" "${file}" --clobber; do
+              if [ "${attempt}" -ge 5 ]; then
+                echo "uploading ${file} failed five times" >&2
+                exit 1
+              fi
+              sleep $(( attempt * 15 ))
+              attempt=$(( attempt + 1 ))
+            done
+          done
+          gh release edit "${tag}" --draft=false
