@@ -1326,3 +1326,36 @@ an older client keeps working with a small vault. The nginx example allows
 256 MiB bodies. `TestALargeVaultConnectsPairsAndRecovers` connects, pairs, and
 recovers a 261-host vault, and fails with the original error if either upload
 goes back to JSON. The relay and clients have to be upgraded together.
+
+## D41 — The daemon wrote the export, where macOS privacy rules and existing files got in the way
+
+- Found: reading `handleExport` while checking where a launchd-started daemon writes
+- Severity: an export into `~/Documents`, `~/Desktop`, or `~/Downloads` could be refused under launchd, and an export onto an existing path overwrote it
+- Fixed in: `internal/control/protocol.go`, `internal/control/client.go`, `internal/daemon/sync.go`, `internal/daemon/handlers.go`, `internal/cli/sync.go`
+
+### What happened
+
+`sshstate export <path>` sent the path to the daemon, and the daemon called
+`os.WriteFile`. The daemon is the wrong process to write a path the user chose:
+under launchd it has its own TCC identity, so the protected folders a user
+exports into are refused for reasons the CLI cannot explain, and `os.WriteFile`
+truncates whatever is already there. The CLI's existence check ran before the
+archive was built, so it did not bound what the daemon then wrote.
+
+### Why it survived until a test found it
+
+Every export test wrote into a temporary directory, which no privacy rule
+protects, and the overwrite test only proved the CLI's own pre-check refused a
+second run. Nothing exercised the path the daemon actually took.
+
+### Fix
+
+The daemon streams the sealed archive over `GET /v1/export` with the record and
+conflict counts in response headers, bounded by the same 256 MiB streamed limit.
+The CLI creates the file with `O_EXCL` and mode 0600, fsyncs it, removes it if
+writing fails, and only then asks the daemon to record that the export happened,
+which is what `uninstall --purge` checks. `TestExportOverAMegabyteIsWrittenByTheCLI`
+exports a 261-host vault, so it also covers a reply larger than the 1 MiB JSON
+bound, and fails if the archive is read through that bound or the mode changes.
+`TestExportRefusesToOverwrite` now fails if the open stops being exclusive.
+

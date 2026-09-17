@@ -3,11 +3,22 @@
 
 package control
 
-import "time"
+import (
+	"time"
+
+	"github.com/mouizahmed/sshstate/internal/crypto"
+)
 
 const APIVersion = "v1"
 
 const MaxRequestBytes = 1 << 20
+
+const MaxExportBytes = crypto.MaxStreamBytes
+
+const (
+	HeaderExportRecords   = "Sshstate-Export-Records"
+	HeaderExportConflicts = "Sshstate-Export-Conflicts"
+)
 
 const (
 	RouteStatus            = "/" + APIVersion + "/status"
@@ -35,6 +46,7 @@ const (
 	RouteDevices           = "/" + APIVersion + "/devices"
 	RouteRevoke            = "/" + APIVersion + "/revoke"
 	RouteExport            = "/" + APIVersion + "/export"
+	RouteExportRecord      = "/" + APIVersion + "/export/record"
 	RouteConflicts         = "/" + APIVersion + "/conflicts"
 	RouteResolve           = "/" + APIVersion + "/conflicts/resolve"
 	RoutePairApprove       = "/" + APIVersion + "/pair/approve"
@@ -314,16 +326,14 @@ type RevokeResponse struct {
 	ThisDevice bool   `json:"this_device"`
 }
 
-type ExportRequest struct {
+type ExportRecordRequest struct {
 	Path string `json:"path"`
 }
 
-type ExportResponse struct {
-	Path      string `json:"path"`
-	Bytes     int    `json:"bytes"`
-	Records   int    `json:"records"`
-	Conflicts int    `json:"conflicts"`
-	Seq       string `json:"seq"`
+type Export struct {
+	Body      []byte
+	Records   int
+	Conflicts int
 }
 
 type ConflictView struct {

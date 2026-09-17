@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -233,9 +234,63 @@ func (c *Client) Revoke(ctx context.Context, req RevokeRequest) (*RevokeResponse
 	return &out, c.do(ctx, http.MethodPost, RouteRevoke, req, &out)
 }
 
-func (c *Client) Export(ctx context.Context, path string) (*ExportResponse, error) {
-	var out ExportResponse
-	return &out, c.do(ctx, http.MethodPost, RouteExport, ExportRequest{Path: path}, &out)
+func (c *Client) Export(ctx context.Context) (*Export, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://sshstate"+RouteExport, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		var opErr *net.OpError
+		if errors.As(err, &opErr) {
+			return nil, ErrDaemonUnavailable
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, MaxRequestBytes))
+		if err != nil {
+			return nil, err
+		}
+		var e Error
+		if err := json.Unmarshal(raw, &e); err != nil || e.Error == "" {
+			return nil, &APIError{Status: resp.StatusCode, Message: fmt.Sprintf("daemon returned %s", resp.Status)}
+		}
+		return nil, &APIError{Status: resp.StatusCode, Message: e.Error, Code: e.Code}
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxExportBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > MaxExportBytes {
+		return nil, fmt.Errorf("the export exceeds %d bytes", MaxExportBytes)
+	}
+	out := &Export{Body: body}
+	if out.Records, err = headerCount(resp.Header, HeaderExportRecords); err != nil {
+		return nil, err
+	}
+	if out.Conflicts, err = headerCount(resp.Header, HeaderExportConflicts); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func headerCount(h http.Header, name string) (int, error) {
+	raw := h.Get(name)
+	if raw == "" {
+		return 0, fmt.Errorf("the daemon did not send %s", name)
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("the daemon sent %s as %q", name, raw)
+	}
+	return n, nil
+}
+
+func (c *Client) RecordExport(ctx context.Context, path string) error {
+	return c.do(ctx, http.MethodPost, RouteExportRecord, ExportRecordRequest{Path: path}, nil)
 }
 
 func (c *Client) Conflicts(ctx context.Context) (*ConflictsResponse, error) {

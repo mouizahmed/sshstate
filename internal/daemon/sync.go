@@ -9,8 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/mouizahmed/sshstate/internal/control"
@@ -374,7 +373,25 @@ func (d *Daemon) buildExport() ([]byte, *vault.ExportSnapshot, error) {
 }
 
 func (d *Daemon) handleExport(w http.ResponseWriter, r *http.Request) {
-	var req control.ExportRequest
+	sealed, snapshot, err := d.buildExport()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(sealed) > control.MaxExportBytes {
+		writeError(w, fmt.Errorf("this export is %d bytes, the limit is %d", len(sealed), control.MaxExportBytes))
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(sealed)))
+	w.Header().Set(control.HeaderExportRecords, strconv.Itoa(vault.LiveCount(snapshot.Records)))
+	w.Header().Set(control.HeaderExportConflicts, strconv.Itoa(len(snapshot.Conflicts)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(sealed)
+}
+
+func (d *Daemon) handleExportRecord(w http.ResponseWriter, r *http.Request) {
+	var req control.ExportRecordRequest
 	if err := decode(r, &req); err != nil {
 		writeError(w, err)
 		return
@@ -383,34 +400,11 @@ func (d *Daemon) handleExport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("a destination path is required"))
 		return
 	}
-	sealed, snapshot, err := d.buildExport()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(req.Path), 0o700); err != nil {
-		writeError(w, err)
-		return
-	}
-	if err := os.WriteFile(req.Path, sealed, 0o600); err != nil {
-		writeError(w, err)
-		return
-	}
 	if err := d.mgr.RecordExport(req.Path); err != nil {
 		writeError(w, err)
 		return
 	}
-	cursor := "0"
-	if raw, err := d.mgr.Store().Cursor(vault.CursorRecords); err == nil {
-		cursor = raw
-	}
-	writeJSON(w, http.StatusOK, control.ExportResponse{
-		Path:      req.Path,
-		Bytes:     len(sealed),
-		Records:   vault.LiveCount(snapshot.Records),
-		Conflicts: len(snapshot.Conflicts),
-		Seq:       cursor,
-	})
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (d *Daemon) handleConflicts(w http.ResponseWriter, r *http.Request) {

@@ -195,16 +195,17 @@ func runExport(ctx context.Context, env *Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists; choose another path", path)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	out, err := env.Client().Export(ctx, path)
+	out, err := env.Client().Export(ctx)
 	if err != nil {
 		return env.hint(err)
 	}
-	env.printf("Wrote %s (%d bytes, %s, %s).\n", out.Path, out.Bytes,
+	if err := writeExport(path, out.Body); err != nil {
+		return err
+	}
+	if err := env.Client().RecordExport(ctx, path); err != nil {
+		return env.hint(err)
+	}
+	env.printf("Wrote %s (%d bytes, %s, %s).\n", path, len(out.Body),
 		count(out.Records, "record", "records"),
 		count(out.Conflicts, "conflict", "conflicts"))
 	env.printf("\nIt is encrypted to your recovery kit and to nothing else, so the kit is\n")
@@ -212,6 +213,36 @@ func runExport(ctx context.Context, env *Env, args []string) error {
 	env.printf("\nThis restores access to what it contains. It is not a backup of the\n")
 	env.printf("relay: storage that is gone is gone.\n")
 	return nil
+}
+
+func writeExport(path string, body []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("%s already exists; choose another path", path)
+	}
+	if err != nil {
+		return err
+	}
+	if err := writeAndSync(f, body); err != nil {
+		f.Close()
+		os.Remove(path)
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+func writeAndSync(f *os.File, body []byte) error {
+	if _, err := f.Write(body); err != nil {
+		return err
+	}
+	return f.Sync()
 }
 
 func runConflicts(ctx context.Context, env *Env, args []string) error {

@@ -294,6 +294,40 @@ func TestExportWorksOffline(t *testing.T) {
 	}
 }
 
+func TestExportOverAMegabyteIsWrittenByTheCLI(t *testing.T) {
+	s, _ := ready(t)
+	var cfg strings.Builder
+	for i := range 260 {
+		fmt.Fprintf(&cfg, "Host bulk%03d\n HostName 10.9.%d.%d\n User deploy\n\n", i, i/250, i%250)
+	}
+	source := filepath.Join(t.TempDir(), "bulk.cfg")
+	if err := os.WriteFile(source, []byte(cfg.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.mustRun(t, "import", source)
+
+	path := filepath.Join(t.TempDir(), "large.export")
+	s.mustRun(t, "export", path)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() <= 1<<20 {
+		t.Fatalf("the export is %d bytes, which does not exercise a reply past the json limit", info.Size())
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("the export is mode %o", perm)
+	}
+	st, err := s.Env.Client().Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.LastExportPath != path {
+		t.Fatalf("the daemon recorded %q as the last export, want %q", st.LastExportPath, path)
+	}
+}
+
 func TestConflictsIsEmptyOnAQuietVault(t *testing.T) {
 	s, _ := ready(t)
 	s.out.Reset()
