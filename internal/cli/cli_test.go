@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/mouizahmed/sshstate/internal/control"
 	"github.com/mouizahmed/sshstate/internal/paths"
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
@@ -309,6 +310,17 @@ func TestLocalWorkflow(t *testing.T) {
 	}
 	if _, err := os.Stat(keyPath); err != nil {
 		t.Fatalf("uninstall removed the user's source key: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		_, err := s.Env.Client().Status(context.Background())
+		if errors.Is(err, control.ErrDaemonUnavailable) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("uninstall left the daemon running: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

@@ -159,9 +159,10 @@ already accepted does not prompt again. Scripts pass `--import-trust` or
 `--skip-trust`; without one, a noninteractive install refuses rather than
 choosing for you.
 
-`uninstall` removes the `Include` and leaves the vault, your keys, your SSH
-config and your `known_hosts` alone. If the vault is connected to a relay it
-offers to deregister this device first, and says plainly when it could not.
+`uninstall` stops the daemon, removes the `Include`, and leaves the vault, your
+keys, your SSH config and your `known_hosts` alone. If the vault is connected to
+a relay it offers to deregister this device first, and says plainly when it could
+not.
 `--purge` additionally deletes the vault, and only after you have taken a backup
 that is still on disk and typed the vault id back.
 

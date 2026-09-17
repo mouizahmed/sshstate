@@ -693,6 +693,9 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 			env.printf("Unregistered the %s service.\n", mgr.Name())
 		}
 	}
+	if err := env.Client().Shutdown(ctx); err != nil && !errors.Is(err, control.ErrDaemonUnavailable) {
+		return fmt.Errorf("stop the daemon before uninstalling: %w", err)
+	}
 	res, err := sshconfig.Uninstall(env.Layout)
 	var symlink *sshconfig.SymlinkError
 	if errors.As(err, &symlink) {

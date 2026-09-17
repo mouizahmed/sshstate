@@ -412,8 +412,9 @@ devices you no longer control, then take a new encrypted export.
 sshstate uninstall
 ```
 
-This removes the managed `Include` from `~/.ssh/config`, unregisters the local
-service, and preserves the encrypted vault and your SSH files. Host blocks that
+This stops the daemon, removes the managed `Include` from `~/.ssh/config`,
+unregisters the local service, and preserves the encrypted vault and your SSH
+files. Host blocks that
 `setup --import` or `import --comment-source` commented out are reactivated, so
 those aliases keep working through your own config. They are your definitions
 from before sshstate managed them; edits made in sshstate since then are not in
