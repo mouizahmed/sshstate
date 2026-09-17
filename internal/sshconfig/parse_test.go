@@ -91,6 +91,8 @@ func TestRejectsWhatIsNotInTheSubset(t *testing.T) {
 		{"jump with user", "Host a\n HostName h\n ProxyJump me@b\n", "carries a user or port", 3},
 		{"jump with port", "Host a\n HostName h\n ProxyJump b:22\n", "carries a user or port", 3},
 		{"duplicate host", "Host a\n HostName h\nHost a\n HostName i\n", "already defined on line 1", 3},
+		{"identity token", "Host a\n HostName h\n IdentityFile %d/.ssh/id_ed25519\n", "OpenSSH % token", 3},
+		{"hostname token", "Host a\n HostName %h.example.com\n", "OpenSSH % token", 2},
 		{"duplicate directive", "Host a\n HostName h\n HostName i\n", "set twice", 3},
 		{"unbalanced quote", "Host \"a\n", "unbalanced quote", 1},
 		{"empty quoted alias", "Host \"\"\n HostName h\n", "empty alias", 1},

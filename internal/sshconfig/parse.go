@@ -145,6 +145,10 @@ func ParseImport(text string) ([]ImportedHost, []ImportProblem) {
 
 		switch lowered {
 		case "hostname":
+			if strings.Contains(args[0], "%") {
+				fail(line, "HostName %s uses an OpenSSH %% token; write the host name instead", args[0])
+				continue
+			}
 			current.HostName = args[0]
 		case "user":
 			current.User = args[0]
@@ -165,6 +169,10 @@ func ParseImport(text string) ([]ImportedHost, []ImportProblem) {
 		case "identityfile":
 			if len(args) != 1 {
 				fail(line, "IdentityFile takes one path, got %d", len(args))
+				continue
+			}
+			if strings.Contains(args[0], "%") {
+				fail(line, "IdentityFile %s uses an OpenSSH %% token; write the full path instead", args[0])
 				continue
 			}
 			current.IdentityFiles = append(current.IdentityFiles, args[0])
