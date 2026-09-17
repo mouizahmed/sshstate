@@ -77,8 +77,17 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 	default:
 		env.printf("Connected to %s.\n", out.URL)
 	}
-	if out.Rejoined {
+	switch {
+	case out.Seeded:
+		env.printf("Uploaded %s", count(out.Restored, "record", "records"))
+	case out.Rejoined && out.Restored == 0:
+		env.printf("The relay already had every record this machine holds")
+	case out.Rejoined:
 		env.printf("Put %s back on the relay", count(out.Restored, "record", "records"))
+	default:
+		env.printf("Published %s.\n", count(out.Uploaded, "record", "records"))
+	}
+	if out.Rejoined {
 		if out.MembershipRestored > 0 {
 			env.printf(" and %s", count(out.MembershipRestored, "device-list change", "device-list changes"))
 		}
@@ -91,13 +100,11 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 				count(out.KeptAside, "edit", "edits"))
 			env.printf("Review them with: sshstate conflicts\n")
 		}
-	} else {
-		env.printf("Published %s.\n", count(out.Uploaded, "record", "records"))
 	}
 	switch {
-	case out.Seeded:
+	case out.Rejoined:
 		env.printf("\nEvery other machine in this vault continues with: sshstate connect %s --rejoin\n", out.URL)
-	case !out.Bootstrap:
+	case !out.Bootstrap && !*rejoin:
 		env.printf("\nOther machines already in this vault switch with: sshstate connect %s\n", out.URL)
 	}
 	env.printf("To add a new machine, run there: sshstate pair %s %s\n", out.URL, out.VaultID)

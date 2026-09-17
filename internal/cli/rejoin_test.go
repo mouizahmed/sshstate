@@ -73,7 +73,7 @@ func TestOtherMachinesRejoinARelayStartedFromOneOfThem(t *testing.T) {
 	}
 	b.out.Reset()
 	b.mustRun(t, "connect", fresh.url, "--rejoin")
-	if got := b.out.String(); !strings.Contains(got, "Rejoined "+fresh.url) {
+	if got := b.out.String(); !strings.Contains(got, "Rejoined "+fresh.url) || !strings.Contains(got, "continues with: sshstate connect "+fresh.url+" --rejoin") {
 		t.Fatalf("rejoining did not say so:\n%s", got)
 	}
 	if got := hostsOf(t, b); !strings.Contains(got, "ubuntu@10.0.0.5:2301") || !strings.Contains(got, "cache") || !strings.Contains(got, "from-c") {
