@@ -51,7 +51,10 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 		env.printf("Connected to %s.\n", out.URL)
 	}
 	env.printf("Published %s.\n", count(out.Uploaded, "record", "records"))
-	env.printf("\nOn another machine, enrol it with: sshstate pair\n")
+	if !out.Bootstrap {
+		env.printf("\nOther machines already in this vault switch with: sshstate connect %s\n", out.URL)
+	}
+	env.printf("To add a new machine, run there: sshstate pair %s %s\n", out.URL, out.VaultID)
 	return nil
 }
 

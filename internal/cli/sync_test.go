@@ -836,6 +836,41 @@ func TestRecoveryAfterARevocationKnowsOfIt(t *testing.T) {
 	recoverDevice(t, r, a, kitPath)
 }
 
+func TestAMovedRelayIsReachedAtItsNewAddress(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	connected := a.out.String()
+	vaultID := vaultIDOf(t, a)
+	if got := connected; !strings.Contains(got, "sshstate pair "+r.url+" "+vaultID) {
+		t.Fatalf("connect did not say how to add a machine:\n%s", got)
+	}
+	b := pairInto(t, r.url, a, vaultID, "b's own password")
+
+	moved := httptest.NewServer(relay.NewServer(r.store, relay.Config{PublicHTTPS: false}).Handler())
+	t.Cleanup(moved.Close)
+
+	a.out.Reset()
+	a.mustRun(t, "connect", moved.URL)
+	if got := a.out.String(); !strings.Contains(got, "sshstate connect "+moved.URL) {
+		t.Fatalf("reconnecting did not say how the other machines follow:\n%s", got)
+	}
+	a.mustRun(t, "edit", "prod", "--port", "2210")
+	a.mustRun(t, "sync")
+
+	b.mustRun(t, "connect", moved.URL)
+	b.out.Reset()
+	b.mustRun(t, "hosts")
+	if got := b.out.String(); !strings.Contains(got, "ubuntu@10.0.0.5:2210") {
+		t.Fatalf("an edit made after the move did not arrive:\n%s", got)
+	}
+	b.out.Reset()
+	b.mustRun(t, "status")
+	if got := b.out.String(); !strings.Contains(got, moved.URL) {
+		t.Fatalf("the vault does not point at the moved relay:\n%s", got)
+	}
+}
+
 func TestBootstrappingASecondRelayIsRefusedBeforeTheSecretIsSpent(t *testing.T) {
 	first := newTestRelay(t)
 	second := newTestRelay(t)

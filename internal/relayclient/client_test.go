@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -425,6 +426,43 @@ func TestAnUnreachableRelayIsExplained(t *testing.T) {
 	if got := err.Error(); !strings.HasPrefix(got, "cannot reach the relay at "+url+": ") || !strings.Contains(got, "connection refused") {
 		t.Fatalf("unhelpful message: %s", got)
 	}
+}
+
+func TestAProxyWhoseRelayIsDownIsExplained(t *testing.T) {
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(status)
+			w.Write([]byte("<html>gateway</html>"))
+		}))
+		client, err := New(Options{BaseURL: srv.URL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = client.RecoveryChallenge(context.Background(), protocol.MustNewID())
+		srv.Close()
+		var unreachable *UnreachableError
+		if !errors.As(err, &unreachable) {
+			t.Fatalf("HTTP %d: want an UnreachableError, got %v", status, err)
+		}
+		if got := err.Error(); !strings.HasPrefix(got, "cannot reach the relay at "+srv.URL+": the proxy in front of it answered HTTP "+strconv.Itoa(status)) {
+			t.Fatalf("HTTP %d: unhelpful message: %s", status, got)
+		}
+	}
+}
+
+func TestARelayErrorOnAGatewayStatusIsKept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"error":{"code":"rate_limited","message":"slow down"}}`))
+	}))
+	defer srv.Close()
+	client, err := New(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RecoveryChallenge(context.Background(), protocol.MustNewID())
+	mustCode(t, err, protocol.CodeRateLimited)
 }
 
 func TestARelayThatLostTheVaultSaysSo(t *testing.T) {

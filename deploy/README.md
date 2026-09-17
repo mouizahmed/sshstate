@@ -183,6 +183,37 @@ Back up the complete `relay-data` volume while the relay is stopped, or use a
 storage-native transactionally consistent snapshot. Copying only `relay.db`
 while its WAL may contain committed writes is not a valid backup.
 
+#### Moving the relay to another host or address
+
+The vault is not tied to the relay's host, address, or certificate, so a move is
+a copy of the stopped volume:
+
+1. Sync every machine: `sshstate sync`.
+2. Stop the old relay so it accepts no more writes: `docker compose stop`.
+3. Copy the volume to the new host, for example:
+   ```sh
+   docker run --rm -v deploy_relay-data:/from -v "$PWD":/to busybox \
+     tar -C /from -czf /to/relay-data.tgz .
+   ```
+   and on the new host, into a volume named for its Compose project:
+   ```sh
+   docker volume create deploy_relay-data
+   docker run --rm -v deploy_relay-data:/to -v "$PWD":/from busybox \
+     tar -C /to -xzpf /from/relay-data.tgz
+   ```
+   Keep the owner `65532:65532`; `tar -p` preserves it.
+4. Start the new relay with the same Compose file and its HTTPS proxy. It does
+   not need a new bootstrap secret: bootstrap was already spent and stays spent.
+5. If the address changed, run `sshstate connect <new-url>` on every machine,
+   **without** `--bootstrap-secret`. If only DNS or the proxy moved and the URL
+   is the same, the machines need nothing.
+6. Remove the old relay once every machine has synced with the new one. Never
+   run both: two relays accepting writes for one vault diverge.
+
+While the old relay is down and a machine still points at it, `sshstate sync`
+says it cannot reach the relay at the old address; that machine only needs the
+`connect` in step 5.
+
 The recovery kit restores *access* to retained ciphertext — it is not a backup
 of storage that no longer exists (project brief §7.2). Keep an encrypted client
 export as well; it carries its own checkpoint and works with the relay

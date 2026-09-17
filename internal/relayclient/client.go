@@ -121,6 +121,11 @@ func (c *Client) transfer(ctx context.Context, method, path string, body []byte,
 		return reply{}, protocol.Errorf(protocol.CodeBodyTooLarge,
 			"the relay returned more than %d bytes", limit)
 	}
+	if gatewayFailure(resp.StatusCode) {
+		if _, ok := relayErrorBody(raw); !ok {
+			return reply{}, &UnreachableError{URL: c.base.String(), Err: gatewayError(resp.StatusCode)}
+		}
+	}
 	date, _ := http.ParseTime(resp.Header.Get("Date"))
 	return reply{status: resp.StatusCode, body: raw, req: req, sent: c.localTime(), date: date}, nil
 }
@@ -212,7 +217,10 @@ func unreachableCause(err error) string {
 	var invalid x509.CertificateInvalidError
 	var dns *net.DNSError
 	var netErr net.Error
+	var gateway gatewayError
 	switch {
+	case errors.As(err, &gateway):
+		return fmt.Sprintf("the proxy in front of it answered %s, so the relay behind that proxy is not running or the proxy cannot reach it", gateway)
 	case errors.As(err, &unknownAuthority):
 		return "its TLS certificate is not signed by an authority this machine trusts"
 	case errors.As(err, &hostname):
@@ -240,9 +248,25 @@ func signatureBytes(r *http.Request) int {
 	return len(r.Header.Get(httpsig.HeaderSignature))
 }
 
-func decodeError(status int, raw []byte, signatureHeaderBytes int) error {
+func relayErrorBody(raw []byte) (protocol.ErrorResponse, bool) {
 	var body protocol.ErrorResponse
 	if err := json.Unmarshal(raw, &body); err != nil || !protocol.KnownCode(body.Error.Code) {
+		return body, false
+	}
+	return body, true
+}
+
+type gatewayError int
+
+func (g gatewayError) Error() string { return fmt.Sprintf("HTTP %d", int(g)) }
+
+func gatewayFailure(status int) bool {
+	return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+}
+
+func decodeError(status int, raw []byte, signatureHeaderBytes int) error {
+	body, ok := relayErrorBody(raw)
+	if !ok {
 		hint := ""
 		if status >= 400 && status < 500 && signatureHeaderBytes > 4000 {
 			hint = fmt.Sprintf("\nThe request carried a %d-byte %s header. "+
@@ -360,8 +384,8 @@ func (c *Client) PutRecord(ctx context.Context, env *protocol.Envelope) (*PutRes
 		return &PutResult{Accepted: true, Seq: accepted.Seq, Digest: accepted.Digest}, nil
 	}
 
-	var body protocol.ErrorResponse
-	if err := json.Unmarshal(raw, &body); err != nil || !protocol.KnownCode(body.Error.Code) {
+	body, ok := relayErrorBody(raw)
+	if !ok {
 		return nil, decodeError(status, raw, signatureBytes(rep.req))
 	}
 	if body.Error.Code != protocol.CodeParentMismatch {
