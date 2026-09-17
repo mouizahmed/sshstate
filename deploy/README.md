@@ -86,7 +86,7 @@ cannot, so the signature is over the digest.
 
 ```sh
 digest=$(docker buildx imagetools inspect \
-  ghcr.io/mouizahmed/sshstate-server:v0.1.3 --format '{{.Manifest.Digest}}')
+  ghcr.io/mouizahmed/sshstate-server:v0.1.4 --format '{{.Manifest.Digest}}')
 
 cosign verify "ghcr.io/mouizahmed/sshstate-server@${digest}" \
   --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
