@@ -17,10 +17,10 @@ import (
 	"github.com/mouizahmed/sshstate/internal/crypto"
 )
 
-var laterMilestones = map[string]string{
-	"rotate-master-key": "master key rotation ships before stable v1",
-	"rotation-status":   "ships with rotation",
-	"rotation-resume":   "ships with rotation",
+var unimplementedVerbs = map[string]string{
+	"rotate-master-key": "master key rotation is not implemented",
+	"rotation-status":   "master key rotation status is not implemented",
+	"rotation-resume":   "master key rotation resume is not implemented",
 }
 
 var withdrawn = map[string]string{
@@ -44,13 +44,13 @@ func usage(env *cli.Env) string {
 	}
 
 	b.WriteString("\nNot yet implemented:\n")
-	names := make([]string, 0, len(laterMilestones))
-	for name := range laterMilestones {
+	names := make([]string, 0, len(unimplementedVerbs))
+	for name := range unimplementedVerbs {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		fmt.Fprintf(&b, "  %-18s %s\n", name, laterMilestones[name])
+		fmt.Fprintf(&b, "  %-18s %s\n", name, unimplementedVerbs[name])
 	}
 	b.WriteString("\nNew here? Run: sshstate setup\n")
 	b.WriteString("Help for one command: sshstate <command> --help\n")
@@ -104,7 +104,7 @@ func dispatch(env *cli.Env, name string, rest []string) error {
 			return err
 		}
 	}
-	if reason, ok := laterMilestones[name]; ok {
+	if reason, ok := unimplementedVerbs[name]; ok {
 		return fmt.Errorf("%q is not implemented yet: %s", name, reason)
 	}
 	if reason, ok := withdrawn[name]; ok {

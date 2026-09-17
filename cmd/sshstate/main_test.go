@@ -35,7 +35,7 @@ func TestUsageDoesNotAdvertiseAVerbItAlsoDefers(t *testing.T) {
 	for _, c := range cli.Commands() {
 		registered[c.Name] = true
 	}
-	for name := range laterMilestones {
+	for name := range unimplementedVerbs {
 		if registered[name] {
 			t.Errorf("%q is both implemented and listed as not yet implemented", name)
 		}
@@ -44,14 +44,14 @@ func TestUsageDoesNotAdvertiseAVerbItAlsoDefers(t *testing.T) {
 		if registered[name] {
 			t.Errorf("%q is both implemented and listed as withdrawn", name)
 		}
-		if laterMilestones[name] != "" {
+		if unimplementedVerbs[name] != "" {
 			t.Errorf("%q is both deferred and withdrawn", name)
 		}
 	}
 }
 
 func TestDeferredVerbsExplainThemselves(t *testing.T) {
-	for name, reason := range laterMilestones {
+	for name, reason := range unimplementedVerbs {
 		if reason == "" {
 			t.Errorf("%q is deferred with no reason", name)
 		}
@@ -76,7 +76,7 @@ func runWith(t *testing.T, args ...string) error {
 }
 
 func TestRunReportsAnUnimplementedVerb(t *testing.T) {
-	for name, reason := range laterMilestones {
+	for name, reason := range unimplementedVerbs {
 		err := runWith(t, name)
 		if err == nil {
 			t.Fatalf("%q ran", name)

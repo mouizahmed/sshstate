@@ -84,7 +84,7 @@ func (s *Server) Handler() http.Handler {
 	} {
 		mux.HandleFunc(pattern, s.wrap(func(w http.ResponseWriter, r *http.Request, req *request) error {
 			return protocol.Errorf(protocol.CodeNotImplemented,
-				"rotation ships in milestone 3b; see docs/rotation.md")
+				"rotation is not implemented; see docs/rotation.md")
 		}))
 	}
 
