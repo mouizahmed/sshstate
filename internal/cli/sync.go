@@ -211,8 +211,24 @@ func runConflicts(ctx context.Context, env *Env, args []string) error {
 	env.printf("%s preserved because another device's edit was accepted first:\n\n",
 		count(len(out.Conflicts), "edit", "edits"))
 	for _, c := range out.Conflicts {
+		subject := c.Subject
+		if subject == "" {
+			subject = c.SourceRecordID
+		}
 		env.printf("  %s\n", c.RecordID)
-		env.printf("    %s %s, kept %s\n", c.SourceRecordType, c.SourceRecordID, c.PreservedAt)
+		env.printf("    %s %s, kept %s\n", strings.ReplaceAll(c.SourceRecordType, "_", " "), subject, c.PreservedAt)
+		for _, change := range c.Changes {
+			env.printf("      %s\n", change)
+		}
+		if len(c.Changes) == 0 && !c.SourceRemoved {
+			env.printf("      no difference from the current version; resolving it changes nothing\n")
+		}
+		resolve := "sshstate resolve " + c.RecordID
+		if c.SourceRemoved {
+			resolve += " --resurrect"
+		}
+		env.printf("      keep it with: %s\n", resolve)
+		env.printf("      or drop it:   sshstate resolve %s --discard\n", c.RecordID)
 	}
 	env.printf("\nNothing was lost. Acceptance order decided which version is current;\n")
 	env.printf("it is not a claim about which edit was made later.\n")
@@ -444,9 +460,13 @@ func (e *Env) purgeVault(ctx context.Context, yes bool) error {
 func runResolve(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "resolve")
 	resurrect := fs.Bool("resurrect", false, "apply the edit even though the record has since been deleted")
+	discard := fs.Bool("discard", false, "drop the kept edit and keep the current version")
 	positional, err := fs.parsePositional(args, 1)
 	if err != nil {
 		return err
+	}
+	if *discard && *resurrect {
+		return errors.New("give --discard or --resurrect, not both")
 	}
 	listed, err := env.Client().Conflicts(ctx)
 	if err != nil {
@@ -463,6 +483,7 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 	out, err := env.Client().Resolve(ctx, control.ResolveRequest{
 		RecordID:  recordID,
 		Resurrect: *resurrect,
+		Discard:   *discard,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "has been deleted") {
@@ -471,6 +492,11 @@ func runResolve(ctx context.Context, env *Env, args []string) error {
 				env.hint(err), recordID)
 		}
 		return env.hint(err)
+	}
+	if *discard {
+		env.printf("Discarded the kept edit; record %s stays as it is.\n", out.SourceRecordID)
+		env.printf("Publish with: sshstate sync\n")
+		return nil
 	}
 	env.printf("Applied the preserved edit to record %s.\n", out.SourceRecordID)
 	env.printf("\nIt went in as an ordinary change against the current version, so if\n")

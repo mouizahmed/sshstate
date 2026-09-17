@@ -1205,3 +1205,26 @@ key is revoked, which is the documented rotation.
 `TestDevicesThatFirstSawDifferentKeysShareNeither` and
 `TestApprovingAChangedKeyPublishesItOnceTheOldOneIsRevoked` fail when
 disagreeing keys are published.
+
+## D36 — A conflict could not be understood, and could only be applied
+
+- Found: a rename on one device racing a port edit on another
+- Severity: `conflicts` listed record ids with no host name or content, and a kept edit the user did not want stayed listed forever
+- Fixed in: `internal/vault/manager_sync.go` (`describeConflict`, `DiscardConflict`), `internal/cli/sync.go`
+
+### What happened
+
+The listing printed the conflict's record id and its source record's id. To
+decide whether to apply the kept edit, a user had to guess which host it was and
+what it changed. `resolve` could only apply the edit, so choosing the current
+version meant the conflict was never retired.
+
+### Fix
+
+The listing names the host, key, or host key, and for hosts lists each field
+where the kept edit differs from the current version. It says when the record
+was removed elsewhere, and prints the exact `resolve` command, with
+`--resurrect` where needed, and the discard command. `resolve --discard`
+retires the conflict through the same path that applying uses, and the discard
+syncs. `TestConflictsShowWhatDiffersAndCanBeDiscarded` fails without the
+description, and fails if a discard does not retire the conflict.

@@ -1432,3 +1432,53 @@ func TestPairingWithAWrongVaultIDSaysWhereToFindIt(t *testing.T) {
 		t.Fatalf("an unknown session was not explained: %v", err)
 	}
 }
+
+func TestConflictsShowWhatDiffersAndCanBeDiscarded(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+
+	a.mustRun(t, "edit", "prod", "--user", "admin")
+	b.mustRun(t, "edit", "prod", "--port", "2222")
+	a.mustRun(t, "sync")
+	b.mustRun(t, "sync")
+
+	b.out.Reset()
+	b.mustRun(t, "conflicts")
+	listing := b.out.String()
+	for _, want := range []string{"host prod", "port is 22; the kept edit has 2222", "user is admin; the kept edit has ubuntu", "--discard"} {
+		if !strings.Contains(listing, want) {
+			t.Fatalf("conflicts does not say %q:\n%s", want, listing)
+		}
+	}
+	listed, err := b.Env.Client().Conflicts(context.Background())
+	if err != nil || len(listed.Conflicts) != 1 {
+		t.Fatalf("want one conflict: %+v %v", listed, err)
+	}
+	id := listed.Conflicts[0].RecordID
+
+	if err := b.run(t, "resolve", id, "--discard", "--resurrect"); err == nil {
+		t.Fatal("--discard and --resurrect were accepted together")
+	}
+	b.mustRun(t, "resolve", id, "--discard")
+	b.out.Reset()
+	b.mustRun(t, "conflicts")
+	if !strings.Contains(b.out.String(), "No conflicts") {
+		t.Fatalf("a discarded conflict is still listed:\n%s", b.out)
+	}
+	hosts, err := b.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hosts[0].Port != 22 || hosts[0].User != "admin" {
+		t.Fatalf("discarding changed the current version: %+v", hosts[0])
+	}
+	b.mustRun(t, "sync")
+	a.mustRun(t, "sync")
+	a.out.Reset()
+	a.mustRun(t, "conflicts")
+	if !strings.Contains(a.out.String(), "No conflicts") {
+		t.Fatalf("the discard did not reach the other device:\n%s", a.out)
+	}
+}

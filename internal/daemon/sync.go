@@ -435,6 +435,9 @@ func (d *Daemon) handleConflicts(w http.ResponseWriter, r *http.Request) {
 			SourceRecordID:   c.SourceRecordID.String(),
 			SourceRecordType: string(c.SourceRecordType),
 			PreservedAt:      c.PreservedAt,
+			Subject:          c.Subject,
+			Changes:          c.Changes,
+			SourceRemoved:    c.SourceRemoved,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -460,7 +463,13 @@ func (d *Daemon) handleResolve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%q is not a conflict record id", req.RecordID))
 		return
 	}
-	source, err := d.mgr.ResolveConflict(id, req.Resurrect)
+	var source protocol.ID
+	var err error
+	if req.Discard {
+		source, err = d.mgr.DiscardConflict(id)
+	} else {
+		source, err = d.mgr.ResolveConflict(id, req.Resurrect)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

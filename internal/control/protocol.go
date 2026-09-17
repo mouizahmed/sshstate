@@ -327,10 +327,13 @@ type ExportResponse struct {
 }
 
 type ConflictView struct {
-	RecordID         string `json:"record_id"`
-	SourceRecordID   string `json:"source_record_id"`
-	SourceRecordType string `json:"source_record_type"`
-	PreservedAt      string `json:"preserved_at"`
+	RecordID         string   `json:"record_id"`
+	SourceRecordID   string   `json:"source_record_id"`
+	SourceRecordType string   `json:"source_record_type"`
+	PreservedAt      string   `json:"preserved_at"`
+	Subject          string   `json:"subject,omitempty"`
+	Changes          []string `json:"changes,omitempty"`
+	SourceRemoved    bool     `json:"source_removed,omitempty"`
 }
 
 type ConflictsResponse struct {
@@ -361,6 +364,7 @@ type PairDeliverResponse struct {
 type ResolveRequest struct {
 	RecordID  string `json:"record_id"`
 	Resurrect bool   `json:"resurrect,omitempty"`
+	Discard   bool   `json:"discard,omitempty"`
 }
 
 type ResolveResponse struct {

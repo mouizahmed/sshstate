@@ -70,7 +70,7 @@ func Commands() []Command {
 		{"devices", GroupMachines, "", "list the machines that can change this vault", runDevices},
 		{"revoke", GroupMachines, "<device-id> [--yes]", "remove a machine from this vault", runRevoke},
 		{"conflicts", GroupMachines, "", "list edits kept aside when two machines changed the same thing", runConflicts},
-		{"resolve", GroupMachines, "<conflict-id> [--resurrect]", "apply an edit that was kept aside", runResolve},
+		{"resolve", GroupMachines, "<conflict-id> [--resurrect | --discard]", "apply or discard an edit that was kept aside", runResolve},
 
 		{"export", GroupBackup, "<path>", "write an encrypted backup", runExport},
 		{"restore", GroupBackup, "<export-file> --kit <kit-file> [--label name]", "rebuild this vault from a backup and the recovery kit", runRestore},

@@ -308,9 +308,13 @@ kept for review:
 
 ```sh
 sshstate conflicts
-sshstate resolve <conflict-id>   # apply the preserved edit if you choose it
+sshstate resolve <conflict-id>             # apply the preserved edit
+sshstate resolve <conflict-id> --discard   # or drop it and keep the current version
 sshstate sync
 ```
+
+`conflicts` names each host and lists the fields where the kept edit differs
+from the current version.
 
 If the record was deleted, `resolve` will explain that applying the edit would
 bring it back; use `sshstate resolve <conflict-id> --resurrect` only if that is

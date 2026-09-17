@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mouizahmed/sshstate/internal/crypto"
@@ -136,6 +137,9 @@ type Conflict struct {
 	SourceRecordID   protocol.ID
 	SourceRecordType protocol.RecordType
 	PreservedAt      string
+	Subject          string
+	Changes          []string
+	SourceRemoved    bool
 }
 
 func (m *Manager) Conflicts() ([]Conflict, error) {
@@ -151,17 +155,98 @@ func (m *Manager) Conflicts() ([]Conflict, error) {
 				if err := r.Open(env, &p); err != nil {
 					return err
 				}
-				out = append(out, Conflict{
+				c := Conflict{
 					RecordID:         env.Context.RecordID,
 					SourceRecordID:   p.SourceRecordID,
 					SourceRecordType: p.SourceRecordType,
 					PreservedAt:      p.PreservedAt,
-				})
+				}
+				m.describeConflict(r, &c, p)
+				out = append(out, c)
 			}
 		}
 		return nil
 	})
 	return out, err
+}
+
+func (m *Manager) describeConflict(r *Reader, c *Conflict, p ConflictPayload) {
+	head, _, err := m.store.Head(p.SourceRecordID)
+	if err != nil {
+		return
+	}
+	c.SourceRemoved = head.Context.Deleted
+	switch p.SourceRecordType {
+	case protocol.RecordHost:
+		var kept HostPayload
+		if json.Unmarshal(p.Candidate, &kept) != nil {
+			return
+		}
+		c.Subject = kept.Alias
+		if c.SourceRemoved {
+			c.Changes = []string{fmt.Sprintf("removed on another device; the kept edit was %s@%s:%d", kept.User, kept.HostName, kept.Port)}
+			return
+		}
+		var now HostPayload
+		if r.Open(head, &now) != nil {
+			return
+		}
+		c.Subject = now.Alias
+		jump := func(j *string) string {
+			if j == nil {
+				return "none"
+			}
+			return *j
+		}
+		keys := func(ids []protocol.ID) string {
+			if len(ids) == 0 {
+				return "none"
+			}
+			short := make([]string, 0, len(ids))
+			for _, id := range ids {
+				short = append(short, string(id)[:8])
+			}
+			return strings.Join(short, ",")
+		}
+		for _, f := range []struct{ name, now, kept string }{
+			{"alias", now.Alias, kept.Alias},
+			{"hostname", now.HostName, kept.HostName},
+			{"user", now.User, kept.User},
+			{"port", fmt.Sprint(now.Port), fmt.Sprint(kept.Port)},
+			{"jump", jump(now.ProxyJump), jump(kept.ProxyJump)},
+			{"keys", keys(now.KeyIDs), keys(kept.KeyIDs)},
+		} {
+			if f.now != f.kept {
+				c.Changes = append(c.Changes, fmt.Sprintf("%s is %s; the kept edit has %s", f.name, f.now, f.kept))
+			}
+		}
+	case protocol.RecordKey:
+		var kept KeyPayload
+		if json.Unmarshal(p.Candidate, &kept) != nil {
+			return
+		}
+		c.Subject = kept.Fingerprint
+		if kept.Comment != "" {
+			c.Subject = kept.Comment + " (" + kept.Fingerprint + ")"
+		}
+		if c.SourceRemoved {
+			c.Changes = []string{"removed on another device"}
+		}
+	case protocol.RecordKnownHost:
+		var kept KnownHostPayload
+		if json.Unmarshal(p.Candidate, &kept) != nil {
+			return
+		}
+		c.Subject = kept.Fingerprint
+		if c.SourceRemoved {
+			c.Changes = []string{"removed on another device"}
+			return
+		}
+		var now KnownHostPayload
+		if r.Open(head, &now) == nil && now.Status != kept.Status {
+			c.Changes = []string{fmt.Sprintf("status is %s; the kept edit has %s", now.Status, kept.Status)}
+		}
+	}
 }
 
 type ExportSnapshot struct {
@@ -392,21 +477,61 @@ func (m *Manager) Identity() (protocol.ID, *crypto.SigningKey, *crypto.Encryptio
 
 var ErrConflictSourceDeleted = errors.New("the record this edit belonged to has been deleted")
 
+func (m *Manager) openConflict(r *Reader, conflictID protocol.ID) (*protocol.Envelope, []byte, ConflictPayload, error) {
+	var payload ConflictPayload
+	conflictEnv, conflictDigest, err := m.store.Head(conflictID)
+	if err != nil {
+		return nil, nil, payload, fmt.Errorf("no such conflict %s: %w", conflictID, err)
+	}
+	if conflictEnv.Context.Deleted {
+		return nil, nil, payload, fmt.Errorf("conflict %s was already resolved", conflictID)
+	}
+	if err := r.Open(conflictEnv, &payload); err != nil {
+		return nil, nil, payload, err
+	}
+	if err := payload.Validate(); err != nil {
+		return nil, nil, payload, err
+	}
+	return conflictEnv, conflictDigest, payload, nil
+}
+
+func retirement(w *Writer, conflictEnv *protocol.Envelope, conflictDigest []byte) (*protocol.Envelope, error) {
+	retireID, err := protocol.NewID()
+	if err != nil {
+		return nil, err
+	}
+	return w.Seal(Mutation{
+		RecordID:     conflictEnv.Context.RecordID,
+		RecordType:   conflictEnv.Context.RecordType,
+		Rev:          conflictEnv.Context.Rev + 1,
+		ParentDigest: conflictDigest,
+		MutationID:   retireID,
+		Deleted:      true,
+	}, nil)
+}
+
+func (m *Manager) DiscardConflict(conflictID protocol.ID) (protocol.ID, error) {
+	var sourceID protocol.ID
+	err := m.mutate(func(s *session, w *Writer, r *Reader) error {
+		conflictEnv, conflictDigest, payload, err := m.openConflict(r, conflictID)
+		if err != nil {
+			return err
+		}
+		sourceID = payload.SourceRecordID
+		retire, err := retirement(w, conflictEnv, conflictDigest)
+		if err != nil {
+			return err
+		}
+		return m.store.ApplyLocal(retire)
+	})
+	return sourceID, err
+}
+
 func (m *Manager) ResolveConflict(conflictID protocol.ID, resurrect bool) (protocol.ID, error) {
 	var sourceID protocol.ID
 	err := m.mutate(func(s *session, w *Writer, r *Reader) error {
-		conflictEnv, conflictDigest, err := m.store.Head(conflictID)
+		conflictEnv, conflictDigest, payload, err := m.openConflict(r, conflictID)
 		if err != nil {
-			return fmt.Errorf("no such conflict %s: %w", conflictID, err)
-		}
-		if conflictEnv.Context.Deleted {
-			return fmt.Errorf("conflict %s was already resolved", conflictID)
-		}
-		var payload ConflictPayload
-		if err := r.Open(conflictEnv, &payload); err != nil {
-			return err
-		}
-		if err := payload.Validate(); err != nil {
 			return err
 		}
 		sourceID = payload.SourceRecordID
@@ -434,18 +559,7 @@ func (m *Manager) ResolveConflict(conflictID protocol.ID, resurrect bool) (proto
 			return err
 		}
 
-		retireID, err := protocol.NewID()
-		if err != nil {
-			return err
-		}
-		retire, err := w.Seal(Mutation{
-			RecordID:     conflictID,
-			RecordType:   conflictEnv.Context.RecordType,
-			Rev:          conflictEnv.Context.Rev + 1,
-			ParentDigest: conflictDigest,
-			MutationID:   retireID,
-			Deleted:      true,
-		}, nil)
+		retire, err := retirement(w, conflictEnv, conflictDigest)
 		if err != nil {
 			return err
 		}
