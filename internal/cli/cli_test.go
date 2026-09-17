@@ -401,3 +401,27 @@ func TestAHostWithoutKeysPointsAtEditToAttachOne(t *testing.T) {
 		t.Fatalf("add did not point at attaching a key:\n%s", got)
 	}
 }
+
+func TestChangePasswordRewrapsTheDeviceSecrets(t *testing.T) {
+	s, _, _ := listReady(t)
+
+	s.secrets = []string{"not the password", "new pass", "new pass"}
+	if err := s.run(t, "change-password"); err == nil || !strings.Contains(err.Error(), "current password is wrong") {
+		t.Fatalf("a wrong current password was accepted: %v", err)
+	}
+	s.secrets = []string{password, "new pass", "different"}
+	if err := s.run(t, "change-password"); err == nil || !strings.Contains(err.Error(), "do not match") {
+		t.Fatalf("mismatched new passwords were accepted: %v", err)
+	}
+
+	s.secrets = []string{password, "new pass", "new pass"}
+	s.mustRun(t, "change-password")
+	s.mustRun(t, "lock")
+	s.secrets = []string{password}
+	if err := s.run(t, "unlock"); err == nil {
+		t.Fatal("the old password still unlocks the vault")
+	}
+	s.secrets = []string{"new pass"}
+	s.mustRun(t, "unlock")
+	s.mustRun(t, "hosts")
+}

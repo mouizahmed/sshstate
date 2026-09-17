@@ -252,6 +252,43 @@ func defaultDeviceLabel() string {
 	return host
 }
 
+func runChangePassword(ctx context.Context, env *Env, args []string) error {
+	fs := newFlagSet(env, "change-password")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return usageError("change-password")
+	}
+	if _, err := env.Client().Status(ctx); err != nil {
+		return env.hint(err)
+	}
+	current, err := env.ReadSecret("Current unlock password: ")
+	if err != nil {
+		return err
+	}
+	defer clear(current)
+	next, err := env.ReadSecret("New unlock password: ")
+	if err != nil {
+		return err
+	}
+	defer clear(next)
+	again, err := env.ReadSecret("Repeat new password: ")
+	if err != nil {
+		return err
+	}
+	defer clear(again)
+	if string(next) != string(again) {
+		return errors.New("the new passwords do not match; nothing changed")
+	}
+	if err := env.Client().ChangePassword(ctx, string(current), string(next)); err != nil {
+		return env.hint(err)
+	}
+	env.printf("Changed the unlock password for this device.\n")
+	env.printf("Other devices keep their own passwords, and the recovery kit is unchanged.\n")
+	return nil
+}
+
 func runUnlock(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "unlock")
 	passwordFD := fs.Int("password-fd", -1, "read the password from this file descriptor instead of the terminal")

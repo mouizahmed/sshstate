@@ -106,6 +106,10 @@ func (c *Client) Status(ctx context.Context) (*StatusResponse, error) {
 	return &out, c.do(ctx, http.MethodGet, RouteStatus, nil, &out)
 }
 
+func (c *Client) ChangePassword(ctx context.Context, current, next string) error {
+	return c.do(ctx, http.MethodPost, RoutePassword, ChangePasswordRequest{Current: current, Next: next}, nil)
+}
+
 func (c *Client) Unlock(ctx context.Context, password string) (*StatusResponse, error) {
 	var out StatusResponse
 	return &out, c.do(ctx, http.MethodPost, RouteUnlock, UnlockRequest{Password: password}, &out)

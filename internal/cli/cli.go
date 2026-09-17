@@ -50,6 +50,7 @@ func Commands() []Command {
 		{"status", GroupStart, "", "show what sshstate is doing on this machine", runStatus},
 		{"unlock", GroupStart, "[--password-fd n]", "unlock the vault so ssh can use your keys", runUnlock},
 		{"lock", GroupStart, "", "lock the vault and drop keys from memory", runLock},
+		{"change-password", GroupStart, "", "change this device's unlock password", runChangePassword},
 		{"doctor", GroupStart, "", "check that ssh is using sshstate correctly", runDoctor},
 
 		{"hosts", GroupHosts, "", "list managed hosts", runHosts},

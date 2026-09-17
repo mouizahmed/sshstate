@@ -249,6 +249,20 @@ func putWrapper(db execer, purpose string, w *crypto.Wrapper) error {
 	return err
 }
 
+func (s *Store) PutWrappers(wrappers map[string]*crypto.Wrapper) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for purpose, w := range wrappers {
+		if err := putWrapper(tx, purpose, w); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) Wrapper(purpose string) (*crypto.Wrapper, error) {
 	var body string
 	err := s.db.QueryRow(`SELECT wrapper FROM wrappers WHERE purpose = ?`, purpose).Scan(&body)

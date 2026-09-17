@@ -22,6 +22,7 @@ func (d *Daemon) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+control.RouteStatus, d.handleStatus)
 	mux.HandleFunc("POST "+control.RouteUnlock, d.handleUnlock)
+	mux.HandleFunc("POST "+control.RoutePassword, d.handleChangePassword)
 	mux.HandleFunc("POST "+control.RouteLock, d.handleLock)
 	mux.HandleFunc("GET "+control.RouteHosts, d.handleListHosts)
 	mux.HandleFunc("POST "+control.RouteHosts, d.handleAddHost)
@@ -150,6 +151,27 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) revokedHere() bool {
 	notice, err := d.mgr.Store().Meta(vault.MetaRevokedNotice)
 	return err == nil && notice == "true"
+}
+
+func (d *Daemon) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	var req control.ChangePasswordRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	current, next := []byte(req.Current), []byte(req.Next)
+	err := d.mgr.ChangePassword(current, next)
+	clear(current)
+	clear(next)
+	if errors.Is(err, vault.ErrWrongPassword) {
+		writeJSON(w, http.StatusUnauthorized, control.Error{Error: "the current password is wrong", Code: control.CodeBadRequest})
+		return
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (d *Daemon) handleUnlock(w http.ResponseWriter, r *http.Request) {

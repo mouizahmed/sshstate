@@ -180,7 +180,12 @@ afterward.
 sshstate lock
 sshstate status
 sshstate unlock
+sshstate change-password
 ```
+
+`change-password` asks for the current password and re-encrypts this device's
+local keys under the new one. Other devices keep their own passwords, and the
+recovery kit does not change.
 
 The daemon holds keys while unlocked. It locks after 15 minutes idle or 8
 hours after password entry, and starts locked after a restart. Existing SSH

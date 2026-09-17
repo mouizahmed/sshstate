@@ -13,6 +13,7 @@ const (
 	RouteStatus            = "/" + APIVersion + "/status"
 	RouteUnlock            = "/" + APIVersion + "/unlock"
 	RouteLock              = "/" + APIVersion + "/lock"
+	RoutePassword          = "/" + APIVersion + "/password"
 	RouteHosts             = "/" + APIVersion + "/hosts"
 	RouteHostEdit          = "/" + APIVersion + "/hosts/edit"
 	RouteImport            = "/" + APIVersion + "/hosts/import"
@@ -87,6 +88,11 @@ type HostIssue struct {
 
 type UnlockRequest struct {
 	Password string `json:"password"`
+}
+
+type ChangePasswordRequest struct {
+	Current string `json:"current"`
+	Next    string `json:"next"`
 }
 
 type AddKeyRequest struct {

@@ -272,6 +272,39 @@ func (m *Manager) RecoveryConfirmed() bool {
 	return err == nil && v == "true"
 }
 
+var ErrWrongPassword = errors.New("wrong password, or this vault does not belong to this device")
+
+func (m *Manager) ChangePassword(current, next []byte) error {
+	if len(next) == 0 {
+		return errors.New("the new password is empty")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rewrapped := make(map[string]*crypto.Wrapper, 4)
+	for _, purpose := range []string{
+		crypto.PurposeDeviceSigningKey,
+		crypto.PurposeDeviceEncryptionKey,
+		crypto.PurposeVaultMetadataKey,
+		crypto.PurposeVaultSecretKey,
+	} {
+		w, err := m.store.Wrapper(purpose)
+		if err != nil {
+			return err
+		}
+		secret, err := w.Unwrap(current, m.vaultID, m.deviceID, purpose)
+		if err != nil {
+			return ErrWrongPassword
+		}
+		next, err := crypto.Wrap(next, m.vaultID, m.deviceID, purpose, secret)
+		clear(secret)
+		if err != nil {
+			return fmt.Errorf("wrap %s: %w", purpose, err)
+		}
+		rewrapped[purpose] = next
+	}
+	return m.store.PutWrappers(rewrapped)
+}
+
 func (m *Manager) Unlock(password []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
