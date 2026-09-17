@@ -143,7 +143,13 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ConfigPath:        d.layout.Config(),
 		AgentSocket:       d.layout.AgentSocket(),
 		Issues:            issues,
+		RevokedHere:       d.revokedHere(),
 	})
+}
+
+func (d *Daemon) revokedHere() bool {
+	notice, err := d.mgr.Store().Meta(vault.MetaRevokedNotice)
+	return err == nil && notice == "true"
 }
 
 func (d *Daemon) handleUnlock(w http.ResponseWriter, r *http.Request) {

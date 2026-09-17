@@ -17,6 +17,7 @@ import (
 const (
 	MetaRelayURL          = "relay_url"
 	MetaRecoveryPublished = "recovery_published"
+	MetaRevokedNotice     = "revoked_notice"
 )
 
 func stampOf(t time.Time) string { return t.UTC().Truncate(time.Second).Format(time.RFC3339) }

@@ -74,6 +74,7 @@ type StatusResponse struct {
 	ConfigPath        string      `json:"config_path"`
 	AgentSocket       string      `json:"agent_socket"`
 	Issues            []HostIssue `json:"issues,omitempty"`
+	RevokedHere       bool        `json:"revoked_here,omitempty"`
 }
 
 type HostIssue struct {

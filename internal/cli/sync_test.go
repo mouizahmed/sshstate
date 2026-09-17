@@ -1399,3 +1399,36 @@ func TestMergesThatBreakReferencesKeepSyncWorkingAndCanBeRepaired(t *testing.T) 
 		}
 	}
 }
+
+func TestARevokedDeviceIsToldWhyItNoLongerSyncs(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+	a.mustRun(t, "revoke", deviceIDFrom(t, b))
+
+	err := b.run(t, "sync")
+	if err == nil || !strings.Contains(err.Error(), "another device revoked it") || !strings.Contains(err.Error(), "sshstate uninstall --purge, then sshstate pair") {
+		t.Fatalf("the revoked device was not told what happened: %v", err)
+	}
+	b.out.Reset()
+	b.mustRun(t, "status")
+	if !strings.Contains(b.out.String(), "revoked by another device") {
+		t.Fatalf("status on the revoked device does not say so:\n%s", b.out)
+	}
+}
+
+func TestPairingWithAWrongVaultIDSaysWhereToFindIt(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	joiner := newScripted(t)
+	err := joiner.run(t, "pair", r.url, "00000000000000000000000000000000")
+	if err == nil || !strings.Contains(err.Error(), "holds no vault") || strings.Contains(err.Error(), "this machine still has the vault") {
+		t.Fatalf("a mistyped vault id was not explained for a joining machine: %v", err)
+	}
+	err = a.run(t, "approve", "00000000000000000000000000000000")
+	if err == nil || !strings.Contains(err.Error(), "no pairing session") {
+		t.Fatalf("an unknown session was not explained: %v", err)
+	}
+}

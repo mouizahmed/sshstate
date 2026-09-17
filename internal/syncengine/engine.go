@@ -49,6 +49,9 @@ func (e *Engine) Sync(ctx context.Context) (*Report, error) {
 	known := localChainLength(e.Store)
 	chain, newlyRevoked, err := e.syncMembership(ctx)
 	if err != nil {
+		if protocol.CodeOf(err) == protocol.CodeDeviceRevoked {
+			_ = e.Store.SetMeta(vault.MetaRevokedNotice, "true")
+		}
 		return nil, err
 	}
 	report.MembershipEvents = chain.Len()

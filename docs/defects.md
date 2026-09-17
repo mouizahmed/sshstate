@@ -1106,3 +1106,29 @@ devices is planned work, and the message says it is not supported yet.
 `TestARelayRolledBackBehindThisDeviceIsNamed` queues a local edit before the
 check and fails if the check runs after the push, because the queued edit is
 then gone and the head replaced.
+
+## D32 — Relay errors were explained without knowing which operation failed
+
+- Found: pairing with a mistyped vault id, and syncing from a revoked device, after D30
+- Severity: a joining machine was told "this machine still has the vault", and a revoked device got a bare `device_revoked`
+- Fixed in: `internal/relayclient/client.go` (`asMember`, `asPairing`, `asVaultID`), `internal/syncengine/engine.go`
+
+### What happened
+
+D30 explained a `not_found` from any signed request as a relay that lost its
+vault. A pairing request is signed too, by a machine that has no vault yet, so a
+mistyped vault id got the wrong story. A revoked device's sync failed with the
+relay's code and no advice, kept accepting local edits that could never publish,
+and `status` gave no hint.
+
+### Fix
+
+Each client operation now explains errors in its own context. Membership,
+records, and envelopes explain a lost vault or a revoked device. Creating a
+pairing or a recovery challenge explains an unknown vault id and where to find
+the right one. Session lookups explain an unknown or expired pairing session.
+When sync learns this device was revoked it records that, and `status` shows it
+beside the device id.
+`TestPairingWithAWrongVaultIDSaysWhereToFindIt` fails when pairing uses the
+member explanation. `TestARevokedDeviceIsToldWhyItNoLongerSyncs` fails without
+the revoked explanation, and without the recorded notice.

@@ -341,6 +341,9 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 	if st.DeviceLabel != "" {
 		env.printf(" (%s)", st.DeviceLabel)
 	}
+	if st.RevokedHere {
+		env.printf(" — revoked by another device; nothing changed here syncs")
+	}
 	env.printf("\nstate        %s\n", state)
 	if st.Unlocked {
 		env.printf("             idle expiry %s, hard expiry %s\n",
