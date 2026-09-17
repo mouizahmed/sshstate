@@ -344,6 +344,7 @@ type ConflictView struct {
 	Subject          string   `json:"subject,omitempty"`
 	Changes          []string `json:"changes,omitempty"`
 	SourceRemoved    bool     `json:"source_removed,omitempty"`
+	Removal          bool     `json:"removal,omitempty"`
 }
 
 type ConflictsResponse struct {

@@ -1359,3 +1359,32 @@ exports a 261-host vault, so it also covers a reply larger than the 1 MiB JSON
 bound, and fails if the archive is read through that bound or the mode changes.
 `TestExportRefusesToOverwrite` now fails if the open stops being exclusive.
 
+
+## D42 — A removal that lost to another device's edit stopped sync for good
+
+- Found: probing a two-device race while designing relay rejoin
+- Severity: after one device removed a host that another device had just edited, every later `sshstate sync` on the removing device failed with `conflict record preserves nothing`
+- Fixed in: `internal/vault/payload.go`, `internal/vault/manager_sync.go`, `internal/vault/manager_remove.go`, `internal/vault/manager_import.go`, `internal/cli/sync.go`
+
+### What happened
+
+A rejected upload is preserved as a conflict record holding the losing
+candidate's plaintext. A removal is a tombstone whose plaintext is `{}`, which
+`Reader.Open` accepts without filling the output, so the conflict payload had no
+candidate and failed validation. The push aborted and the tombstone stayed in the
+outbox, so the same failure repeated on every sync.
+
+### Why it survived until a test found it
+
+The conflict tests only raced edits against edits and edits against removals
+that won. No test let a removal lose.
+
+### Fix
+
+A conflict payload may now keep a removal: `removal` is set and the candidate is
+empty, and validation refuses either half without the other. `sshstate
+conflicts` names the host or key and says resolving removes it and discarding
+keeps it; `resolve` applies the removal through the same checks as `sshstate
+remove`, including the ProxyJump and key-in-use refusals.
+`TestARemovalThatLosesToAnEditIsKeptAside` fails if the removal flag is not
+set or if resolving it does not remove the host on the other device.

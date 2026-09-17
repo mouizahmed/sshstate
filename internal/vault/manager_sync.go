@@ -96,6 +96,7 @@ func (m *Manager) PreserveCandidate(candidate, head *protocol.Envelope) (*protoc
 			ObservedHeadDigest: headDigest,
 			PreservedAt:        stampOf(m.clock()),
 			Candidate:          plaintext,
+			Removal:            candidate.Context.Deleted,
 		}
 		if err := payload.Validate(); err != nil {
 			return err
@@ -140,6 +141,7 @@ type Conflict struct {
 	Subject          string
 	Changes          []string
 	SourceRemoved    bool
+	Removal          bool
 }
 
 func (m *Manager) Conflicts() ([]Conflict, error) {
@@ -176,6 +178,11 @@ func (m *Manager) describeConflict(r *Reader, c *Conflict, p ConflictPayload) {
 		return
 	}
 	c.SourceRemoved = head.Context.Deleted
+	c.Removal = p.Removal
+	if p.Removal {
+		describeRemoval(r, c, head)
+		return
+	}
 	switch p.SourceRecordType {
 	case protocol.RecordHost:
 		var kept HostPayload
@@ -527,6 +534,29 @@ func (m *Manager) DiscardConflict(conflictID protocol.ID) (protocol.ID, error) {
 	return sourceID, err
 }
 
+func describeRemoval(r *Reader, c *Conflict, head *protocol.Envelope) {
+	if head.Context.Deleted {
+		c.Changes = []string{"removed on this device and on another; resolving or discarding changes nothing"}
+		return
+	}
+	c.Changes = []string{"removed on this device while another device changed it; resolve removes it, discard keeps it"}
+	switch head.Context.RecordType {
+	case protocol.RecordHost:
+		var now HostPayload
+		if r.Open(head, &now) == nil {
+			c.Subject = now.Alias
+		}
+	case protocol.RecordKey:
+		var now KeyPayload
+		if r.Open(head, &now) == nil {
+			c.Subject = now.Fingerprint
+			if now.Comment != "" {
+				c.Subject = now.Comment + " (" + now.Fingerprint + ")"
+			}
+		}
+	}
+}
+
 func (m *Manager) ResolveConflict(conflictID protocol.ID, resurrect bool) (protocol.ID, error) {
 	var sourceID protocol.ID
 	err := m.mutate(func(s *session, w *Writer, r *Reader) error {
@@ -539,6 +569,20 @@ func (m *Manager) ResolveConflict(conflictID protocol.ID, resurrect bool) (proto
 		head, headDigest, err := m.store.Head(payload.SourceRecordID)
 		if err != nil {
 			return fmt.Errorf("the record this edit belonged to is not here: %w", err)
+		}
+		retire, err := retirement(w, conflictEnv, conflictDigest)
+		if err != nil {
+			return err
+		}
+		if payload.Removal {
+			removal, err := m.removal(w, r, payload.SourceRecordID, payload.SourceRecordType)
+			if err != nil {
+				return err
+			}
+			if removal == nil {
+				return m.store.ApplyLocal(retire)
+			}
+			return m.store.ApplyLocalBatch(removal, retire)
 		}
 		if head.Context.Deleted && !resurrect {
 			return ErrConflictSourceDeleted
@@ -555,11 +599,6 @@ func (m *Manager) ResolveConflict(conflictID protocol.ID, resurrect bool) (proto
 			ParentDigest: headDigest,
 			MutationID:   replacementID,
 		}, payload.Candidate)
-		if err != nil {
-			return err
-		}
-
-		retire, err := retirement(w, conflictEnv, conflictDigest)
 		if err != nil {
 			return err
 		}

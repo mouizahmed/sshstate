@@ -423,6 +423,7 @@ func (d *Daemon) handleConflicts(w http.ResponseWriter, r *http.Request) {
 			Subject:          c.Subject,
 			Changes:          c.Changes,
 			SourceRemoved:    c.SourceRemoved,
+			Removal:          c.Removal,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

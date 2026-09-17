@@ -277,7 +277,7 @@ func runConflicts(ctx context.Context, env *Env, args []string) error {
 			env.printf("      no difference from the current version; resolving it changes nothing\n")
 		}
 		resolve := "sshstate resolve " + c.RecordID
-		if c.SourceRemoved {
+		if c.SourceRemoved && !c.Removal {
 			resolve += " --resurrect"
 		}
 		env.printf("      keep it with: %s\n", resolve)

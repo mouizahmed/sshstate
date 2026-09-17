@@ -163,7 +163,8 @@ type ConflictPayload struct {
 	SourceMutationID   protocol.ID         `json:"source_mutation_id"`
 	ObservedHeadDigest protocol.Bytes      `json:"observed_head_digest"`
 	PreservedAt        string              `json:"preserved_at"`
-	Candidate          json.RawMessage     `json:"candidate"`
+	Candidate          json.RawMessage     `json:"candidate,omitempty"`
+	Removal            bool                `json:"removal,omitempty"`
 }
 
 func (p *ConflictPayload) Validate() error {
@@ -176,7 +177,10 @@ func (p *ConflictPayload) Validate() error {
 	if !p.SourceRecordType.Valid() {
 		return fmt.Errorf("unknown source record type %q", p.SourceRecordType)
 	}
-	if len(p.Candidate) == 0 {
+	if p.Removal && len(p.Candidate) > 0 {
+		return errors.New("a kept removal carries content")
+	}
+	if !p.Removal && len(p.Candidate) == 0 {
 		return errors.New("conflict record preserves nothing")
 	}
 	return nil

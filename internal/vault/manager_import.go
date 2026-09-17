@@ -218,7 +218,7 @@ func (m *Manager) conflictAlreadyPreserved(r *Reader, sourceID protocol.ID, cand
 		if err := r.Open(env, &p); err != nil {
 			return false, err
 		}
-		if p.SourceRecordID != sourceID {
+		if p.SourceRecordID != sourceID || p.Removal {
 			continue
 		}
 		same, err := sameCanonicalJSON(p.Candidate, candidate)
