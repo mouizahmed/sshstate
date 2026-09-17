@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -250,5 +251,59 @@ func TestNonceStoreIsAtomicUnderConcurrency(t *testing.T) {
 	wg.Wait()
 	if first != 1 {
 		t.Fatalf("%d of %d concurrent uses were told they were the first", first, attempts)
+	}
+}
+
+func TestAConsumedRelayStartsWithAStrangeSecretFile(t *testing.T) {
+	store := emptyStore(t)
+	if err := store.SetBootstrapSecret(secret(1)); err != nil {
+		t.Fatal(err)
+	}
+	g, root := newVault(t)
+	if err := store.Bootstrap(secret(1), g, root); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	fresh := filepath.Join(dir, "new.secret")
+	if err := os.WriteFile(fresh, []byte(EncodeBootstrapSecret(secret(2))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.ConfigureBootstrap(fresh)
+	if err != nil {
+		t.Fatalf("a new secret file stopped a relay that already holds a vault: %v", err)
+	}
+	if !strings.Contains(status, "closed") || !strings.Contains(status, fresh) {
+		t.Fatalf("unhelpful status %q", status)
+	}
+
+	junk := filepath.Join(dir, "junk.secret")
+	if err := os.WriteFile(junk, []byte("not a secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ConfigureBootstrap(junk); err != nil {
+		t.Fatalf("an unreadable secret file stopped a relay that already holds a vault: %v", err)
+	}
+	if _, err := store.ConfigureBootstrap(filepath.Join(dir, "gone.secret")); err != nil {
+		t.Fatalf("a missing secret file stopped a relay that already holds a vault: %v", err)
+	}
+	if consumed, err := store.BootstrapConsumed(); err != nil || !consumed {
+		t.Fatal("restarting reopened registration")
+	}
+	other, otherRoot := newVault(t)
+	mustCode(t, store.Bootstrap(secret(2), other, otherRoot), protocol.CodeBootstrapConsumed)
+}
+
+func TestAnUnusedRelayRefusesToStartWithoutItsSecret(t *testing.T) {
+	store := emptyStore(t)
+	status, err := store.ConfigureBootstrap("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(status, "not configured") {
+		t.Fatalf("unhelpful status %q", status)
+	}
+	if _, err := store.ConfigureBootstrap(filepath.Join(t.TempDir(), "gone.secret")); err == nil {
+		t.Fatal("a relay with no vault started without the secret it was given")
 	}
 }

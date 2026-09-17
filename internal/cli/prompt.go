@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -25,6 +26,12 @@ func readSecretFrom(path, prompt string) ([]byte, error) {
 	}
 	defer tty.Close()
 
+	restore, err := hush(int(tty.Fd()))
+	if err != nil {
+		return nil, fmt.Errorf("%w (%v)", errNoTerminal, err)
+	}
+	defer restore()
+
 	if _, err := fmt.Fprint(tty, prompt); err != nil {
 		return nil, err
 	}
@@ -37,6 +44,19 @@ func readSecretFrom(path, prompt string) ([]byte, error) {
 		return nil, fmt.Errorf("password is empty")
 	}
 	return secret, nil
+}
+
+func hush(fd int) (func(), error) {
+	state, err := unix.IoctlGetTermios(fd, ioctlReadTermios)
+	if err != nil {
+		return nil, err
+	}
+	quiet := *state
+	quiet.Lflag &^= unix.ECHO
+	if err := unix.IoctlSetTermios(fd, ioctlFlushTermios, &quiet); err != nil {
+		return nil, err
+	}
+	return func() { _ = unix.IoctlSetTermios(fd, ioctlFlushTermios, state) }, nil
 }
 
 var errNoAnswer = errors.New("this needs an answer, and standard input is not a terminal")

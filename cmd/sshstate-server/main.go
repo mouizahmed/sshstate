@@ -89,27 +89,11 @@ func serve(args []string) error {
 	defer store.Close()
 
 	cfg := relay.Config{PublicHTTPS: !*publicHTTP}
-	if *secretPath != "" {
-		secret, err := relay.ReadBootstrapSecret(*secretPath)
-		if err != nil {
-			return err
-		}
-		if err := store.SetBootstrapSecret(secret); err != nil {
-			return err
-		}
-	}
-	consumed, err := store.BootstrapConsumed()
+	status, err := store.ConfigureBootstrap(*secretPath)
 	if err != nil {
 		return err
 	}
-	switch {
-	case consumed:
-		log.Printf("bootstrap is closed; this relay holds its vault")
-	case *secretPath != "":
-		log.Printf("bootstrap is open; connect a vault with the secret in %s", *secretPath)
-	default:
-		log.Printf("bootstrap is not configured; pass -bootstrap-secret to allow a vault to connect")
-	}
+	log.Print(status)
 
 	srv := &http.Server{
 		Addr:              *addr,

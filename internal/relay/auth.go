@@ -67,6 +67,30 @@ func (s *Store) SetBootstrapSecret(secret []byte) error {
 	return tx.Commit()
 }
 
+func (s *Store) ConfigureBootstrap(secretPath string) (string, error) {
+	consumed, err := s.BootstrapConsumed()
+	if err != nil {
+		return "", err
+	}
+	if consumed {
+		if secretPath == "" {
+			return "bootstrap is closed; this relay holds its vault", nil
+		}
+		return fmt.Sprintf("bootstrap is closed; this relay holds its vault and ignores %s", secretPath), nil
+	}
+	if secretPath == "" {
+		return "bootstrap is not configured; pass -bootstrap-secret to allow a vault to connect", nil
+	}
+	secret, err := ReadBootstrapSecret(secretPath)
+	if err != nil {
+		return "", err
+	}
+	if err := s.SetBootstrapSecret(secret); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("bootstrap is open; connect a vault with the secret in %s", secretPath), nil
+}
+
 func (s *Store) BootstrapConsumed() (bool, error) {
 	var consumed sql.NullString
 	err := s.db.QueryRow(`SELECT consumed_at FROM bootstrap WHERE id = 1`).Scan(&consumed)

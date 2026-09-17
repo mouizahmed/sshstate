@@ -49,7 +49,8 @@ there privately, and delete it afterwards.
 
 256 bits, used exactly once to connect your vault. The relay stores only its
 hash and disables bootstrap permanently afterwards; changing the file later does
-not reopen registration. There is no other account creation path.
+not reopen registration, and a relay that already holds a vault ignores the file
+and logs that it did. There is no other account creation path.
 
 ### 2. Start it
 
