@@ -1,5 +1,10 @@
 # sshstate v0.1.3
 
+> Superseded planning note, 2026-09-17: sshstate is now described as a stable
+> MVP with no v1 target or milestone roadmap. The rotation status below was
+> accurate for this release, but rotation is now unscheduled rather than assigned
+> to the next milestone. See decision record 0004.
+
 ## Upgrade the relay with the clients
 
 This release streams the pairing snapshot and the recovery archive on their own

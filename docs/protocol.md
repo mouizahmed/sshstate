@@ -1,9 +1,8 @@
 # sshstate sync protocol — v1
 
-Status: **frozen for Milestone 2.** Every schema, encoding and error code below is
-fixed before network code is written, as project brief §5.5 requires. Changing
-anything here after M2 ships is a format-version change or an epoch transition,
-not an edit.
+Status: **frozen core protocol.** The rotation extension is specified in
+`docs/rotation.md` and its routes are reserved but not implemented. Wire changes
+require a format-version change or an epoch transition, not an undocumented edit.
 
 The relay is unaware of SSH payload semantics. It stores ciphertext, signatures,
 revisions and cursors, and validates structure and authorization only.
@@ -219,9 +218,9 @@ identities in the order given, so it is a user preference, not a set.
 ```
 
 The private key is an unencrypted OpenSSH private-key format string **inside the
-record AEAD**. It is unencrypted at this layer because the record AEAD is the
-encryption; a second passphrase here would be another secret to lose protecting
-the same bytes. v1 accepts Ed25519, RSA of at least 2048 bits, and standard NIST
+record AEAD**. It is unencrypted at this layer because that AEAD already protects
+it; a second passphrase would be another secret to lose around the same bytes.
+The key format accepts Ed25519, RSA of at least 2048 bits, and standard NIST
 ECDSA. Hardware-backed keys and certificates are deferred.
 
 **known_host**
@@ -585,7 +584,7 @@ an export carries its own checkpoint.
 ## 8. Export
 
 An age-encrypted full export, encrypted **only** to the recovery recipient. There
-is no plaintext and no password-encrypted export mode in v1. Device private keys
+is no plaintext and no password-encrypted export mode. Device private keys
 and local password wrappers are excluded.
 
 ```json
@@ -954,8 +953,8 @@ preserve its candidate as a conflict record:
 
 The relay checks idempotency **before** parent comparison and returns the original
 outcome for identical bytes — including a stable rejection. Reuse of a mutation ID
-with different bytes is `idempotency_mismatch`. Mutation outcomes are retained in
-v1; there is no garbage collection of tombstones or the accepted log.
+with different bytes is `idempotency_mismatch`. Mutation outcomes are retained
+alongside the accepted log; neither has garbage collection.
 
 An accepted write atomically updates the head, appends the log with a fresh `seq`,
 and stores the idempotency outcome.
@@ -970,7 +969,7 @@ POST   /v1/rotations/:id/commit
 DELETE /v1/rotations/:id
 ```
 
-Specified in `docs/rotation.md` and implemented in Milestone 3b. The routes are
+Specified in `docs/rotation.md`; not implemented and not scheduled. The routes are
 listed here so the relay's storage and the sync reader are built to accommodate
 them from the start; a transition that has to be atomic cannot be bolted onto
 storage that never anticipated it. A relay that does not implement rotation
@@ -1017,8 +1016,7 @@ the edit as a candidate without resurrecting a tombstoned record. Alias and trus
 conflicts never generate automatic "copy" host entries.
 
 **Sync timing.** Sync explicitly, and once after unlock when configured. There is
-no periodic background sync in v1, and a network failure never blocks local SSH
-use.
+no periodic background sync, and a network failure never blocks local SSH use.
 
 ---
 

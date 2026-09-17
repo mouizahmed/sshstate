@@ -1,8 +1,8 @@
 # Threat model
 
-Status: current as of Milestone 0. Mechanisms described here are specified in
-the project brief and mostly not yet implemented. Nothing here has been
-independently audited.
+Status: current for the stable MVP. Mechanisms described as implemented are
+covered by the repository verification; rotation remains specified but
+unimplemented. Nothing here has been independently audited.
 
 ## Posture
 
@@ -63,11 +63,12 @@ Complete zeroization is not claimed.
 
 ## Agent forwarding
 
-Generated configuration sets `ForwardAgent no`. v1 does not claim reliable
-protocol-level detection of every forwarded request. Explicit overrides and
-forwarding of our socket are unsupported. Destination constraints and
-per-signature confirmation are deferred. Normal lock expiry does not terminate
-SSH sessions that have already authenticated.
+Generated configuration sets `ForwardAgent no`. The primary sshstate agent does
+not claim reliable protocol-level detection of every forwarded request.
+Explicit overrides and forwarding of that socket are unsupported.
+
+Per-signature confirmation is not planned. Normal lock or session expiry does
+not terminate SSH sessions that already authenticated.
 
 ## Device compromise and revocation
 
@@ -76,11 +77,11 @@ synchronized. Signed revocation stops that device's requests on an honest relay
 and causes informed clients to reject its later writes; it does not erase what
 that device already learned, and a hostile relay can withhold the revocation.
 
-Resumable master-key rotation issues fresh vault keys and re-encrypts current
-state under a new epoch, excluding revoked devices from new bundles. Rotation
-cannot erase ciphertext an attacker already captured, and new encryption keys do
-not revoke an already stolen SSH private key — replace affected SSH credentials
-at their destinations.
+Resumable master-key rotation is specified but not implemented or scheduled. It
+would issue fresh vault keys and re-encrypt current state under a new epoch,
+excluding revoked devices from new bundles. Rotation cannot erase ciphertext an
+attacker already captured, and new encryption keys do not revoke an already
+stolen SSH private key — replace affected SSH credentials at their destinations.
 
 ## Post-quantum scope
 

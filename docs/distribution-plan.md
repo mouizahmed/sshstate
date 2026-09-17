@@ -3,6 +3,10 @@
 Written 2026-09-15. Closes the last M3a deliverable: an install path that is not
 `go build`.
 
+Amended 2026-09-17: sshstate is a stable MVP with no v1 target or remaining
+milestone roadmap. Rotation remains specified but unscheduled. The original
+release decision below is retained as history; see decision record 0004.
+
 Decisions taken before starting:
 
 | | |
@@ -111,3 +115,5 @@ step is where the next one is most likely to appear.
 5. Tap repository, formula, `update-tap.yml`
 6. Clean-machine and reproducibility checks
 7. M3a closed; M3b is rotation
+
+The final line records the plan as written. It no longer schedules M3b.

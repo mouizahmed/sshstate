@@ -446,4 +446,4 @@ other machines.
 | Manual setup and removal | `init`, `service`, `daemon`, `install`, `uninstall` |
 
 `sshstate --help` lists the commands; `sshstate version` prints the version.
-Master-key rotation is planned but is not yet a CLI flow.
+Master-key rotation is specified in [rotation.md](rotation.md), is not implemented, and is not scheduled.

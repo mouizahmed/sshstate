@@ -6,20 +6,24 @@ sshstate keeps your managed SSH hosts, connection options, trusted host keys and
 credentials available across every machine you use, including headless ones,
 while native `ssh`, `scp` and editor remote integrations keep working unchanged.
 
-> **Status: v0.1.3, Milestone 3a.** Usable on macOS and Linux, and not yet
-> stable. One machine works end to end: a vault, a recovery kit, a daemon with
-> an agent socket, generated configuration, strict import of the SSH config and
-> host-key trust you already have, and a real `ssh` login authenticated by a key
-> that is never written to disk. Several machines work too: the sync protocol is
-> frozen, the relay runs, and three devices pair, sync, resolve conflicts, revoke
-> each other, and restore from an encrypted backup with the relay unavailable.
-> The service manager owns both sockets, and the daemon always starts locked.
+> **Status: v0.1.3, a stable MVP for single-user self-hosting on macOS and
+> Linux.** Releases remain on the `0.x` line and may require coordinated client
+> and relay upgrades. Local and multi-device SSH workflows work end to end: the
+> sync protocol is frozen, three devices pair and synchronize, conflicts and
+> revocations are explicit, exports restore without a relay, native OpenSSH uses
+> in-memory keys, and launchd and systemd start the daemon locked.
 >
-> **Not here yet:** master-key rotation, which is specified in
-> [docs/rotation.md](docs/rotation.md) and ships in M3b. If a vault key were
-> exposed, the v1 fallback is a fresh vault and reviewed migration (§7.3), not a
-> rotation. Windows is out of v1 scope. This has not been independently audited,
-> and it has not yet been used by anyone but its author.
+> **Master-key rotation is [specified](docs/rotation.md), not implemented, and
+> not scheduled.** Until it exists, a leaked vault key requires a fresh vault
+> and reviewed migration. Keep the recovery kit, encrypted exports, and a backup
+> of the relay data: each protects different state and none replaces another.
+>
+> **Losing relay data is not yet recoverable from a client.** A copy of the
+> relay's data volume, taken while the relay is stopped, is currently the only
+> rebuild source. Windows is not supported. The project has not been
+> independently audited or exercised by users beyond its author.
+>
+> What comes next is in the [roadmap](docs/roadmap.md).
 
 ## What it is, and is not
 
@@ -90,7 +94,7 @@ travelling together — with a headless agent and real conflict handling.
 Key storage alone would not justify building this. Configuration
 synchronization, reviewed host trust and headless operation are the reason.
 
-Windows is not supported and is not planned for v1 (see the project brief). An
+Windows is not supported and is not planned (see the project brief). An
 agent-and-daemon design costs considerably more there than a client that writes
 files, and that tradeoff is deliberate.
 

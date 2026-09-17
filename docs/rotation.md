@@ -1,10 +1,9 @@
 # Master-key rotation — staged transition and recovery
 
-Status: **specified, not implemented.** Rotation ships in Milestone 3b. This
-document is written at Milestone 2 because the relay's transactions, the freeze
-semantics and the sync reader all have to accommodate it from the start; a
-rotation bolted onto storage that never anticipated it cannot be made atomic
-afterwards.
+Status: **specified, not implemented, and not scheduled.** This document was
+written at Milestone 2 because the relay's transactions, the freeze semantics
+and the sync reader all have to accommodate it from the start; a rotation bolted
+onto storage that never anticipated it cannot be made atomic afterwards.
 
 Section references in the form §x.y are to `docs/project-brief.md`.
 `docs/protocol.md` is the frozen wire specification this extends.

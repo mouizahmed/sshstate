@@ -181,3 +181,10 @@ cannot retroactively protect ciphertext an attacker already captured.
 Amend brief §4.1, §4.2, §4.5, §4.6, §4.7, and §12 R12 to state this suite as the baseline
 rather than as a pending assessment. Port the spike into `internal/crypto` tests at M0 so the
 downgrade-rejection and context-separation assertions run in CI.
+
+## Amendment, 2026-09-17: release framing
+
+The project shipped this suite from genesis and now describes itself as a stable
+MVP with no v1 target. The release label in the migration constraint is
+historical; the suite, downgrade rejection, and epoch-transition decision are
+unchanged. See decision record 0004.
