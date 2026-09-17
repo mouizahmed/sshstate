@@ -578,7 +578,7 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 
 func runInstall(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "install")
-	withService := fs.Bool("service", false, "also register the daemon with the platform service manager")
+	withService := fs.Bool("service", false, "also register the daemon with launchd or systemd so it starts on demand")
 	importTrust := fs.Bool("import-trust", false, "import matching entries from ~/.ssh/known_hosts without asking")
 	skipTrust := fs.Bool("skip-trust", false, "activate the Include without importing existing host-key trust")
 	if err := fs.Parse(args); err != nil {
@@ -622,7 +622,7 @@ func runInstall(ctx context.Context, env *Env, args []string) error {
 func runUninstall(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "uninstall")
 	purge := fs.Bool("purge", false, "also delete vault data (requires a recent export)")
-	yes := fs.Bool("yes", false, "do not prompt")
+	yes := fs.Bool("yes", false, "answer yes to every confirmation prompt")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

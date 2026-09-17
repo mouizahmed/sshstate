@@ -77,9 +77,9 @@ func Commands() []Command {
 		{"confirm-recovery", GroupBackup, "[--kit path]", "confirm you saved the recovery kit", runConfirmRecovery},
 
 		{"init", GroupAdvanced, "[--kit path] [--label name]", "create a vault without the rest of setup", runInit},
-		{"install", GroupAdvanced, "[--service] [--import-trust | --skip-trust]", "add the sshstate Include to ~/.ssh/config", runInstall},
-		{"uninstall", GroupAdvanced, "[--purge] [--yes]", "remove the sshstate Include, keeping the vault", runUninstall},
-		{"service", GroupAdvanced, "[--remove]", "start the daemon at login with the system service manager", runService},
+		{"install", GroupAdvanced, "[--service] [--import-trust | --skip-trust]", "add the sshstate Include to ~/.ssh/config without the rest of setup", runInstall},
+		{"uninstall", GroupAdvanced, "[--purge] [--yes]", "stop using sshstate on this machine; the vault is kept unless --purge", runUninstall},
+		{"service", GroupAdvanced, "[--remove]", "register the daemon with launchd or systemd so it starts on demand", runService},
 		{"daemon", GroupAdvanced, "[--data dir] [--ssh-dir dir] [--runtime dir] [--user-config path] [-v]", "run the daemon in the foreground", runDaemon},
 	}
 }

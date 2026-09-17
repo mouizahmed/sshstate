@@ -128,7 +128,7 @@ func runDevices(ctx context.Context, env *Env, args []string) error {
 
 func runRevoke(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "revoke")
-	yes := fs.Bool("yes", false, "confirm revoking the device you are using")
+	yes := fs.Bool("yes", false, "answer yes when the device to revoke is this one")
 	positional, err := fs.parsePositional(args, 1)
 	if err != nil {
 		return err

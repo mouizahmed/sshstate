@@ -12,7 +12,7 @@ import (
 
 func runRemove(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "remove")
-	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	yes := fs.Bool("yes", false, "answer yes to the confirmation prompt")
 	positional, rest := splitPositional(args, 1)
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -58,7 +58,7 @@ func runRemove(ctx context.Context, env *Env, args []string) error {
 
 func runRemoveKey(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "remove-key")
-	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	yes := fs.Bool("yes", false, "answer yes to the confirmation prompt")
 	positional, rest := splitPositional(args, 1)
 	if err := fs.Parse(rest); err != nil {
 		return err
