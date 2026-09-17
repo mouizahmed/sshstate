@@ -52,6 +52,10 @@ func (e *Engine) Sync(ctx context.Context) (*Report, error) {
 		return nil, err
 	}
 	report.MembershipEvents = chain.Len()
+
+	if err := e.checkRelayNotBehind(ctx); err != nil {
+		return nil, err
+	}
 	report.MembershipLearned = max(chain.Len()-known, 0)
 
 	if err := e.push(ctx, report); err != nil {
@@ -280,6 +284,35 @@ func (e *Engine) checkRevokedWriter(id protocol.ID, seq protocol.Counter) error 
 	}
 	if seq > at {
 		return fmt.Errorf("device %s was revoked at seq %s and this write is at seq %s", id, at, seq)
+	}
+	return nil
+}
+
+type RelayBehindError struct {
+	Relay protocol.Counter
+	Local protocol.Counter
+}
+
+func (e *RelayBehindError) Error() string {
+	return fmt.Sprintf("the relay's history ends at change %s, but this machine has already seen change %s, "+
+		"so the relay was probably restored from an older backup\n"+
+		"this machine's vault is intact; changes made after that backup are no longer on the relay, "+
+		"and sync stays stopped so nothing is overwritten\n"+
+		"restore the relay from its most recent backup; rebuilding a relay from your machines is not supported yet",
+		e.Relay, e.Local)
+}
+
+func (e *Engine) checkRelayNotBehind(ctx context.Context) error {
+	since, err := e.cursor()
+	if err != nil || since == 0 {
+		return err
+	}
+	latest, err := e.Client.Records(ctx, 0, 0, 1)
+	if err != nil {
+		return err
+	}
+	if since > latest.SnapshotCursor {
+		return &RelayBehindError{Relay: latest.SnapshotCursor, Local: since}
 	}
 	return nil
 }

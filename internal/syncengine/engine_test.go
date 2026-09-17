@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -780,4 +781,37 @@ func clientFor(t *testing.T, url string, k keys) *relayclient.Client {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func TestARelayRolledBackBehindThisDeviceIsNamed(t *testing.T) {
+	w := newWorld(t)
+	a := w.device(w.first)
+	record := protocol.MustNewID()
+	a.write(w.genesis.VaultID, record, "one", false)
+	a.sync()
+	a.write(w.genesis.VaultID, record, "two", false)
+	if err := a.store.SetCursor(vault.CursorRecords, "40"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := a.engine.Sync(context.Background())
+	var behind *RelayBehindError
+	if !errors.As(err, &behind) {
+		t.Fatalf("want RelayBehindError, got %v", err)
+	}
+	if behind.Local != 40 || behind.Relay != 1 {
+		t.Fatalf("got %+v, want local 40 and relay 1", behind)
+	}
+	if !strings.Contains(err.Error(), "restored from an older backup") {
+		t.Fatalf("unhelpful message: %v", err)
+	}
+	pending, err := a.store.Outbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("a local edit was pushed to a relay that had fallen behind: %d still queued", len(pending))
+	}
+	if got := string(a.head(record).Ciphertext); got != "ciphertext:two" {
+		t.Fatalf("the local head was replaced by the relay's older copy: %q", got)
+	}
 }

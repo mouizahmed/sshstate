@@ -1080,3 +1080,29 @@ code stays available to callers.
 and `TestARelayThatLostTheVaultSaysSo` each fail without their branch. The
 certificate case was checked on macOS, where verification goes through the
 system verifier.
+
+## D31 — A relay restored from an older backup stopped sync with a cursor error, after pushing into it
+
+- Found: restoring a local relay's database from an earlier copy under two paired devices
+- Severity: `since=22 is past through=20` on every sync, with local edits already pushed onto the older history
+- Fixed in: `internal/syncengine/engine.go` (`checkRelayNotBehind`, `RelayBehindError`)
+
+### What happened
+
+A device's record cursor was ahead of everything the restored relay had.
+`Sync` pushed the outbox first, so a new edit to a record the relay now held at
+an older revision was refused and preserved as a conflict, with the relay's
+older copy replacing the local head. Then the pull asked for changes after a
+cursor the relay had never reached, and the relay rejected the request with a
+message that described its own bookkeeping.
+
+### Fix
+
+Before pushing, sync compares this device's cursor with the relay's latest
+change. If the relay is behind, sync stops, pushes nothing, and says what
+happened: the relay was probably restored from an older backup, local data is
+intact, and the remedy is the most recent backup. Rebuilding a relay from the
+devices is planned work, and the message says it is not supported yet.
+`TestARelayRolledBackBehindThisDeviceIsNamed` queues a local edit before the
+check and fails if the check runs after the push, because the queued edit is
+then gone and the head replaced.
