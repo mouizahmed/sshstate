@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
@@ -208,5 +209,22 @@ func TestRevokingAHostKeyRefusesItEverywhere(t *testing.T) {
 	}
 	if err := s.run(t, "trust", id); err == nil || !strings.Contains(err.Error(), "@revoked") {
 		t.Fatalf("a revoked key was approved again: %v", err)
+	}
+}
+
+func TestTrustNamesTheHostBehindAHashedEntry(t *testing.T) {
+	s := installReady(t, "")
+	if err := os.MkdirAll(filepath.Dir(s.Layout.CaptureFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := knownhosts.HashHostname("10.0.0.5") + " " + hostKeyLine(t)
+	if err := os.WriteFile(s.Layout.CaptureFile(), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.out.Reset()
+	s.mustRun(t, "trust")
+	got := s.out.String()
+	if !strings.Contains(got, "prod (hashed host name)") || strings.Contains(got, "|1|") {
+		t.Fatalf("a hashed observation was not named by its managed host:\n%s", got)
 	}
 }

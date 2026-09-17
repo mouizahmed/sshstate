@@ -163,9 +163,23 @@ func (d *Daemon) handleTrustList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	hosts, err := d.mgr.Hosts()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	out := control.TrustListResponse{}
 	for _, v := range views {
+		var named []string
+		if entry, err := knownhosts.ParseLine(v.Line); err == nil {
+			for _, h := range hosts {
+				if entry.Matches(knownhosts.Destination(h.HostName, h.Port)) {
+					named = append(named, h.Alias)
+				}
+			}
+		}
 		out.Entries = append(out.Entries, control.TrustEntry{
+			Hosts:       named,
 			RecordID:    v.RecordID.String(),
 			Line:        v.Line,
 			KeyType:     v.KeyType,

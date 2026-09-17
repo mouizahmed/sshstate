@@ -84,7 +84,15 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 			marker += " "
 		}
 		env.printf("%-8s %s  %s%s\n", status, e.RecordID, marker, e.Fingerprint)
-		env.printf("         %s\n", trustDestination(e.Line))
+		destination := trustDestination(e.Line)
+		if strings.HasPrefix(destination, "|1|") {
+			destination = "hashed host name"
+		}
+		if len(e.Hosts) > 0 {
+			env.printf("         %s (%s)\n", strings.Join(e.Hosts, ", "), destination)
+		} else {
+			env.printf("         %s\n", destination)
+		}
 		if e.Status == "pending" {
 			pending++
 		}

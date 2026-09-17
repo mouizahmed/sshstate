@@ -146,12 +146,13 @@ type ImportResponse struct {
 }
 
 type TrustEntry struct {
-	RecordID    string `json:"record_id"`
-	Line        string `json:"line"`
-	KeyType     string `json:"key_type"`
-	Fingerprint string `json:"fingerprint"`
-	Marker      string `json:"marker,omitempty"`
-	Status      string `json:"status"`
+	Hosts       []string `json:"hosts,omitempty"`
+	RecordID    string   `json:"record_id"`
+	Line        string   `json:"line"`
+	KeyType     string   `json:"key_type"`
+	Fingerprint string   `json:"fingerprint"`
+	Marker      string   `json:"marker,omitempty"`
+	Status      string   `json:"status"`
 }
 
 type TrustListResponse struct {

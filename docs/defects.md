@@ -1156,3 +1156,26 @@ or uncomment by hand, and nothing behind the link is ever modified.
 `TestASymlinkedConfigGetsExactStepsAndThenWorks` walks that path and fails if
 reading refuses the symlink again. `TestInstallRefusesSymlink` still guards the
 write refusal.
+
+## D34 — Trust review showed hashed host names nobody can read
+
+- Found: checking trust review against Ubuntu's default `HashKnownHosts yes`
+- Severity: on Debian and Ubuntu, `sshstate trust` listed observations as `|1|salt|hash`, so a user could not tell which server they were approving or revoking
+- Fixed in: `internal/daemon/capture.go` (`handleTrustList`), `internal/cli/trustreview.go`
+
+### What happened
+
+With `HashKnownHosts yes`, OpenSSH writes hashed host names into the capture
+file. Matching already handled hashes, but the listing printed the line's first
+field verbatim.
+
+### Why it survived until a test found it
+
+The live trust tests used `ssh -F`, which skips `/etc/ssh/ssh_config`, so
+OpenSSH never hashed anything.
+
+### Fix
+
+The daemon matches each observation against the managed hosts and returns their
+aliases. The listing shows them, and replaces a hash with "hashed host name".
+`TestTrustNamesTheHostBehindAHashedEntry` fails without the matching.
