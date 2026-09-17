@@ -113,17 +113,36 @@ func runDevices(ctx context.Context, env *Env, args []string) error {
 		env.printf("No devices.\n")
 		return nil
 	}
+	st, err := env.Client().Status(ctx)
+	if err != nil {
+		return env.hint(err)
+	}
 	for _, d := range out.Devices {
 		marker := "  "
 		if d.ThisDevice {
 			marker = "* "
 		}
-		env.printf("%s%s  %-8s enrolled %s\n", marker, d.DeviceID, d.Status, d.EnrolledAt)
+		how := "by " + shortID(d.EnrolledBy)
+		switch d.EnrolledBy {
+		case d.DeviceID:
+			how = "when it created the vault"
+		case st.VaultID:
+			how = "by the recovery kit"
+		}
+		env.printf("%s%s  %-8s enrolled %s %s\n", marker, d.DeviceID, d.Status, d.EnrolledAt, how)
+		if d.ThisDevice {
+			label := st.DeviceLabel
+			if label == "" {
+				label = "no label"
+			}
+			env.printf("    this device (%s)\n", label)
+		}
 		if d.Status == "revoked" {
 			env.printf("    revoked %s\n", d.RevokedAt)
 		}
 	}
 	env.printf("\nThis listing is the signed membership chain, not the relay's device table.\n")
+	env.printf("Labels stay on their own machine; sshstate status there shows its id.\n")
 	return nil
 }
 

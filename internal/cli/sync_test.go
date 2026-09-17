@@ -171,6 +171,9 @@ func TestDevicesReflectsTheChain(t *testing.T) {
 	if !strings.Contains(out, "signed membership chain") {
 		t.Fatalf("the listing does not say what it reflects:\n%s", out)
 	}
+	if !strings.Contains(out, "when it created the vault") || !strings.Contains(out, "this device (") {
+		t.Fatalf("the listing does not say how devices joined or which one is here:\n%s", out)
+	}
 }
 
 func TestTheLastDeviceCannotBeRevoked(t *testing.T) {
