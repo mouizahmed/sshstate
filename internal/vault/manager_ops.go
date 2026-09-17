@@ -216,26 +216,31 @@ func (m *Manager) AddHost(spec HostSpec) (protocol.ID, error) {
 }
 
 func jumpReturns(alias, jump string, self protocol.ID, hosts []HostView) bool {
-	byAlias := make(map[string]HostView, len(hosts))
+	jumps := make(map[string]*string, len(hosts)+1)
 	for _, h := range hosts {
 		if h.RecordID != self {
-			byAlias[h.Alias] = h
+			jumps[h.Alias] = h.ProxyJump
 		}
 	}
+	jumps[alias] = &jump
+	return jumpCycle(alias, jumps)
+}
+
+func jumpCycle(start string, jumps map[string]*string) bool {
 	seen := map[string]bool{}
-	for at := jump; ; {
-		if at == alias {
+	for at := start; ; {
+		next, ok := jumps[at]
+		if !ok || next == nil {
+			return false
+		}
+		if *next == start {
 			return true
 		}
-		if seen[at] {
+		if seen[*next] {
 			return false
 		}
 		seen[at] = true
-		next, ok := byAlias[at]
-		if !ok || next.ProxyJump == nil {
-			return false
-		}
-		at = *next.ProxyJump
+		at = *next
 	}
 }
 

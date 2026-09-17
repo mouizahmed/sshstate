@@ -1253,3 +1253,26 @@ credentials. `TestEnvironmentPassesOnlyCertificateAndProxySettings`,
 VM) cover the allowlist and escaping. Verified live: after registering from a
 shell with `SSL_CERT_FILE`, the service connected, paired, and synced over
 HTTPS through nginx.
+
+## D38 — Import accepted a ProxyJump loop that add and edit refuse
+
+- Found: importing a config whose two hosts jump through each other
+- Severity: the import succeeded and both hosts were then left out of the SSH config as a host problem, instead of the import being refused like any other invalid line
+- Fixed in: `internal/vault/manager_import.go`, `internal/vault/manager_ops.go` (`jumpCycle`)
+
+### What happened
+
+D29 made `add` and `edit` refuse a local change that closes a loop, but import
+validated only that each jump target exists. A loop written entirely inside one
+imported file passed.
+
+### Fix
+
+Import checks the combined jump graph, the vault's current hosts plus the new
+ones, with the same cycle check that `add` and `edit` now share, and reports a
+loop as a refused line. A jump to a host defined later in the file still
+imports. `TestImportRefusesAJumpLoop` fails without the check.
+
+Separately, an unreachable relay that fails with `no route to host` now says so.
+On macOS the message also points to the Local Network privacy setting, the
+likely cause for a relay on the LAN when sshstate runs as a background service.

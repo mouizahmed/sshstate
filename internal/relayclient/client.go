@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -181,6 +182,10 @@ func unreachableCause(err error) string {
 		return "its TLS certificate is not valid (" + invalid.Error() + ")"
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return "nothing is listening there (connection refused)"
+	case errors.Is(err, syscall.EHOSTUNREACH) && runtime.GOOS == "darwin":
+		return "no route to host; for a relay on your local network, check that sshstate is allowed under System Settings > Privacy & Security > Local Network"
+	case errors.Is(err, syscall.EHOSTUNREACH):
+		return "no route to host"
 	case errors.As(err, &dns):
 		return "the name " + dns.Name + " does not resolve"
 	case errors.As(err, &netErr) && netErr.Timeout():

@@ -626,3 +626,14 @@ func TestUninstallReactivatesTheBlocksImportCommentedOut(t *testing.T) {
 		t.Fatalf("uninstall did not say what it reactivated:\n%s", s.out)
 	}
 }
+
+func TestImportRefusesAJumpLoop(t *testing.T) {
+	s := importReady(t)
+	path := writeConfig(t, "Host loopa\n HostName 10.4.1.1\n ProxyJump loopb\n\nHost loopb\n HostName 10.4.1.2\n ProxyJump loopa\n\nHost forward\n HostName 10.4.1.3\n ProxyJump later\n\nHost later\n HostName 10.4.1.4\n")
+	err := s.run(t, "import", path)
+	if err == nil || !strings.Contains(err.Error(), "ProxyJump loop") {
+		t.Fatalf("an import with a jump loop was accepted: %v", err)
+	}
+	path = writeConfig(t, "Host forward\n HostName 10.4.1.3\n ProxyJump later\n\nHost later\n HostName 10.4.1.4\n")
+	s.mustRun(t, "import", path)
+}

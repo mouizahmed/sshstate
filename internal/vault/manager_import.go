@@ -92,6 +92,23 @@ func (m *Manager) ImportHosts(specs []HostSpec, dryRun bool) ([]ImportOutcome, e
 				problems = append(problems, fmt.Sprintf("host %q jumps through %q, which is neither in the vault nor in this import", p.Alias, *p.ProxyJump))
 			}
 		}
+		jumps := make(map[string]*string, len(existing)+len(payloads))
+		for alias, h := range existing {
+			jumps[alias] = h.ProxyJump
+		}
+		for _, p := range payloads {
+			if _, ok := existing[p.Alias]; !ok {
+				jumps[p.Alias] = p.ProxyJump
+			}
+		}
+		for _, p := range payloads {
+			if _, ok := existing[p.Alias]; ok || p.ProxyJump == nil {
+				continue
+			}
+			if jumpCycle(p.Alias, jumps) {
+				problems = append(problems, fmt.Sprintf("host %q is part of a ProxyJump loop", p.Alias))
+			}
+		}
 		if len(problems) > 0 {
 			return fmt.Errorf("nothing was imported:\n  %s", strings.Join(problems, "\n  "))
 		}
