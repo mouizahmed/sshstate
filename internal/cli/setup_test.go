@@ -607,8 +607,9 @@ func (f *staleService) Uninstall(paths.Layout) error {
 }
 func (f *staleService) Install(string, paths.Layout) error {
 	f.installs++
-	f.installed = true
+	f.installed = false
 	f.s.startDaemon(f.t)
+	f.installed = true
 	return nil
 }
 
