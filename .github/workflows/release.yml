@@ -143,7 +143,12 @@ jobs:
 
       - name: release notes
         run: |
+          set -eu
           version="${GITHUB_REF_NAME}"
+          if [ -f "docs/release-notes-${version}.md" ]; then
+            cp "docs/release-notes-${version}.md" notes.md
+            exit 0
+          fi
           cat > notes.md <<EOF
           ## Verify what you downloaded
 
