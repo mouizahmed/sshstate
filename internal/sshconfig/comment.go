@@ -26,6 +26,9 @@ func CommentOutBlocks(l paths.Layout, blocks []ImportedHost) (CommentResult, err
 		return res, nil
 	}
 	path := l.UserSSHConfig
+	if err := refuseSymlink(path); err != nil {
+		return res, err
+	}
 	body, existed, err := readUserConfig(path)
 	if err != nil {
 		return res, err
@@ -80,6 +83,12 @@ func ReactivateBlocks(l paths.Layout) (CommentResult, error) {
 	var res CommentResult
 	body, existed, err := readUserConfig(l.UserSSHConfig)
 	if err != nil || !existed {
+		return res, err
+	}
+	if !strings.Contains(string(body), supersededMarker) {
+		return res, nil
+	}
+	if err := refuseSymlink(l.UserSSHConfig); err != nil {
 		return res, err
 	}
 	lines := strings.Split(string(body), "\n")

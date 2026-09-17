@@ -1132,3 +1132,27 @@ beside the device id.
 `TestPairingWithAWrongVaultIDSaysWhereToFindIt` fails when pairing uses the
 member explanation. `TestARevokedDeviceIsToldWhyItNoLongerSyncs` fails without
 the revoked explanation, and without the recorded notice.
+
+## D33 — A symlinked ~/.ssh/config blocked setup entirely
+
+- Found: `install` with `~/.ssh/config` linked into a dotfiles directory
+- Severity: dotfiles users could not install, could not add the Include by hand either, and got no instructions
+- Fixed in: `internal/sshconfig/install.go` (`SymlinkError`, `readUserConfig`), `internal/cli/commands.go`, `internal/cli/import.go`
+
+### What happened
+
+The brief says to reject symlink surprises, which the installer did by refusing
+to read the file at all. So a user who pasted the Include into their dotfiles
+themselves was still blocked: `install`, `setup`, `status`, and `doctor` all
+failed to read it. The refusal gave no way forward.
+
+### Fix
+
+Reading follows the symlink, because reading is not the surprise. Every write
+(install, uninstall, commenting out, reactivating) still refuses, with a
+`SymlinkError` naming the real file. Install prints the exact block to add
+there, and then recognises it. Import and uninstall say which blocks to comment
+or uncomment by hand, and nothing behind the link is ever modified.
+`TestASymlinkedConfigGetsExactStepsAndThenWorks` walks that path and fails if
+reading refuses the symlink again. `TestInstallRefusesSymlink` still guards the
+write refusal.

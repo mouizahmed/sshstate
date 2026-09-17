@@ -603,6 +603,11 @@ func runInstall(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	res, err := sshconfig.Install(env.Layout)
+	var symlink *sshconfig.SymlinkError
+	if errors.As(err, &symlink) {
+		return fmt.Errorf("%w\nadd these lines at the top of %s yourself, then run this again:\n\n%s",
+			err, symlink.Target, sshconfig.ManagedBlock(env.Layout))
+	}
 	if err != nil {
 		return err
 	}
@@ -652,6 +657,11 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 		}
 	}
 	res, err := sshconfig.Uninstall(env.Layout)
+	var symlink *sshconfig.SymlinkError
+	if errors.As(err, &symlink) {
+		return fmt.Errorf("%w\nremove the block between the sshstate managed include markers from %s yourself, then run this again",
+			err, symlink.Target)
+	}
 	if err != nil {
 		return err
 	}
@@ -664,6 +674,11 @@ func runUninstall(ctx context.Context, env *Env, args []string) error {
 		env.printf("Removed the managed Include from %s\n", env.Layout.UserSSHConfig)
 	}
 	reactivated, err := sshconfig.ReactivateBlocks(env.Layout)
+	if errors.As(err, &symlink) {
+		env.warnf("\nThe Host blocks sshstate commented out are still commented in %s; "+
+			"uncomment the blocks marked \"superseded by sshstate\" there yourself.\n", symlink.Target)
+		err = nil
+	}
 	if err != nil {
 		return fmt.Errorf("the Include is gone, but the Host blocks sshstate commented out are still commented: %w", err)
 	}

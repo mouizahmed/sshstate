@@ -42,6 +42,9 @@ func Install(l paths.Layout) (InstallResult, error) {
 	if _, _, found := findBlock(original); found {
 		return res, nil
 	}
+	if err := refuseSymlink(l.UserSSHConfig); err != nil {
+		return res, err
+	}
 
 	if existed {
 		backup, err := backupUserConfig(l.UserSSHConfig, original)
@@ -73,6 +76,9 @@ func Uninstall(l paths.Layout) (InstallResult, error) {
 	start, end, found := findBlock(original)
 	if !found {
 		return res, nil
+	}
+	if err := refuseSymlink(l.UserSSHConfig); err != nil {
+		return res, err
 	}
 	backup, err := backupUserConfig(l.UserSSHConfig, original)
 	if err != nil {
@@ -118,16 +124,36 @@ func findBlock(body []byte) (start, end int, found bool) {
 	return begin, end, true
 }
 
-func readUserConfig(path string) (body []byte, existed bool, err error) {
+type SymlinkError struct {
+	Path   string
+	Target string
+}
+
+func (e *SymlinkError) Error() string {
+	return fmt.Sprintf("%s is a symlink to %s, and sshstate does not edit files through symlinks", e.Path, e.Target)
+}
+
+func refuseSymlink(path string) error {
 	fi, err := os.Lstat(path)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		target, _ = os.Readlink(path)
+	}
+	return &SymlinkError{Path: path, Target: target}
+}
+
+func ManagedBlock(l paths.Layout) string { return managedBlock(l) }
+
+func readUserConfig(path string) (body []byte, existed bool, err error) {
+	fi, err := os.Stat(path)
 	switch {
 	case os.IsNotExist(err):
 		return nil, false, nil
 	case err != nil:
 		return nil, false, fmt.Errorf("inspect %s: %w", path, err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return nil, false, fmt.Errorf("%s is a symlink; sshstate will not edit through it", path)
 	}
 	if !fi.Mode().IsRegular() {
 		return nil, false, fmt.Errorf("%s is not a regular file", path)

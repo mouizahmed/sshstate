@@ -628,3 +628,52 @@ func TestSetupRegistersAgainWhenARegisteredServiceDoesNotAnswer(t *testing.T) {
 		t.Fatalf("setup did not say why it registered again:\n%s", got)
 	}
 }
+
+func TestASymlinkedConfigGetsExactStepsAndThenWorks(t *testing.T) {
+	s := importReady(t)
+	dotfiles := filepath.Join(t.TempDir(), "dotfiles_ssh_config")
+	original := "Host prod\n HostName 10.0.0.5\n User ubuntu\n"
+	if err := os.WriteFile(dotfiles, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.Layout.UserSSHConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(dotfiles, s.Layout.UserSSHConfig); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	target, err := filepath.EvalSymlinks(dotfiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.run(t, "install", "--skip-trust")
+	block := sshconfig.ManagedBlock(s.Layout)
+	if err == nil || !strings.Contains(err.Error(), "add these lines at the top of "+target) || !strings.Contains(err.Error(), block) {
+		t.Fatalf("install did not give the lines to add by hand: %v", err)
+	}
+	if got := readFile(t, dotfiles); got != original {
+		t.Fatalf("install edited the file behind the symlink:\n%s", got)
+	}
+
+	if err := os.WriteFile(dotfiles, []byte(block+"\n"+original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.out.Reset()
+	s.mustRun(t, "install", "--skip-trust")
+	if !strings.Contains(s.out.String(), "Already installed") {
+		t.Fatalf("an Include added by hand behind a symlink was not recognised:\n%s", s.out)
+	}
+	s.errOut.Reset()
+	s.mustRun(t, "import", s.Layout.UserSSHConfig, "--comment-source")
+	if !strings.Contains(s.errOut.String(), "still active in "+target+": prod") {
+		t.Fatalf("import did not say which blocks to comment out by hand:\n%s", s.errOut)
+	}
+	err = s.run(t, "uninstall", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "yourself") {
+		t.Fatalf("uninstall did not say how to remove the Include by hand: %v", err)
+	}
+	if !strings.HasPrefix(readFile(t, dotfiles), block) {
+		t.Fatal("uninstall edited the file behind the symlink")
+	}
+}

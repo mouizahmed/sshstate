@@ -222,6 +222,16 @@ func commentOutSource(env *Env, path string, hosts []sshconfig.ImportedHost) err
 		return nil
 	}
 	res, err := sshconfig.CommentOutBlocks(env.Layout, hosts)
+	var symlink *sshconfig.SymlinkError
+	if errors.As(err, &symlink) {
+		aliases := make([]string, 0, len(hosts))
+		for _, h := range hosts {
+			aliases = append(aliases, h.Alias)
+		}
+		env.warnf("\n%s\nThese Host blocks are still active in %s: %s\n", err, symlink.Target, strings.Join(aliases, ", "))
+		env.warnf("Comment them out there yourself so OpenSSH uses the definitions sshstate manages.\n")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
