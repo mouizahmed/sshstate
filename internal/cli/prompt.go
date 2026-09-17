@@ -21,7 +21,7 @@ const ttyPath = "/dev/tty"
 func readSecretFrom(path, prompt string) ([]byte, error) {
 	tty, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
-		return nil, fmt.Errorf("no terminal available to read a password: %w", err)
+		return nil, fmt.Errorf("%w (%v)", errNoTerminal, err)
 	}
 	defer tty.Close()
 
@@ -40,6 +40,8 @@ func readSecretFrom(path, prompt string) ([]byte, error) {
 }
 
 var errNoAnswer = errors.New("this needs an answer, and standard input is not a terminal")
+
+var errNoTerminal = errors.New("no terminal available to read a password")
 
 func readLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)

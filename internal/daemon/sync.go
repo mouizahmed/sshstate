@@ -105,16 +105,22 @@ func (d *Daemon) handleConnect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out.Bootstrap = true
+		if err := d.mgr.SetRelayURL(req.URL); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 
-	if err := d.mgr.SetRelayURL(req.URL); err != nil {
-		writeError(w, err)
-		return
-	}
 	report, err := d.engine(client).Sync(ctx)
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	if !out.Bootstrap {
+		if err := d.mgr.SetRelayURL(req.URL); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	out.Uploaded = report.Pushed
 	if err := d.refreshRecovery(ctx, client); err != nil {

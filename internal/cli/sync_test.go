@@ -6,6 +6,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -912,6 +913,27 @@ func TestARestoredVaultCannotStartANewRelay(t *testing.T) {
 
 	source.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
 	recoverDevice(t, r, source, kitPath)
+}
+
+func TestAConnectThatFailsRecordsNoRelay(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	unreachable := httptest.NewServer(http.NotFoundHandler())
+	dead := unreachable.URL
+	unreachable.Close()
+
+	if err := a.run(t, "connect", dead, "--bootstrap-secret", r.secretPath); err == nil {
+		t.Fatal("a connect to a relay that is not there succeeded")
+	}
+	if err := a.run(t, "connect", r.url); err == nil {
+		t.Fatal("a connect to a relay that holds no vault succeeded")
+	}
+	a.out.Reset()
+	a.mustRun(t, "status")
+	if got := a.out.String(); !strings.Contains(got, "relay        none") {
+		t.Fatalf("a failed connect left a relay recorded:\n%s", got)
+	}
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
 }
 
 func TestConnectingToTheSameRelayAtANewAddress(t *testing.T) {

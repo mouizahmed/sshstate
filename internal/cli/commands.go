@@ -168,9 +168,9 @@ func runConfirmRecovery(ctx context.Context, env *Env, args []string) error {
 	if path == "" {
 		return errors.New("no recovery kit path given")
 	}
-	data, err := os.ReadFile(path)
+	data, err := readUserFile("recovery kit", path)
 	if err != nil {
-		return fmt.Errorf("read recovery kit: %w", err)
+		return err
 	}
 	kit, err := vault.ParseKit(string(data))
 	if err != nil {
@@ -273,7 +273,7 @@ func runUnlock(ctx context.Context, env *Env, args []string) error {
 	}
 	password, err := env.ReadSecret("Device unlock password: ")
 	if err != nil {
-		return err
+		return withBypass(err, "--password-fd <n>")
 	}
 	defer clear(password)
 	st, err := env.Client().Unlock(ctx, string(password))
@@ -313,6 +313,22 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 		return err
 	}
 	st, err := env.Client().Status(ctx)
+	if errors.Is(err, control.ErrDaemonUnavailable) && env.vaultExists() {
+		meta, _ := env.storedMeta(vault.MetaVaultID, vault.MetaDeviceID, vault.MetaDeviceLabel, vault.MetaRelayURL)
+		env.printf("vault        %s\n", meta[vault.MetaVaultID])
+		env.printf("device       %s", meta[vault.MetaDeviceID])
+		if label := meta[vault.MetaDeviceLabel]; label != "" {
+			env.printf(" (%s)", label)
+		}
+		env.printf("\nstate        daemon not running\n")
+		if relay := meta[vault.MetaRelayURL]; relay != "" {
+			env.printf("relay        %s\n", relay)
+		} else {
+			env.printf("relay        none (local only)\n")
+		}
+		env.printf("\n")
+		return env.hint(err)
+	}
 	if err != nil {
 		return env.hint(err)
 	}
@@ -379,9 +395,9 @@ func runAddKey(ctx context.Context, env *Env, args []string) error {
 		return usageError("add-key")
 	}
 	path := positional[0]
-	raw, err := os.ReadFile(path)
+	raw, err := readUserFile("private key", path)
 	if err != nil {
-		return fmt.Errorf("read private key: %w", err)
+		return err
 	}
 	if *comment == "" {
 		*comment = commentFromPublicFile(path)

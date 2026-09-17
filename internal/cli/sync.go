@@ -30,9 +30,9 @@ func runConnect(ctx context.Context, env *Env, args []string) error {
 	url := positional[0]
 	req := control.ConnectRequest{URL: strings.TrimSuffix(url, "/")}
 	if *secretPath != "" {
-		raw, err := os.ReadFile(*secretPath)
+		raw, err := readUserFile("bootstrap secret", *secretPath)
 		if err != nil {
-			return fmt.Errorf("read the bootstrap secret: %w", err)
+			return err
 		}
 		if _, err := protocol.DecodeBootstrapSecret(string(raw)); err != nil {
 			return fmt.Errorf("%s: %w", *secretPath, err)
@@ -231,13 +231,13 @@ func runRestore(ctx context.Context, env *Env, args []string) error {
 	}
 	archivePath := positional[0]
 
-	archive, err := os.ReadFile(archivePath)
+	archive, err := readUserFile("export", archivePath)
 	if err != nil {
-		return fmt.Errorf("read the export: %w", err)
+		return err
 	}
-	kitBody, err := os.ReadFile(*kitPath)
+	kitBody, err := readUserFile("recovery kit", *kitPath)
 	if err != nil {
-		return fmt.Errorf("read the recovery kit: %w", err)
+		return err
 	}
 	kit, err := vault.ParseKit(string(kitBody))
 	if err != nil {
@@ -359,22 +359,34 @@ func (e *Env) onlyDevice(ctx context.Context, st *control.StatusResponse) bool {
 }
 
 func (e *Env) storedRelay() string {
+	meta, ok := e.storedMeta(vault.MetaRelayURL)
+	if !ok {
+		return "its relay"
+	}
+	return meta[vault.MetaRelayURL]
+}
+
+func (e *Env) storedMeta(keys ...string) (map[string]string, bool) {
+	out := map[string]string{}
 	if !e.vaultExists() {
-		return ""
+		return out, true
 	}
 	store, err := vault.OpenStore(e.Layout.Database())
 	if err != nil {
-		return "its relay"
+		return out, false
 	}
 	defer store.Close()
-	relay, err := store.Meta(vault.MetaRelayURL)
-	switch {
-	case errors.Is(err, vault.ErrNotFound):
-		return ""
-	case err != nil:
-		return "its relay"
+	for _, k := range keys {
+		v, err := store.Meta(k)
+		switch {
+		case errors.Is(err, vault.ErrNotFound):
+		case err != nil:
+			return out, false
+		default:
+			out[k] = v
+		}
 	}
-	return relay
+	return out, true
 }
 
 func (e *Env) purgeVault(ctx context.Context, yes bool) error {
@@ -484,9 +496,9 @@ func runRecover(ctx context.Context, env *Env, args []string) error {
 		return fmt.Errorf("%q is not a vault id", positional[1])
 	}
 
-	kitBody, err := os.ReadFile(*kitPath)
+	kitBody, err := readUserFile("recovery kit", *kitPath)
 	if err != nil {
-		return fmt.Errorf("read the recovery kit: %w", err)
+		return err
 	}
 	kit, err := vault.ParseKit(string(kitBody))
 	if err != nil {

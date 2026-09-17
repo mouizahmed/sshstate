@@ -71,9 +71,9 @@ func importConfig(ctx context.Context, env *Env, path string, opts importOptions
 			return nil, errors.New("--comment-source needs the sshstate Include active first, or the hosts it comments out would stop resolving\nrun: sshstate install")
 		}
 	}
-	body, err := os.ReadFile(path)
+	body, err := readUserFile("SSH config", path)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, err
 	}
 
 	hosts, problems := sshconfig.ParseImport(string(body))

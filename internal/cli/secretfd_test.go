@@ -6,6 +6,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -236,5 +237,32 @@ func TestPromptsWithABypassNameIt(t *testing.T) {
 	err = s.run(t, "uninstall")
 	if err == nil || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("uninstall with no terminal did not say to pass --yes: %v", err)
+	}
+}
+
+func TestUnlockWithNoTerminalNamesPasswordFD(t *testing.T) {
+	s, _, _ := listReady(t)
+	s.mustRun(t, "lock")
+	s.Env.ReadSecret = func(string) ([]byte, error) {
+		return nil, fmt.Errorf("%w (open /dev/tty: device not configured)", errNoTerminal)
+	}
+	err := s.run(t, "unlock")
+	if err == nil || !strings.Contains(err.Error(), "--password-fd") {
+		t.Fatalf("unlock with no terminal did not say to pass --password-fd: %v", err)
+	}
+}
+
+func TestAMissingFileIsNamedTheSameWayEverywhere(t *testing.T) {
+	s, _, _ := listReady(t)
+	missing := filepath.Join(t.TempDir(), "absent")
+	for _, args := range [][]string{
+		{"import", missing},
+		{"add-key", missing},
+		{"confirm-recovery", "--kit", missing},
+	} {
+		err := s.run(t, args[0], args[1:]...)
+		if err == nil || !strings.HasSuffix(err.Error(), " not found: "+missing) || strings.Count(err.Error(), missing) != 1 {
+			t.Fatalf("%s: a missing file was not reported plainly: %v", args[0], err)
+		}
 	}
 }

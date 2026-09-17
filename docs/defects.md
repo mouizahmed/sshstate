@@ -982,3 +982,29 @@ left alone.
 `TestReactivatingRestoresExactlyTheBlocksThatWereCommentedOut` requires a
 byte-for-byte round trip, and fails if the run swallows the following comment.
 `TestUninstallReactivatesTheBlocksImportCommentedOut` fails without the call.
+
+## D28 — A failed connect left the vault pointing at a relay it never reached
+
+- Found: a sweep of every command in each machine state (no vault, no daemon, locked, unlocked)
+- Severity: after a typo or an outage, `sync`, `approve`, and `connect --bootstrap-secret` to the right relay all failed
+- Fixed in: `internal/daemon/sync.go` (`handleConnect`)
+
+### What happened
+
+`connect` recorded the relay URL before bootstrapping or syncing. When either
+failed, the URL stayed. Every later relay command used it, and because of the
+D18 refusal, `connect --bootstrap-secret` to the correct relay then said the
+vault "already lives on" the unreachable one.
+
+### Fix
+
+The URL is recorded once the relay holds the vault: straight after a successful
+bootstrap, or after a successful sync when connecting without a secret.
+`TestAConnectThatFailsRecordsNoRelay` fails on the old ordering, and then
+connects to the right relay.
+
+The same sweep made the CLI say things one way. A missing file reads
+`<what> not found: <path>` for every file a command reads. A password prompt
+with no terminal names `--password-fd` where one exists. The not-set-up and
+not-running messages no longer repeat "sshstate", and `status` shows the vault,
+device, and relay when the daemon is not running.

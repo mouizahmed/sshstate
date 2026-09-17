@@ -296,6 +296,9 @@ func TestAVaultWithNoDaemonPointsAtSetupNotTheDaemon(t *testing.T) {
 	if !strings.Contains(err.Error(), "not running") {
 		t.Fatalf("the message does not distinguish this from a machine with no vault: %v", err)
 	}
+	if out := s.out.String(); !strings.Contains(out, "state        daemon not running") || strings.Contains(out, "vault        \n") {
+		t.Fatalf("status did not show what it knows without the daemon:\n%s", out)
+	}
 
 	fresh := newScripted(t)
 	freshErr := fresh.run(t, "status")

@@ -110,16 +110,16 @@ func (e *Env) vaultExists() bool {
 
 func (e *Env) daemonUnavailable() error {
 	if !e.vaultExists() {
-		return errors.New("sshstate is not set up on this machine\nrun: sshstate setup")
+		return errors.New("this machine is not set up yet\nrun: sshstate setup")
 	}
 	mgr := e.services()
 	if mgr == nil {
-		return errors.New("the sshstate daemon is not running\nstart it with: sshstate daemon")
+		return errors.New("the daemon is not running\nstart it with: sshstate daemon")
 	}
 	if installed, err := mgr.Installed(e.Layout); err == nil && installed {
 		return fmt.Errorf("the %s service is registered but did not answer\nre-register it with: sshstate service", mgr.Name())
 	}
-	return errors.New("sshstate is not running on this machine\nfinish setting it up with: sshstate setup")
+	return errors.New("the daemon is not running on this machine\nfinish setting it up with: sshstate setup")
 }
 
 func (e *Env) hint(err error) error {
@@ -142,8 +142,22 @@ func (e *Env) hint(err error) error {
 	}
 }
 
+func readUserFile(what, path string) ([]byte, error) {
+	body, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		return body, nil
+	case errors.Is(err, os.ErrNotExist):
+		return nil, fmt.Errorf("%s not found: %s", what, path)
+	case errors.Is(err, os.ErrPermission):
+		return nil, fmt.Errorf("%s is not readable: %s: permission denied", what, path)
+	default:
+		return nil, fmt.Errorf("read %s %s: %w", what, path, err)
+	}
+}
+
 func withBypass(err error, flag string) error {
-	if errors.Is(err, errNoAnswer) {
+	if errors.Is(err, errNoAnswer) || errors.Is(err, errNoTerminal) {
 		return fmt.Errorf("%w; pass %s to answer without a prompt", err, flag)
 	}
 	return err
