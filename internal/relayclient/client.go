@@ -6,12 +6,16 @@ package relayclient
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mouizahmed/sshstate/internal/httpsig"
@@ -91,7 +95,7 @@ func (c *Client) send(ctx context.Context, method, path string, in any, headers 
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("reach the relay: %w", err)
+		return 0, nil, nil, &UnreachableError{URL: c.base.String(), Err: err}
 	}
 	defer resp.Body.Close()
 
@@ -112,7 +116,13 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any, hea
 		return err
 	}
 	if status >= 300 {
-		return decodeError(status, raw, signatureBytes(req))
+		err := decodeError(status, raw, signatureBytes(req))
+		var pe *protocol.Error
+		if c.signer != nil && errors.As(err, &pe) && pe.Code == protocol.CodeNotFound && strings.Contains(pe.Message, "vault") {
+			return fmt.Errorf("the relay at %s does not hold this vault; if the relay was reset or started on a new database, "+
+				"this machine still has the vault, and the relay's data has to be restored from a backup of its volume: %w", c.base.String(), err)
+		}
+		return err
 	}
 	if out == nil {
 		return nil
@@ -121,6 +131,40 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any, hea
 		return fmt.Errorf("decode the relay's response: %w", err)
 	}
 	return nil
+}
+
+type UnreachableError struct {
+	URL string
+	Err error
+}
+
+func (e *UnreachableError) Unwrap() error { return e.Err }
+
+func (e *UnreachableError) Error() string {
+	return fmt.Sprintf("cannot reach the relay at %s: %s", e.URL, unreachableCause(e.Err))
+}
+
+func unreachableCause(err error) string {
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	var dns *net.DNSError
+	var netErr net.Error
+	switch {
+	case errors.As(err, &unknownAuthority):
+		return "its TLS certificate is not signed by an authority this machine trusts"
+	case errors.As(err, &hostname):
+		return "its TLS certificate is for a different name"
+	case errors.As(err, &invalid):
+		return "its TLS certificate is not valid (" + invalid.Error() + ")"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "nothing is listening there (connection refused)"
+	case errors.As(err, &dns):
+		return "the name " + dns.Name + " does not resolve"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return "it did not answer in time"
+	}
+	return err.Error()
 }
 
 func signatureBytes(r *http.Request) int {

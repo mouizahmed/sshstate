@@ -6,6 +6,8 @@ package relayclient
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -405,4 +407,57 @@ func TestBootstrapThroughTheClient(t *testing.T) {
 	}
 	_, err = client.Bootstrap(ctx, secret, f.genesis, root)
 	mustCode(t, err, protocol.CodeBootstrapConsumed)
+}
+
+func TestAnUnreachableRelayIsExplained(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close()
+	client, err := New(Options{BaseURL: url})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RecoveryChallenge(context.Background(), protocol.MustNewID())
+	var unreachable *UnreachableError
+	if !errors.As(err, &unreachable) {
+		t.Fatalf("want an UnreachableError, got %v", err)
+	}
+	if got := err.Error(); !strings.HasPrefix(got, "cannot reach the relay at "+url+": ") || !strings.Contains(got, "connection refused") {
+		t.Fatalf("unhelpful message: %s", got)
+	}
+}
+
+func TestARelayThatLostTheVaultSaysSo(t *testing.T) {
+	f := newFixture(t)
+	empty, err := relay.Open(filepath.Join(t.TempDir(), "reset.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { empty.Close() })
+	srv := httptest.NewServer(relay.NewServer(empty, relay.Config{PublicHTTPS: false}).Handler())
+	t.Cleanup(srv.Close)
+	client, err := New(Options{BaseURL: srv.URL, Signer: f.client.signer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Membership(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "does not hold this vault") || !strings.Contains(err.Error(), "restored from a backup") {
+		t.Fatalf("a relay that lost the vault was not explained: %v", err)
+	}
+	if protocol.CodeOf(err) != protocol.CodeNotFound {
+		t.Fatalf("the explanation hid the protocol code: %v", err)
+	}
+}
+
+func TestAnUntrustedCertificateIsExplained(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	client, err := New(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.RecoveryChallenge(context.Background(), protocol.MustNewID())
+	if err == nil || !strings.Contains(err.Error(), "TLS certificate is not signed by an authority this machine trusts") {
+		t.Fatalf("an untrusted certificate was not explained: %v", err)
+	}
 }

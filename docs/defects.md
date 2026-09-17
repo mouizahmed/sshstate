@@ -1052,3 +1052,31 @@ key removal and a duplicate alias across two devices, repairs both, and fails if
 a missing key is fatal again, if a duplicate alias is rendered, if `edit`
 re-checks untouched keys, or if an ambiguous alias resolves to the first match.
 `TestLocalEditsCannotCreateAJumpLoop` fails without the local loop check.
+
+## D30 — Relay failures surfaced as transport and protocol internals
+
+- Found: stopping and wiping a local relay under two paired devices
+- Severity: an unreachable relay, an untrusted certificate, or a relay that lost its data gave the user nothing to act on
+- Fixed in: `internal/relayclient/client.go` (`UnreachableError`, `call`)
+
+### What happened
+
+A stopped relay printed `reach the relay: Get "http://…/v1/membership": dial tcp
+…: connect: connection refused`. A relay started on an empty database printed
+`not_found: no such vault`. Neither said what had happened, whether local data
+was safe, or what to do, and every command that talks to the relay produced its
+own raw variant.
+
+### Fix
+
+The relay client is the one place every relay call passes through. A failure to
+reach the relay is an `UnreachableError` that names the URL and the cause in
+plain terms: connection refused, a name that does not resolve, a timeout, an
+untrusted or mismatched TLS certificate. A signed request answered `not_found`
+for the vault explains that the relay lost the vault, that this machine still
+has it, and that the relay's data has to come back from a backup. The protocol
+code stays available to callers.
+`TestAnUnreachableRelayIsExplained`, `TestAnUntrustedCertificateIsExplained`,
+and `TestARelayThatLostTheVaultSaysSo` each fail without their branch. The
+certificate case was checked on macOS, where verification goes through the
+system verifier.
