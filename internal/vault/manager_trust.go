@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/mouizahmed/sshstate/internal/protocol"
 )
@@ -159,12 +160,59 @@ func (m *Manager) ApproveKnownHost(recordID protocol.ID) error {
 		if err := r.Open(head, &payload); err != nil {
 			return err
 		}
-		if payload.Status == TrustApproved {
-			return nil
-		}
 		if payload.Marker == "@revoked" {
 			return fmt.Errorf("observation %s is @revoked; approving it would turn a prohibition into permission", recordID)
 		}
+		if payload.Status == TrustApproved {
+			return nil
+		}
+		payload.Status = TrustApproved
+		if err := payload.Validate(); err != nil {
+			return err
+		}
+		mutationID, err := protocol.NewID()
+		if err != nil {
+			return err
+		}
+		env, err := w.Seal(Mutation{
+			RecordID:     recordID,
+			RecordType:   protocol.RecordKnownHost,
+			Rev:          head.Context.Rev + 1,
+			ParentDigest: headDigest,
+			MutationID:   mutationID,
+		}, &payload)
+		if err != nil {
+			return err
+		}
+		return m.store.ApplyLocal(env)
+	})
+}
+
+func (m *Manager) RevokeKnownHost(recordID protocol.ID) error {
+	return m.mutate(func(s *session, w *Writer, r *Reader) error {
+		head, headDigest, err := m.store.Head(recordID)
+		if err != nil {
+			return fmt.Errorf("no such observation %s: %w", recordID, err)
+		}
+		if head.Context.RecordType != protocol.RecordKnownHost {
+			return fmt.Errorf("record %s is not a host-key observation", recordID)
+		}
+		if head.Context.Deleted {
+			return fmt.Errorf("observation %s was removed", recordID)
+		}
+		var payload KnownHostPayload
+		if err := r.Open(head, &payload); err != nil {
+			return err
+		}
+		if payload.Marker == "@revoked" && payload.Status == TrustApproved {
+			return nil
+		}
+		fields := strings.Fields(payload.Line)
+		if len(fields) > 0 && strings.HasPrefix(fields[0], "@") {
+			fields = fields[1:]
+		}
+		payload.Line = strings.Join(append([]string{"@revoked"}, fields...), " ")
+		payload.Marker = "@revoked"
 		payload.Status = TrustApproved
 		if err := payload.Validate(); err != nil {
 			return err

@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"os"
@@ -160,5 +161,52 @@ func TestInstallWithNoExistingTrustNeedsNoDecision(t *testing.T) {
 	s.mustRun(t, "install")
 	if _, err := os.Stat(s.Layout.UserSSHConfig); err != nil {
 		t.Fatalf("install did not activate the Include: %v", err)
+	}
+}
+
+func TestRevokingAHostKeyRefusesItEverywhere(t *testing.T) {
+	s := installReady(t, "")
+	key := hostKeyLine(t)
+	if err := os.MkdirAll(filepath.Dir(s.Layout.CaptureFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.Layout.CaptureFile(), []byte("10.0.0.5 "+key+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := s.Env.Client().TrustList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Entries) != 1 || listed.Entries[0].Status != "approved" {
+		t.Fatalf("the captured key was not recorded as approved: %+v", listed.Entries)
+	}
+	id := listed.Entries[0].RecordID
+
+	if err := s.run(t, "trust", "--revoke"); err == nil {
+		t.Fatal("--revoke without record ids was accepted")
+	}
+	s.mustRun(t, "trust", id, "--revoke")
+	published, err := os.ReadFile(s.Layout.KnownHosts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(published), "@revoked 10.0.0.5 "+key) {
+		t.Fatalf("the generated known_hosts does not revoke the key:\n%s", published)
+	}
+	if strings.Contains(strings.ReplaceAll(string(published), "@revoked 10.0.0.5 "+key, ""), key) {
+		t.Fatalf("the generated known_hosts still trusts the revoked key:\n%s", published)
+	}
+
+	recaptured := "10.0.0.5 " + key + "\n10.0.0.5 " + key + " seen-again-elsewhere\n"
+	if err := os.WriteFile(s.Layout.CaptureFile(), []byte(recaptured), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.out.Reset()
+	s.mustRun(t, "trust")
+	if got := s.out.String(); !strings.HasPrefix(got, "revoked ") || strings.Count(got, "\n") != 2 {
+		t.Fatalf("the capture file brought the revoked key back, or the listing does not say revoked:\n%s", got)
+	}
+	if err := s.run(t, "trust", id); err == nil || !strings.Contains(err.Error(), "@revoked") {
+		t.Fatalf("a revoked key was approved again: %v", err)
 	}
 }

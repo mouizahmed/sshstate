@@ -26,6 +26,7 @@ const (
 	RouteTrustImport       = "/" + APIVersion + "/trust/import"
 	RouteTrustList         = "/" + APIVersion + "/trust/list"
 	RouteTrustApprove      = "/" + APIVersion + "/trust/approve"
+	RouteTrustRevoke       = "/" + APIVersion + "/trust/revoke"
 	RouteRecoveryChallenge = "/" + APIVersion + "/recovery/challenge"
 	RouteRecoveryConfirm   = "/" + APIVersion + "/recovery/confirm"
 	RouteConnect           = "/" + APIVersion + "/connect"
@@ -148,6 +149,14 @@ type TrustApproveRequest struct {
 
 type TrustApproveResponse struct {
 	Approved int `json:"approved"`
+}
+
+type TrustRevokeRequest struct {
+	RecordIDs []string `json:"record_ids"`
+}
+
+type TrustRevokeResponse struct {
+	Revoked int `json:"revoked"`
 }
 
 type RemoveRequest struct {

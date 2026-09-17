@@ -37,6 +37,7 @@ func (d *Daemon) routes() http.Handler {
 	mux.HandleFunc("POST "+control.RouteTrustImport, d.handleTrustImport)
 	mux.HandleFunc("GET "+control.RouteTrustList, d.handleTrustList)
 	mux.HandleFunc("POST "+control.RouteTrustApprove, d.handleTrustApprove)
+	mux.HandleFunc("POST "+control.RouteTrustRevoke, d.handleTrustRevoke)
 	mux.HandleFunc("POST "+control.RouteRecoveryChallenge, d.handleRecoveryChallenge)
 	mux.HandleFunc("POST "+control.RouteRecoveryConfirm, d.handleRecoveryConfirm)
 	mux.HandleFunc("POST "+control.RouteConnect, d.handleConnect)

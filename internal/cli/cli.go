@@ -52,7 +52,7 @@ func Commands() []Command {
 		{"add-key", GroupHosts, "<private-key-file> [--comment text]", "import an SSH private key into the vault", runAddKey},
 		{"remove-key", GroupHosts, "<key> [--yes]", "remove a key from the vault", runRemoveKey},
 		{"import", GroupHosts, "<ssh-config> [--with-keys] [--comment-source] [--dry-run]", "import hosts from an existing SSH config", runImport},
-		{"trust", GroupHosts, "[<id>...] [--all]", "review and approve host keys seen on first connection", runTrust},
+		{"trust", GroupHosts, "[<id>...] [--all | --revoke]", "review, approve, or revoke host keys seen on connection", runTrust},
 
 		{"connect", GroupMachines, "<relay-url> [--bootstrap-secret file]", "connect this vault to a relay so other machines can join", runConnect},
 		{"pair", GroupMachines, "<relay-url> <vault-id> [--label name]", "join this machine to a vault on another machine", runPair},

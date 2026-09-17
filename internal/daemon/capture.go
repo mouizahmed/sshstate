@@ -82,7 +82,7 @@ func (d *Daemon) reconcileCapture() (CaptureResult, error) {
 			continue
 		}
 		digest := e.Digest
-		if seen[string(digest[:])] {
+		if seen[string(digest[:])] || revokedFor(e, matched, approvedFor[e.KeyType]) {
 			result.Skipped++
 			continue
 		}
@@ -119,6 +119,18 @@ func (d *Daemon) reconcileCapture() (CaptureResult, error) {
 		return CaptureResult{}, err
 	}
 	return result, nil
+}
+
+func revokedFor(e knownhosts.Entry, dest string, approved []vault.KnownHostView) bool {
+	for _, a := range approved {
+		if a.Marker != knownhosts.MarkerRevoked || a.Fingerprint != e.Fingerprint {
+			continue
+		}
+		if prior, err := knownhosts.ParseLine(a.Line); err == nil && prior.Matches(dest) {
+			return true
+		}
+	}
+	return false
 }
 
 func disagreesWithApproved(e knownhosts.Entry, dest string, approved []vault.KnownHostView) bool {
@@ -207,4 +219,32 @@ func (d *Daemon) handleTrustApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, control.TrustApproveResponse{Approved: len(ids)})
+}
+
+func (d *Daemon) handleTrustRevoke(w http.ResponseWriter, r *http.Request) {
+	var req control.TrustRevokeRequest
+	if err := decode(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+	if len(req.RecordIDs) == 0 {
+		writeError(w, errors.New("nothing to revoke"))
+		return
+	}
+	for _, raw := range req.RecordIDs {
+		id := protocol.ID(raw)
+		if !id.Valid() {
+			writeError(w, fmt.Errorf("%q is not a record id", raw))
+			return
+		}
+		if err := d.mgr.RevokeKnownHost(id); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if _, err := d.regenerate(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, control.TrustRevokeResponse{Revoked: len(req.RecordIDs)})
 }

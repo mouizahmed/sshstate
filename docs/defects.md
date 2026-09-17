@@ -841,3 +841,36 @@ A backup is linked into place, which fails rather than replaces, and takes a
 numbered name when that second's name is taken.
 `TestBackupsTakenInTheSameSecondKeepEveryVersion` fails when backups are renamed
 into place again.
+
+## D23 — A trusted host key could never be withdrawn
+
+- Found: live audit on an Ubuntu VM, rotating the host key of a user-level `sshd`
+- Severity: after a rotation the old key stayed trusted on every machine, and so did any key approved by mistake
+- Fixed in: `internal/vault/manager_trust.go` (`RevokeKnownHost`), `internal/daemon/capture.go`, `internal/cli/trustreview.go`
+
+### What happened
+
+`trust` could approve an observation but nothing could take one back. When a
+server's key changed and the user accepted the new one, the old key remained an
+approved line in every machine's generated `known_hosts`, so anyone holding the
+old private host key could still impersonate the server. The listing also said
+a pending key was "not trusted until approved", which is false on the machine
+that captured it: OpenSSH reads the capture file directly.
+
+Approving a revoked observation reported success, because the "already
+approved" check ran before the `@revoked` refusal.
+
+### Fix
+
+`sshstate trust <id> --revoke` rewrites the observation as an `@revoked` line.
+OpenSSH refuses a revoked key in any known_hosts file it reads, so the key is
+refused even where the capture file still holds it. Capture reconciliation
+ignores a revoked key if it is seen again in another form, and approval checks
+for `@revoked` first. The listing says what pending actually means, and the CLI
+guide walks through a rotation.
+
+`TestRevokingAHostKeyRefusesItEverywhere` fails if the line is not marked
+revoked, if a recaptured copy of the key comes back as approved, or if a revoked
+key can be approved again. Verified live: after revoking the old key, `ssh`
+refused a server presenting it with `REVOKED HOST KEY DETECTED` while the
+capture file still listed it, and the replacement key logged in.

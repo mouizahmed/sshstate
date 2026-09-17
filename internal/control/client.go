@@ -176,6 +176,11 @@ func (c *Client) Doctor(ctx context.Context) (*DoctorResponse, error) {
 	return &out, c.do(ctx, http.MethodGet, RouteDoctor, nil, &out)
 }
 
+func (c *Client) TrustRevoke(ctx context.Context, req TrustRevokeRequest) (*TrustRevokeResponse, error) {
+	var out TrustRevokeResponse
+	return &out, c.do(ctx, http.MethodPost, RouteTrustRevoke, req, &out)
+}
+
 func (c *Client) TrustPreview(ctx context.Context) (*TrustPreviewResponse, error) {
 	var out TrustPreviewResponse
 	return &out, c.do(ctx, http.MethodGet, RouteTrust, nil, &out)

@@ -15,6 +15,7 @@ import (
 func runTrust(ctx context.Context, env *Env, args []string) error {
 	fs := newFlagSet(env, "trust")
 	approveAll := fs.Bool("all", false, "approve every pending observation")
+	revoke := fs.Bool("revoke", false, "stop trusting these observations: OpenSSH refuses their keys on every machine")
 	subjects, rest := splitPositional(args, len(args))
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -22,6 +23,9 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 	subjects = append(subjects, fs.Args()...)
 	if len(subjects) > 0 && *approveAll {
 		return errors.New("give record ids or --all, not both")
+	}
+	if *revoke && (*approveAll || len(subjects) == 0) {
+		return errors.New("--revoke needs the record ids to revoke; see: sshstate trust")
 	}
 
 	if len(subjects) > 0 || *approveAll {
@@ -43,6 +47,16 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 				req.RecordIDs = append(req.RecordIDs, id)
 			}
 		}
+		if *revoke {
+			res, err := env.Client().TrustRevoke(ctx, control.TrustRevokeRequest{RecordIDs: req.RecordIDs})
+			if err != nil {
+				return env.hint(err)
+			}
+			env.printf("Revoked %s. OpenSSH now refuses those keys, here and on every machine after it syncs.\n",
+				count(res.Revoked, "observation", "observations"))
+			env.printf("Regenerated %s\n", env.Layout.KnownHosts())
+			return nil
+		}
 		res, err := env.Client().TrustApprove(ctx, req)
 		if err != nil {
 			return env.hint(err)
@@ -62,20 +76,25 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 	}
 	var pending int
 	for _, e := range res.Entries {
-		marker := e.Marker
+		status, marker := e.Status, e.Marker
+		if marker == "@revoked" {
+			status, marker = "revoked", ""
+		}
 		if marker != "" {
 			marker += " "
 		}
-		env.printf("%-8s %s  %s%s\n", e.Status, e.RecordID, marker, e.Fingerprint)
+		env.printf("%-8s %s  %s%s\n", status, e.RecordID, marker, e.Fingerprint)
 		env.printf("         %s\n", trustDestination(e.Line))
 		if e.Status == "pending" {
 			pending++
 		}
 	}
 	if pending > 0 {
-		env.printf("\n%s pending review, and not trusted until approved.\n",
+		env.printf("\n%s pending review. Other machines do not trust a pending key until it is approved,\n",
 			count(pending, "observation is", "observations are"))
+		env.printf("but OpenSSH on the machine that saw it already accepted it when you answered yes.\n")
 		env.printf("Approve with: sshstate trust <record-id>, or: sshstate trust --all\n")
+		env.printf("If a key should not be trusted, refuse it everywhere with: sshstate trust --revoke <record-id>\n")
 	}
 	return nil
 }

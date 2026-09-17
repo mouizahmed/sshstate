@@ -113,11 +113,30 @@ sshstate trust        # review host-key observations
 ```
 
 On a first connection, verify the server's host-key fingerprint by your usual
-independent channel before accepting OpenSSH's prompt. sshstate captures host
-keys for review; approve a verified pending observation with `sshstate trust
-<observation-id>`. `sshstate trust --all` approves every pending observation,
-so use it only after checking them all. Changed or conflicting host keys remain
-pending until reviewed.
+independent channel before accepting OpenSSH's prompt. sshstate captures the
+keys you accept. A first key for a host is recorded as approved and reaches your
+other machines on the next sync. A key that differs from one already approved
+for that host is recorded as **pending**: your other machines do not trust it
+until you approve it with `sshstate trust <observation-id>`, but OpenSSH on the
+machine where you answered yes already uses it. `sshstate trust --all` approves
+every pending observation, so use it only after checking them all.
+
+When a server's host key changes, OpenSSH refuses to connect and names the
+capture file. Confirm the new fingerprint out of band, then:
+
+```sh
+ssh-keygen -f ~/.ssh/sshstate/known_hosts.capture -R <host>   # as OpenSSH suggests
+ssh <alias>                                                    # accept the new key
+sshstate trust                                                 # the new key is pending
+sshstate trust <new-observation-id>
+sshstate trust <old-observation-id> --revoke
+sshstate sync
+```
+
+`--revoke` publishes the key as `@revoked`, so OpenSSH refuses it on every
+machine, including one whose capture file still holds it. Use it for a retired
+key, or for anything approved by mistake. A revoked observation cannot be
+approved again.
 
 ## 2. Manage hosts, keys, and imports later
 
