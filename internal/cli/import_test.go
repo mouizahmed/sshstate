@@ -189,6 +189,9 @@ func TestImportRefusesTheWholeFileForOneBadLine(t *testing.T) {
 	if !strings.Contains(s.errOut.String(), path+":7") {
 		t.Fatalf("the diagnostic does not name the file and line:\n%s", s.errOut)
 	}
+	if !strings.Contains(s.errOut.String(), "copy the\nHost blocks you want into their own file") {
+		t.Fatalf("the refusal does not say how to import the rest:\n%s", s.errOut)
+	}
 	hosts, herr := s.Env.Client().Hosts(context.Background())
 	if herr != nil {
 		t.Fatal(herr)
@@ -589,5 +592,18 @@ func TestCommentSourceLeavesAConflictingBlockActive(t *testing.T) {
 	}
 	if !strings.Contains(s.out.String(), "until you resolve them: prod") {
 		t.Fatalf("import did not say why prod was left active:\n%s", s.out)
+	}
+}
+
+func TestImportTakesAHostWithoutHostNameAsItsAlias(t *testing.T) {
+	s := importReady(t)
+	path := writeConfig(t, "Host server.example.com\n User deploy\n")
+	s.mustRun(t, "import", path)
+	hosts, err := s.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 || hosts[0].HostName != "server.example.com" || hosts[0].User != "deploy" {
+		t.Fatalf("the host was not imported with its alias as HostName: %+v", hosts)
 	}
 }

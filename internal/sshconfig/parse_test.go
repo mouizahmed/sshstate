@@ -90,7 +90,6 @@ func TestRejectsWhatIsNotInTheSubset(t *testing.T) {
 		{"chained jump", "Host a\n HostName h\n ProxyJump b,c\n", "chains several hosts", 3},
 		{"jump with user", "Host a\n HostName h\n ProxyJump me@b\n", "carries a user or port", 3},
 		{"jump with port", "Host a\n HostName h\n ProxyJump b:22\n", "carries a user or port", 3},
-		{"no hostname", "Host a\n User u\n", "has no HostName", 1},
 		{"duplicate host", "Host a\n HostName h\nHost a\n HostName i\n", "already defined on line 1", 3},
 		{"duplicate directive", "Host a\n HostName h\n HostName i\n", "set twice", 3},
 		{"unbalanced quote", "Host \"a\n", "unbalanced quote", 1},
@@ -194,5 +193,15 @@ func TestAnIncludeOutsideTheMarkersIsStillRefused(t *testing.T) {
 	_, problems := ParseImport("Include other\n" + MarkerBegin + "\nInclude x\n" + MarkerEnd + "\n")
 	if len(problems) != 1 || problems[0].Line != 1 {
 		t.Fatalf("expected exactly the unmanaged Include refused, got:\n%s", problemText(problems))
+	}
+}
+
+func TestAHostWithoutHostNameConnectsToItsAlias(t *testing.T) {
+	hosts, problems := ParseImport("Host server.example.com\n User deploy\n")
+	if len(problems) > 0 {
+		t.Fatalf("a Host block without HostName was refused: %v", problems)
+	}
+	if len(hosts) != 1 || hosts[0].HostName != "server.example.com" {
+		t.Fatalf("HostName did not default to the alias, as OpenSSH does: %+v", hosts)
 	}
 }

@@ -254,6 +254,9 @@ func importRefusal(env *Env, path string, problems []sshconfig.ImportProblem) er
 	for _, p := range problems {
 		env.warnf("%s:%d: %s\n", path, p.Line, p.Text)
 	}
+	env.warnf("\nNothing is imported while any line is refused. sshstate imports literal Host blocks\n")
+	env.warnf("with HostName, User, Port, ProxyJump, and IdentityFile. To import the rest, copy the\n")
+	env.warnf("Host blocks you want into their own file and import that file.\n")
 	return fmt.Errorf("%s was not imported; %s", path, count(len(problems), "line needs attention", "lines need attention"))
 }
 

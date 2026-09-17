@@ -874,3 +874,34 @@ revoked, if a recaptured copy of the key comes back as approved, or if a revoked
 key can be approved again. Verified live: after revoking the old key, `ssh`
 refused a server presenting it with `REVOKED HOST KEY DETECTED` while the
 capture file still listed it, and the replacement key logged in.
+
+## D24 — A Host block without HostName was refused
+
+- Found: importing typical SSH configs while auditing `setup --import`
+- Severity: a common block such as `Host server.example.com` with only `User` stopped the whole import
+- Fixed in: `internal/sshconfig/parse.go` (`ParseImport`), `internal/cli/import.go` (`importRefusal`)
+
+### What happened
+
+The project brief says the importer resolves omitted defaults into stored
+values, and OpenSSH connects to the alias when `HostName` is absent. The parser
+refused the block instead, and because an import is all or nothing, one such
+block blocked every host in the file. The refusal listed the lines but not what
+the subset is or how to import the rest.
+
+### Why it survived until a test found it
+
+A parser test asserted the refusal as correct behaviour, and the fuzz invariant
+("no host is returned without a HostName") was satisfied by refusing rather than
+by defaulting.
+
+### Fix
+
+A missing `HostName` defaults to the alias. The fuzz invariant still holds.
+Every refusal now ends by saying which directives are imported and suggesting a
+file containing only the wanted Host blocks.
+`TestAHostWithoutHostNameConnectsToItsAlias` and
+`TestImportTakesAHostWithoutHostNameAsItsAlias` fail without the default, and
+`TestImportRefusesTheWholeFileForOneBadLine` fails without the hint. Wildcard
+blocks such as a macOS `Host *` with `UseKeychain` are still refused, as the
+brief requires.

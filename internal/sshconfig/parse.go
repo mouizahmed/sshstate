@@ -172,9 +172,9 @@ func ParseImport(text string) ([]ImportedHost, []ImportProblem) {
 	}
 	closeBlock()
 
-	for _, h := range hosts {
-		if h.HostName == "" {
-			problems = append(problems, ImportProblem{Line: h.Line, Text: fmt.Sprintf("host %q has no HostName", h.Alias)})
+	for i := range hosts {
+		if hosts[i].HostName == "" {
+			hosts[i].HostName = hosts[i].Alias
 		}
 	}
 	if len(problems) > 0 {
