@@ -93,6 +93,8 @@ jobs:
 
       - id: push
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: deploy/Dockerfile
@@ -119,6 +121,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          pattern: "*-{amd64,arm64}"
           path: dist
           merge-multiple: true
 
