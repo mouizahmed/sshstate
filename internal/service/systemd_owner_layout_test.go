@@ -24,7 +24,7 @@ func TestSystemdInstalledOnlyForTheHomeItWasRegisteredFor(t *testing.T) {
 	if registered, err := s.Registered(); err != nil || registered {
 		t.Fatalf("no units, yet registered: %v %v", registered, err)
 	}
-	units, err := RenderUnits("/bin/sshstate", other)
+	units, err := RenderUnits("/bin/sshstate", other, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

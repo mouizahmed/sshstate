@@ -32,9 +32,10 @@ func (launchd) DefinitionPath() string {
 	return filepath.Join(home, "Library", "LaunchAgents", Label+".plist")
 }
 
-func RenderPlist(binary string, l paths.Layout) (string, error) {
+func RenderPlist(binary string, l paths.Layout, env map[string]string) (string, error) {
 	def := plist{
-		Label: Label,
+		Environment: env,
+		Label:       Label,
 		ProgramArguments: []string{
 			binary, "daemon",
 			"--data", l.Data,
@@ -53,6 +54,7 @@ func RenderPlist(binary string, l paths.Layout) (string, error) {
 }
 
 type plist struct {
+	Environment      map[string]string
 	Label            string
 	ProgramArguments []string
 	RunAtLoad        bool
@@ -78,6 +80,13 @@ func (p plist) render() (string, error) {
 	b.WriteString("  </array>\n")
 	fmt.Fprintf(&b, "  <key>RunAtLoad</key>\n  <%t/>\n", p.RunAtLoad)
 	fmt.Fprintf(&b, "  <key>WorkingDirectory</key>\n  <string>%s</string>\n", escape(p.WorkingDirectory))
+	if len(p.Environment) > 0 {
+		b.WriteString("  <key>EnvironmentVariables</key>\n  <dict>\n")
+		for _, name := range sortedNames(p.Environment) {
+			fmt.Fprintf(&b, "    <key>%s</key>\n    <string>%s</string>\n", escape(name), escape(p.Environment[name]))
+		}
+		b.WriteString("  </dict>\n")
+	}
 	b.WriteString("  <key>Sockets</key>\n  <dict>\n")
 	for _, name := range []string{activation.NameAgent, activation.NameControl} {
 		s, ok := p.Sockets[name]
@@ -108,7 +117,7 @@ func (d launchd) Install(binary string, l paths.Layout) error {
 	if path == "" {
 		return fmt.Errorf("cannot resolve ~/Library/LaunchAgents")
 	}
-	body, err := RenderPlist(binary, l)
+	body, err := RenderPlist(binary, l, Environment())
 	if err != nil {
 		return err
 	}
@@ -121,8 +130,11 @@ func (d launchd) Install(binary string, l paths.Layout) error {
 		}
 	}
 	_ = d.bootout()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("secure %s: %w", path, err)
 	}
 	for _, sock := range []string{l.ControlSocket(), l.AgentSocket()} {
 		if err := os.Remove(sock); err != nil && !os.IsNotExist(err) {

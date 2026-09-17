@@ -47,7 +47,7 @@ func (systemd) DefinitionPath() string {
 	return filepath.Join(dir, unitService)
 }
 
-func RenderUnits(binary string, l paths.Layout) (map[string]string, error) {
+func RenderUnits(binary string, l paths.Layout, env map[string]string) (map[string]string, error) {
 	args := []string{
 		binary, "daemon",
 		"--data", l.Data,
@@ -76,6 +76,13 @@ func RenderUnits(binary string, l paths.Layout) (map[string]string, error) {
 		"ExecStart=" + strings.Join(cmdline, " ") + "\n" +
 		"WorkingDirectory=" + data + "\n" +
 		"Restart=no\n"
+	for _, name := range sortedNames(env) {
+		assignment, err := execArg(name + "=" + env[name])
+		if err != nil {
+			return nil, err
+		}
+		serviceUnit += "Environment=" + assignment + "\n"
+	}
 
 	control, err := socketUnit("sshstate control socket", l.ControlSocket(), activation.NameControl)
 	if err != nil {
@@ -134,7 +141,7 @@ func (d systemd) Install(binary string, l paths.Layout) error {
 	if err := requireUserManager(); err != nil {
 		return err
 	}
-	units, err := RenderUnits(binary, l)
+	units, err := RenderUnits(binary, l, Environment())
 	if err != nil {
 		return err
 	}
@@ -143,8 +150,12 @@ func (d systemd) Install(binary string, l paths.Layout) error {
 	}
 	_ = d.down()
 	for name, body := range units {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", filepath.Join(dir, name), err)
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			return fmt.Errorf("write %s: %w", path, err)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return fmt.Errorf("secure %s: %w", path, err)
 		}
 	}
 	for _, sock := range []string{l.ControlSocket(), l.AgentSocket()} {

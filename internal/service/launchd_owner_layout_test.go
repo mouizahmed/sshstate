@@ -23,7 +23,7 @@ func TestLaunchdInstalledOnlyForTheHomeItWasRegisteredFor(t *testing.T) {
 	if registered, err := d.Registered(); err != nil || registered {
 		t.Fatalf("a home with no plist reports registered: %v %v", registered, err)
 	}
-	body, err := RenderPlist("/bin/sshstate", other)
+	body, err := RenderPlist("/bin/sshstate", other, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

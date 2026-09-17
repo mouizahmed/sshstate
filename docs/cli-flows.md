@@ -202,7 +202,9 @@ reads from an already open file descriptor; the password is not a command-line
 argument.
 
 `setup` registers the daemon with launchd on macOS or systemd user units on
-Linux. The manual controls are `sshstate service` to register, `sshstate service
+Linux. The service does not inherit your shell, so registration copies
+`SSL_CERT_FILE`, `SSL_CERT_DIR`, and the `*_PROXY` variables from the shell
+that ran it. If you change those later, register again with `sshstate service`. The manual controls are `sshstate service` to register, `sshstate service
 --remove` to unregister, and `sshstate daemon` to run in the foreground. The
 foreground daemon is useful on a platform without service integration. If you
 choose the manual route, `sshstate init --kit <path>` creates only the vault;

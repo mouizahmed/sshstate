@@ -62,7 +62,7 @@ func TestSystemdSocketActivation(t *testing.T) {
 		t.Fatalf("build the daemon binary: %v", err)
 	}
 
-	units, err := service.RenderUnits(binary, layout)
+	units, err := service.RenderUnits(binary, layout, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

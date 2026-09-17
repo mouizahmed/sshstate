@@ -1228,3 +1228,28 @@ was removed elsewhere, and prints the exact `resolve` command, with
 retires the conflict through the same path that applying uses, and the discard
 syncs. `TestConflictsShowWhatDiffersAndCanBeDiscarded` fails without the
 description, and fails if a discard does not retire the conflict.
+
+## D37 — The service could not reach a relay the user's shell could
+
+- Found: `connect` from the VM user's real home, with the relay's certificate trusted through `SSL_CERT_FILE`
+- Severity: behind a private CA or an HTTPS proxy, every relay operation failed from the service while the same settings worked in the shell
+- Fixed in: `internal/service/service.go` (`Environment`), `internal/service/launchd_darwin.go`, `internal/service/systemd_linux.go`
+
+### What happened
+
+Relay requests are made by the daemon, and launchd and systemd start it with
+their own environment, not the shell's. `SSL_CERT_FILE` was set where the user
+typed `connect` but not where the request ran, so the relay's certificate was
+untrusted.
+
+### Fix
+
+Registering the service copies an allowlist of certificate and proxy variables
+from the registering shell into the unit or plist, escaped for each format.
+The definition files are now written mode 600, since a proxy URL can carry
+credentials. `TestEnvironmentPassesOnlyCertificateAndProxySettings`,
+`TestPlistCarriesTheRegisteringShellsCertificateAndProxySettings`, and
+`TestUnitCarriesTheRegisteringShellsCertificateAndProxySettings` (run on the
+VM) cover the allowlist and escaping. Verified live: after registering from a
+shell with `SSL_CERT_FILE`, the service connected, paired, and synced over
+HTTPS through nginx.
