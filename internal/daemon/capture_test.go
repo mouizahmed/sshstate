@@ -324,7 +324,7 @@ func TestObservationsMadeWhileLockedArriveOnUnlock(t *testing.T) {
 	}
 }
 
-func TestApprovingAPendingObservationPublishesIt(t *testing.T) {
+func TestApprovingAChangedKeyPublishesItOnceTheOldOneIsRevoked(t *testing.T) {
 	h := captureHarness(t)
 	first := hostKey(t)
 	second := hostKey(t)
@@ -341,36 +341,46 @@ func TestApprovingAPendingObservationPublishesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pendingID string
+	var pendingID, firstID string
 	for _, e := range list.Entries {
-		if e.Status == "pending" {
+		switch e.Status {
+		case "pending":
 			pendingID = e.RecordID
+		case "approved":
+			firstID = e.RecordID
 		}
 	}
-	if pendingID == "" {
-		t.Fatalf("nothing was pending: %+v", list.Entries)
+	if pendingID == "" || firstID == "" {
+		t.Fatalf("expected one approved and one pending: %+v", list.Entries)
 	}
 
-	res, err := h.client.TrustApprove(context.Background(), control.TrustApproveRequest{RecordIDs: []string{pendingID}})
-	if err != nil {
+	if _, err := h.client.TrustApprove(context.Background(), control.TrustApproveRequest{RecordIDs: []string{pendingID}}); err != nil {
 		t.Fatal(err)
-	}
-	if res.Approved != 1 {
-		t.Fatalf("approved %d", res.Approved)
-	}
-	lines, err := h.mgr.ApprovedTrustLines()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lines) != 2 {
-		t.Fatalf("the approved key did not reach the generated file: %v", lines)
 	}
 	body, err := os.ReadFile(h.layout.KnownHosts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), second) {
-		t.Fatalf("the generated known_hosts was not rewritten:\n%s", body)
+	if strings.Contains(string(body), first) || strings.Contains(string(body), second) {
+		t.Fatalf("two approved keys that disagree were shared before one was revoked:\n%s", body)
+	}
+	status, err := h.client.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Issues) != 1 || !strings.Contains(status.Issues[0].Problem, "disagree") {
+		t.Fatalf("the disagreement was not reported: %+v", status.Issues)
+	}
+
+	if _, err := h.client.TrustRevoke(context.Background(), control.TrustRevokeRequest{RecordIDs: []string{firstID}}); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(h.layout.KnownHosts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "\n10.0.0.5 "+second) || !strings.Contains(string(body), "@revoked 10.0.0.5 "+first) {
+		t.Fatalf("after revoking the old key, the new one was not published:\n%s", body)
 	}
 }
 

@@ -74,7 +74,7 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 		env.printf("No host-key observations yet.\n")
 		return nil
 	}
-	var pending int
+	var pending, withheld int
 	for _, e := range res.Entries {
 		status, marker := e.Status, e.Marker
 		if marker == "@revoked" {
@@ -93,9 +93,16 @@ func runTrust(ctx context.Context, env *Env, args []string) error {
 		} else {
 			env.printf("         %s\n", destination)
 		}
+		if e.Withheld {
+			withheld++
+			env.warnf("         disagrees with another approved key for this host, so it is not shared with other machines\n")
+		}
 		if e.Status == "pending" {
 			pending++
 		}
+	}
+	if withheld > 0 {
+		env.warnf("\nCheck the server's real fingerprint out of band, then revoke the wrong key: sshstate trust <record-id> --revoke\n")
 	}
 	if pending > 0 {
 		env.printf("\n%s pending review. Other machines do not trust a pending key until it is approved,\n",

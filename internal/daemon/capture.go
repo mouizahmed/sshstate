@@ -168,6 +168,12 @@ func (d *Daemon) handleTrustList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	published := map[string]bool{}
+	if _, lines, _, err := d.plan(); err == nil {
+		for _, line := range lines {
+			published[line] = true
+		}
+	}
 	out := control.TrustListResponse{}
 	for _, v := range views {
 		var named []string
@@ -179,6 +185,7 @@ func (d *Daemon) handleTrustList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		out.Entries = append(out.Entries, control.TrustEntry{
+			Withheld:    v.Status == vault.TrustApproved && !published[v.Line],
 			Hosts:       named,
 			RecordID:    v.RecordID.String(),
 			Line:        v.Line,

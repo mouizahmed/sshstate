@@ -138,6 +138,13 @@ machine, including one whose capture file still holds it. Use it for a retired
 key, or for anything approved by mistake. A revoked observation cannot be
 approved again.
 
+Only keys that agree are shared. If two approved keys of the same type disagree
+for one host, because you approved a replacement or because two machines each
+saw a different key first, neither is shared until one is revoked. Each machine
+keeps using the key it accepted itself. `trust`, `status`, and `doctor` point
+this out. A host that genuinely serves several keys of one type can therefore
+only be trusted machine by machine.
+
 ## 2. Manage hosts, keys, and imports later
 
 ```sh

@@ -228,3 +228,54 @@ func TestTrustNamesTheHostBehindAHashedEntry(t *testing.T) {
 		t.Fatalf("a hashed observation was not named by its managed host:\n%s", got)
 	}
 }
+
+func TestDevicesThatFirstSawDifferentKeysShareNeither(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+
+	keyA, keyB := hostKeyLine(t), hostKeyLine(t)
+	for s, key := range map[*scripted]string{a: keyA, b: keyB} {
+		if err := os.MkdirAll(filepath.Dir(s.Layout.CaptureFile()), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(s.Layout.CaptureFile(), []byte("10.0.0.5 "+key+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s.mustRun(t, "trust")
+	}
+	a.mustRun(t, "sync")
+	b.mustRun(t, "sync")
+	a.mustRun(t, "sync")
+
+	for name, s := range map[string]*scripted{"a": a, "b": b} {
+		published := readFile(t, s.Layout.KnownHosts())
+		if strings.Contains(published, keyA) || strings.Contains(published, keyB) {
+			t.Fatalf("device %s shared a key that another device's first sighting disagrees with:\n%s", name, published)
+		}
+		s.errOut.Reset()
+		s.mustRun(t, "trust")
+		if !strings.Contains(s.errOut.String(), "disagrees with another approved key") {
+			t.Fatalf("device %s: trust did not flag the disagreement:\n%s", name, s.errOut)
+		}
+	}
+
+	list, err := a.Env.Client().TrustList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range list.Entries {
+		if strings.Contains(e.Line, keyB) {
+			a.mustRun(t, "trust", e.RecordID, "--revoke")
+		}
+	}
+	a.mustRun(t, "sync")
+	b.mustRun(t, "sync")
+	for name, s := range map[string]*scripted{"a": a, "b": b} {
+		published := readFile(t, s.Layout.KnownHosts())
+		if !strings.Contains(published, "\n10.0.0.5 "+keyA) || !strings.Contains(published, "@revoked 10.0.0.5 "+keyB) {
+			t.Fatalf("device %s: after revoking the wrong key the right one was not shared:\n%s", name, published)
+		}
+	}
+}

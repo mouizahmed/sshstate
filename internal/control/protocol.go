@@ -146,6 +146,7 @@ type ImportResponse struct {
 }
 
 type TrustEntry struct {
+	Withheld    bool     `json:"withheld,omitempty"`
 	Hosts       []string `json:"hosts,omitempty"`
 	RecordID    string   `json:"record_id"`
 	Line        string   `json:"line"`

@@ -1179,3 +1179,29 @@ OpenSSH never hashed anything.
 The daemon matches each observation against the managed hosts and returns their
 aliases. The listing shows them, and replaces a hash with "hashed host name".
 `TestTrustNamesTheHostBehindAHashedEntry` fails without the matching.
+
+## D35 — Two devices' first sightings of different host keys were both trusted everywhere
+
+- Found: two paired devices each accepting a first key for the same host, with different keys
+- Severity: every device, including ones that never connected, trusted both keys, one of which could be an interception
+- Fixed in: `internal/daemon/generate.go` (`plan`, `planTrust`), `internal/daemon/capture.go`, `internal/cli/trustreview.go`
+
+### What happened
+
+Disagreement with an approved key was checked only when a device reconciled
+its own capture file. Each device saw its key first, so each approved its own.
+Sync merged both approvals, and generation published every approved line. No
+listing or check noticed two approved keys for one host.
+
+### Fix
+
+Generation computes the published trust as a plan, next to the host plan. For
+each managed host, approved keys of one type that disagree are all withheld and
+reported as a host issue with the revoke command, so `status`, `sync`, `hosts`,
+and `doctor` show it, and `trust` marks the withheld entries. Revocations are
+always published. Once one key is revoked, the other is shared. This also
+changes an explicitly approved replacement key: it is shared only after the old
+key is revoked, which is the documented rotation.
+`TestDevicesThatFirstSawDifferentKeysShareNeither` and
+`TestApprovingAChangedKeyPublishesItOnceTheOldOneIsRevoked` fail when
+disagreeing keys are published.

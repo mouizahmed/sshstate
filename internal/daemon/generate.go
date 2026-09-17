@@ -5,8 +5,11 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/mouizahmed/sshstate/internal/knownhosts"
 	"net/http"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/mouizahmed/sshstate/internal/control"
 	"github.com/mouizahmed/sshstate/internal/protocol"
@@ -16,15 +19,92 @@ import (
 )
 
 func (d *Daemon) renderable() ([]sshconfig.Host, []control.HostIssue, error) {
+	rendered, _, issues, err := d.plan()
+	return rendered, issues, err
+}
+
+func (d *Daemon) plan() ([]sshconfig.Host, []string, []control.HostIssue, error) {
 	hosts, err := d.mgr.Hosts()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	keys, err := d.mgr.Keys()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return planHosts(hosts, keys)
+	trust, err := d.mgr.KnownHosts()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rendered, issues, err := planHosts(hosts, keys)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	lines, trustIssues := planTrust(trust, hosts)
+	return rendered, lines, append(issues, trustIssues...), nil
+}
+
+func planTrust(trust []vault.KnownHostView, hosts []vault.HostView) ([]string, []control.HostIssue) {
+	type parsed struct {
+		view  vault.KnownHostView
+		entry knownhosts.Entry
+	}
+	var approved []parsed
+	for _, v := range trust {
+		if v.Status != vault.TrustApproved {
+			continue
+		}
+		entry, err := knownhosts.ParseLine(v.Line)
+		if err != nil {
+			continue
+		}
+		approved = append(approved, parsed{view: v, entry: entry})
+	}
+
+	var issues []control.HostIssue
+	withheld := map[protocol.ID]bool{}
+	for _, h := range hosts {
+		dest := knownhosts.Destination(h.HostName, h.Port)
+		byType := map[string]map[string][]vault.KnownHostView{}
+		for _, p := range approved {
+			if p.entry.Marker != "" || !p.entry.Matches(dest) {
+				continue
+			}
+			if byType[p.entry.KeyType] == nil {
+				byType[p.entry.KeyType] = map[string][]vault.KnownHostView{}
+			}
+			byType[p.entry.KeyType][p.view.Fingerprint] = append(byType[p.entry.KeyType][p.view.Fingerprint], p.view)
+		}
+		for keyType, fingerprints := range byType {
+			if len(fingerprints) < 2 {
+				continue
+			}
+			var listed []string
+			for fp, views := range fingerprints {
+				listed = append(listed, fp)
+				for _, v := range views {
+					withheld[v.RecordID] = true
+				}
+			}
+			sort.Strings(listed)
+			issues = append(issues, control.HostIssue{
+				RecordID: string(h.RecordID),
+				Alias:    h.Alias,
+				Problem: fmt.Sprintf("has %d approved %s host keys that disagree (%s), so none of them is shared with other machines",
+					len(fingerprints), keyType, strings.Join(listed, ", ")),
+				Remedy: "check the server's real fingerprint out of band, then revoke the wrong key: sshstate trust <record-id> --revoke",
+			})
+		}
+	}
+
+	var lines []string
+	for _, p := range approved {
+		if !withheld[p.view.RecordID] {
+			lines = append(lines, p.view.Line)
+		}
+	}
+	sort.Strings(lines)
+	return lines, issues
 }
 
 func planHosts(hosts []vault.HostView, keys []vault.KeyView) ([]sshconfig.Host, []control.HostIssue, error) {
@@ -151,15 +231,11 @@ func (d *Daemon) regenerate() ([]sshconfig.Host, error) {
 	if _, err := d.reconcileCapture(); err != nil {
 		d.log.Warn("capture reconciliation failed before generating", "error", err)
 	}
-	hosts, _, err := d.renderable()
+	hosts, lines, _, err := d.plan()
 	if err != nil {
 		return nil, err
 	}
 	if err := sshconfig.Publish(hosts, d.layout); err != nil {
-		return nil, err
-	}
-	lines, err := d.mgr.ApprovedTrustLines()
-	if err != nil {
 		return nil, err
 	}
 	if err := sshconfig.PublishKnownHosts(lines, d.layout); err != nil {
