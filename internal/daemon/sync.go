@@ -214,7 +214,13 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	_, issues, err := d.renderable()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, control.SyncResponse{
+		Issues:    issues,
 		Pushed:    report.Pushed,
 		Preserved: report.Preserved,
 		Applied:   report.Applied,

@@ -15,22 +15,49 @@ import (
 	"github.com/mouizahmed/sshstate/internal/vault"
 )
 
-func (d *Daemon) renderable() ([]sshconfig.Host, error) {
+func (d *Daemon) renderable() ([]sshconfig.Host, []control.HostIssue, error) {
 	hosts, err := d.mgr.Hosts()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	keys, err := d.mgr.Keys()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	return planHosts(hosts, keys)
+}
+
+func planHosts(hosts []vault.HostView, keys []vault.KeyView) ([]sshconfig.Host, []control.HostIssue, error) {
 	byID := make(map[protocol.ID]vault.KeyView, len(keys))
 	for _, k := range keys {
 		byID[k.RecordID] = k
 	}
-
-	out := make([]sshconfig.Host, 0, len(hosts))
+	aliasCount := make(map[string]int, len(hosts))
 	for _, h := range hosts {
+		aliasCount[h.Alias]++
+	}
+
+	var issues []control.HostIssue
+	report := func(h vault.HostView, omitted bool, problem, remedy string) {
+		issues = append(issues, control.HostIssue{
+			RecordID: string(h.RecordID),
+			Alias:    h.Alias,
+			Problem:  problem,
+			Remedy:   remedy,
+			Omitted:  omitted,
+		})
+	}
+	subject := func(h vault.HostView) string {
+		if aliasCount[h.Alias] > 1 {
+			return string(h.RecordID)
+		}
+		return h.Alias
+	}
+
+	generated := make([]sshconfig.Host, len(hosts))
+	omitted := make(map[protocol.ID]bool)
+	unique := make(map[string]vault.HostView, len(hosts))
+	for i, h := range hosts {
 		gen := sshconfig.Host{
 			Alias:     h.Alias,
 			HostName:  h.HostName,
@@ -38,63 +65,93 @@ func (d *Daemon) renderable() ([]sshconfig.Host, error) {
 			Port:      h.Port,
 			ProxyJump: h.ProxyJump,
 		}
-		for i, id := range h.KeyIDs {
+		for _, id := range h.KeyIDs {
 			k, ok := byID[id]
 			if !ok {
-				return nil, fmt.Errorf("host %q references key %s, which is not in the vault", h.Alias, id)
+				report(h, false, fmt.Sprintf("offers key %s, which is no longer in the vault", id),
+					fmt.Sprintf("choose its keys again: sshstate edit %s --key <key>", subject(h)))
+				continue
 			}
 			digest, err := sshkeys.PublicKeyDigest(k.PublicKey)
 			if err != nil {
-				return nil, fmt.Errorf("host %q key %s: %w", h.Alias, id, err)
+				return nil, nil, fmt.Errorf("host %q key %s: %w", h.Alias, id, err)
 			}
 			gen.Identities = append(gen.Identities, sshconfig.Identity{
-				Slot:      i + 1,
+				Slot:      len(gen.Identities) + 1,
 				Digest:    digest,
 				PublicKey: k.PublicKey,
 			})
 		}
-		out = append(out, gen)
+		generated[i] = gen
+		if aliasCount[h.Alias] > 1 {
+			omitted[h.RecordID] = true
+			report(h, true, fmt.Sprintf("shares the alias %q with another host, so ssh cannot tell them apart", h.Alias),
+				fmt.Sprintf("rename one of them: sshstate edit %s --alias <new-alias>", h.RecordID))
+			continue
+		}
+		unique[h.Alias] = h
 	}
-	if err := checkJumpGraph(out); err != nil {
-		return nil, err
+
+	for changed := true; changed; {
+		changed = false
+		for _, h := range hosts {
+			if omitted[h.RecordID] || h.ProxyJump == nil {
+				continue
+			}
+			jump := *h.ProxyJump
+			target, ok := unique[jump]
+			var problem string
+			switch {
+			case aliasCount[jump] > 1:
+				problem = fmt.Sprintf("jumps through %q, which more than one host is named", jump)
+			case !ok:
+				problem = fmt.Sprintf("jumps through %q, which is not a host in this vault", jump)
+			case jumpLoops(h, unique):
+				problem = "is part of a ProxyJump loop"
+			case omitted[target.RecordID]:
+				problem = fmt.Sprintf("jumps through %q, which is itself left out of the SSH config", jump)
+			default:
+				continue
+			}
+			omitted[h.RecordID] = true
+			changed = true
+			report(h, true, problem, fmt.Sprintf("choose its jump host again: sshstate edit %s --jump <alias|none>", subject(h)))
+		}
 	}
-	return out, nil
+
+	out := make([]sshconfig.Host, 0, len(hosts))
+	for i, h := range hosts {
+		if !omitted[h.RecordID] {
+			out = append(out, generated[i])
+		}
+	}
+	return out, issues, nil
 }
 
-func checkJumpGraph(hosts []sshconfig.Host) error {
-	next := make(map[string]string, len(hosts))
-	known := make(map[string]bool, len(hosts))
-	for _, h := range hosts {
-		known[h.Alias] = true
-		if h.ProxyJump != nil {
-			next[h.Alias] = *h.ProxyJump
+func jumpLoops(start vault.HostView, unique map[string]vault.HostView) bool {
+	seen := map[protocol.ID]bool{start.RecordID: true}
+	for at := start; at.ProxyJump != nil; {
+		next, ok := unique[*at.ProxyJump]
+		if !ok {
+			return false
 		}
-	}
-	for alias := range next {
-		seen := map[string]bool{}
-		for at := alias; ; {
-			if seen[at] {
-				return fmt.Errorf("ProxyJump chain starting at %q is a cycle", alias)
-			}
-			seen[at] = true
-			jump, ok := next[at]
-			if !ok {
-				break
-			}
-			if !known[jump] {
-				return fmt.Errorf("host %q jumps through %q, which is not a host in this vault", at, jump)
-			}
-			at = jump
+		if next.RecordID == start.RecordID {
+			return true
 		}
+		if seen[next.RecordID] {
+			return false
+		}
+		seen[next.RecordID] = true
+		at = next
 	}
-	return nil
+	return false
 }
 
 func (d *Daemon) regenerate() ([]sshconfig.Host, error) {
 	if _, err := d.reconcileCapture(); err != nil {
 		d.log.Warn("capture reconciliation failed before generating", "error", err)
 	}
-	hosts, err := d.renderable()
+	hosts, _, err := d.renderable()
 	if err != nil {
 		return nil, err
 	}

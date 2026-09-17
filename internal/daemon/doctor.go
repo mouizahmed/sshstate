@@ -86,7 +86,8 @@ func (d *Daemon) diagnose(ctx context.Context) ([]control.DoctorFinding, error) 
 		return out, nil
 	}
 	expected := map[string][]string{}
-	if rendered, err := d.renderable(); err != nil {
+	omitted := map[string]bool{}
+	if rendered, issues, err := d.renderable(); err != nil {
 		add(sevProblem, "generated configuration", err.Error(), "run: sshstate install")
 	} else {
 		for _, r := range rendered {
@@ -96,8 +97,17 @@ func (d *Daemon) diagnose(ctx context.Context) ([]control.DoctorFinding, error) 
 			}
 			expected[r.Alias] = paths
 		}
+		for _, issue := range issues {
+			add(sevProblem, "host consistency", fmt.Sprintf("host %q %s", issue.Alias, issue.Problem), issue.Remedy)
+			if issue.Omitted {
+				omitted[issue.RecordID] = true
+			}
+		}
 	}
 	for _, h := range hosts {
+		if omitted[string(h.RecordID)] {
+			continue
+		}
 		d.checkHost(ctx, h, expected[h.Alias], add)
 	}
 	return out, nil

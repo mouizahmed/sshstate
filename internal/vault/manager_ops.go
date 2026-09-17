@@ -185,6 +185,9 @@ func (m *Manager) AddHost(spec HostSpec) (protocol.ID, error) {
 			if !found {
 				return fmt.Errorf("ProxyJump %q is not a host in this vault", *payload.ProxyJump)
 			}
+			if jumpReturns(payload.Alias, *payload.ProxyJump, "", hosts) {
+				return fmt.Errorf("ProxyJump %q would make a loop back to %q", *payload.ProxyJump, payload.Alias)
+			}
 		}
 		recordID, err := protocol.NewID()
 		if err != nil {
@@ -210,6 +213,30 @@ func (m *Manager) AddHost(spec HostSpec) (protocol.ID, error) {
 		return nil
 	})
 	return id, err
+}
+
+func jumpReturns(alias, jump string, self protocol.ID, hosts []HostView) bool {
+	byAlias := make(map[string]HostView, len(hosts))
+	for _, h := range hosts {
+		if h.RecordID != self {
+			byAlias[h.Alias] = h
+		}
+	}
+	seen := map[string]bool{}
+	for at := jump; ; {
+		if at == alias {
+			return true
+		}
+		if seen[at] {
+			return false
+		}
+		seen[at] = true
+		next, ok := byAlias[at]
+		if !ok || next.ProxyJump == nil {
+			return false
+		}
+		at = *next.ProxyJump
+	}
 }
 
 type HostEdit struct {
@@ -280,11 +307,16 @@ func (m *Manager) EditHost(recordID protocol.ID, edit HostEdit) error {
 				return fmt.Errorf("host %q is the ProxyJump for %q; change that first", was, h.Alias)
 			}
 		}
-		if aliases[payload.Alias] {
+		if payload.Alias != was && aliases[payload.Alias] {
 			return fmt.Errorf("host %q already exists", payload.Alias)
 		}
-		if payload.ProxyJump != nil && !aliases[*payload.ProxyJump] {
-			return fmt.Errorf("ProxyJump %q is not a host in this vault", *payload.ProxyJump)
+		if edit.ProxyJump != nil && payload.ProxyJump != nil {
+			if !aliases[*payload.ProxyJump] {
+				return fmt.Errorf("ProxyJump %q is not a host in this vault", *payload.ProxyJump)
+			}
+			if jumpReturns(payload.Alias, *payload.ProxyJump, recordID, hosts) {
+				return fmt.Errorf("ProxyJump %q would make a loop back to %q", *payload.ProxyJump, payload.Alias)
+			}
 		}
 
 		keys, err := m.keysLocked(r)
@@ -295,9 +327,11 @@ func (m *Manager) EditHost(recordID protocol.ID, edit HostEdit) error {
 		for _, k := range keys {
 			known[k.RecordID] = true
 		}
-		for _, id := range payload.KeyIDs {
-			if !known[id] {
-				return fmt.Errorf("host %q references key %s, which is not in the vault", payload.Alias, id)
+		if edit.KeyIDs != nil {
+			for _, id := range payload.KeyIDs {
+				if !known[id] {
+					return fmt.Errorf("host %q references key %s, which is not in the vault", payload.Alias, id)
+				}
 			}
 		}
 

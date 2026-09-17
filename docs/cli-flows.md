@@ -305,6 +305,20 @@ bring it back; use `sshstate resolve <conflict-id> --resurrect` only if that is
 what you want. Review the result with `hosts`, `keys`, or `trust` as appropriate,
 then sync the other machines.
 
+Two machines can also make changes that are each fine alone but clash when
+merged: one removes a key while the other gives it to a host, both add the same
+alias, or two jump hosts end up pointing at each other. Sync still succeeds.
+Every host that is still consistent stays in the SSH config. A host whose alias
+is ambiguous, or whose jump host is missing or loops, is left out until fixed. A
+key that is gone is simply no longer offered. `sync`, `status`, `hosts`, and
+`doctor` list each problem with the command that fixes it. Where two hosts share
+an alias, name one by its record id, as `sshstate hosts` shows it:
+
+```sh
+sshstate edit <record-id> --alias <new-alias>
+sshstate sync
+```
+
 ## 7. Remove access for a lost or retired machine
 
 On another authorized and unlocked machine:

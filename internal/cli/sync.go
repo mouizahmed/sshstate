@@ -96,6 +96,7 @@ func runSync(ctx context.Context, env *Env, args []string) error {
 		env.warnf("\nThe relay had more changes than this run could take.\n")
 		env.warnf("Generated configuration is unchanged; run sync again.\n")
 	}
+	env.printIssues(out.Issues)
 	return nil
 }
 

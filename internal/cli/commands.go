@@ -367,6 +367,7 @@ func runStatus(ctx context.Context, env *Env, args []string) error {
 		env.printf("include      not installed\n")
 	}
 	env.printf("agent socket %s\n", st.AgentSocket)
+	env.printIssues(st.Issues)
 	if !st.RecoveryConfirmed {
 		env.warnf("\nThe recovery kit has not been confirmed; the vault will refuse changes.\n")
 		env.warnf("Confirm it with: sshstate confirm-recovery\n")
@@ -516,16 +517,11 @@ func runEdit(ctx context.Context, env *Env, args []string) error {
 	if err != nil {
 		return env.hint(err)
 	}
-	req := control.EditHostRequest{}
-	for _, h := range hosts {
-		if h.Alias == positional[0] {
-			req.RecordID = h.RecordID
-			break
-		}
+	target, err := resolveHost(hosts, positional[0])
+	if err != nil {
+		return err
 	}
-	if req.RecordID == "" {
-		return fmt.Errorf("no host named %q; see: sshstate status", positional[0])
-	}
+	req := control.EditHostRequest{RecordID: target.RecordID}
 
 	var given int
 	var resolveErr error

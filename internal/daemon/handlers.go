@@ -117,6 +117,12 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	var issues []control.HostIssue
+	if st.Unlocked {
+		if _, found, err := d.renderable(); err == nil {
+			issues = found
+		}
+	}
 	writeJSON(w, http.StatusOK, control.StatusResponse{
 		VaultID:           string(st.VaultID),
 		DeviceID:          string(st.DeviceID),
@@ -136,6 +142,7 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ConfigInstalled:   installed,
 		ConfigPath:        d.layout.Config(),
 		AgentSocket:       d.layout.AgentSocket(),
+		Issues:            issues,
 	})
 }
 
@@ -229,9 +236,20 @@ func (d *Daemon) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	_, issues, err := d.renderable()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	items := make([]control.HostResponse, 0, len(views))
 	for _, v := range views {
-		items = append(items, hostResponse(v))
+		item := hostResponse(v)
+		for _, issue := range issues {
+			if issue.RecordID == item.RecordID {
+				item.Issues = append(item.Issues, issue)
+			}
+		}
+		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, control.ListResponse[control.HostResponse]{Items: items})
 }

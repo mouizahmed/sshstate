@@ -411,3 +411,28 @@ func TestAnAcceptedSnapshotRefusesAnUnsyncedEditToAnExistingHost(t *testing.T) {
 		t.Fatalf("an export snapshot refused an unsynced edit: %v", err)
 	}
 }
+
+func TestLocalEditsCannotCreateAJumpLoop(t *testing.T) {
+	m, _, _ := newVault(t)
+	a, err := m.AddHost(HostSpec{Alias: "a", HostName: "10.0.0.1", User: "u"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jumpA := "a"
+	b, err := m.AddHost(HostSpec{Alias: "b", HostName: "10.0.0.2", User: "u", ProxyJump: &jumpA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jumpB := "b"
+	if err := m.EditHost(a, HostEdit{ProxyJump: &jumpB}); err == nil || !strings.Contains(err.Error(), "loop") {
+		t.Fatalf("an edit that closes a ProxyJump loop was accepted: %v", err)
+	}
+	self := "b"
+	if err := m.EditHost(b, HostEdit{ProxyJump: &self}); err == nil {
+		t.Fatalf("a host was allowed to jump through itself: %v", err)
+	}
+	port := 2222
+	if err := m.EditHost(b, HostEdit{Port: &port}); err != nil {
+		t.Fatalf("an edit that does not touch the jump was refused: %v", err)
+	}
+}

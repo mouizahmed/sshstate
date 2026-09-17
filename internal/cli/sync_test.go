@@ -1322,3 +1322,80 @@ func contains(fields []string, want string) bool {
 	}
 	return false
 }
+
+func TestMergesThatBreakReferencesKeepSyncWorkingAndCanBeRepaired(t *testing.T) {
+	r := newTestRelay(t)
+	a, _ := ready(t)
+	a.mustRun(t, "connect", r.url, "--bootstrap-secret", r.secretPath)
+	b := pairInto(t, r.url, a, vaultIDOf(t, a), "b's own password")
+
+	dir := t.TempDir()
+	writeTestKey(t, filepath.Join(dir, "doomed"), "doomed")
+	writeTestKey(t, filepath.Join(dir, "spare"), "spare")
+	a.mustRun(t, "add-key", filepath.Join(dir, "doomed"))
+	a.mustRun(t, "sync")
+	b.mustRun(t, "sync")
+
+	b.mustRun(t, "add", "db", "--hostname", "10.0.0.2", "--user", "pg", "--key", "doomed")
+	a.mustRun(t, "remove-key", "doomed", "--yes")
+	a.mustRun(t, "add", "dup", "--hostname", "10.0.0.10", "--user", "x")
+	b.mustRun(t, "add", "dup", "--hostname", "10.0.0.11", "--user", "y")
+	a.mustRun(t, "sync")
+	b.errOut.Reset()
+	if err := b.run(t, "sync"); err != nil {
+		t.Fatalf("a merge that broke a reference made sync fail: %v", err)
+	}
+	a.errOut.Reset()
+	if err := a.run(t, "sync"); err != nil {
+		t.Fatalf("the other device could not sync the broken reference either: %v", err)
+	}
+
+	for name, s := range map[string]*scripted{"a": a, "b": b} {
+		config := readFile(t, s.Layout.Config())
+		if !strings.Contains(config, "Host prod\n") || !strings.Contains(config, "Host db\n") {
+			t.Fatalf("device %s: consistent hosts were not rendered:\n%s", name, config)
+		}
+		if strings.Contains(config, "Host dup\n") {
+			t.Fatalf("device %s: an ambiguous alias was rendered:\n%s", name, config)
+		}
+		s.errOut.Reset()
+		s.mustRun(t, "status")
+		problems := s.errOut.String()
+		if !strings.Contains(problems, "db offers key") || !strings.Contains(problems, "dup shares the alias") {
+			t.Fatalf("device %s: status did not report the broken references:\n%s", name, problems)
+		}
+	}
+
+	if err := b.run(t, "edit", "db", "--port", "2201"); err != nil {
+		t.Fatalf("a host with a removed key could not have an unrelated field edited: %v", err)
+	}
+	if err := b.run(t, "edit", "dup", "--port", "2200"); err == nil || !strings.Contains(err.Error(), "name one by its record id") {
+		t.Fatalf("editing an ambiguous alias did not ask for a record id: %v", err)
+	}
+	hosts, err := b.Env.Client().Hosts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dupID string
+	for _, h := range hosts {
+		if h.Alias == "dup" && h.User == "y" {
+			dupID = h.RecordID
+		}
+	}
+	b.mustRun(t, "edit", dupID, "--alias", "dup-b")
+	b.mustRun(t, "add-key", filepath.Join(dir, "spare"))
+	b.mustRun(t, "edit", "db", "--key", "spare")
+	b.mustRun(t, "sync")
+	a.mustRun(t, "sync")
+	for name, s := range map[string]*scripted{"a": a, "b": b} {
+		s.errOut.Reset()
+		s.mustRun(t, "status")
+		if got := s.errOut.String(); strings.Contains(got, "need attention") || strings.Contains(got, "needs attention") {
+			t.Fatalf("device %s: the repairs did not clear the problems:\n%s", name, got)
+		}
+		config := readFile(t, s.Layout.Config())
+		if !strings.Contains(config, "Host dup\n") || !strings.Contains(config, "Host dup-b\n") {
+			t.Fatalf("device %s: the renamed hosts are not both in the config:\n%s", name, config)
+		}
+	}
+}

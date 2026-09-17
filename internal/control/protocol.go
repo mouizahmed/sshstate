@@ -55,24 +55,33 @@ const (
 )
 
 type StatusResponse struct {
-	VaultID           string    `json:"vault_id"`
-	DeviceID          string    `json:"device_id"`
-	DeviceLabel       string    `json:"device_label,omitempty"`
-	Unlocked          bool      `json:"unlocked"`
-	KeyEpoch          string    `json:"key_epoch"`
-	RecoveryConfirmed bool      `json:"recovery_confirmed"`
-	IdleExpiresAt     time.Time `json:"idle_expires_at,omitempty"`
-	HardExpiresAt     time.Time `json:"hard_expires_at,omitempty"`
-	Hosts             int       `json:"hosts"`
-	Keys              int       `json:"keys"`
-	KnownHosts        int       `json:"known_hosts"`
-	Pending           int       `json:"pending"`
-	Relay             string    `json:"relay,omitempty"`
-	LastExportPath    string    `json:"last_export_path,omitempty"`
-	LastExportAt      string    `json:"last_export_at,omitempty"`
-	ConfigInstalled   bool      `json:"config_installed"`
-	ConfigPath        string    `json:"config_path"`
-	AgentSocket       string    `json:"agent_socket"`
+	VaultID           string      `json:"vault_id"`
+	DeviceID          string      `json:"device_id"`
+	DeviceLabel       string      `json:"device_label,omitempty"`
+	Unlocked          bool        `json:"unlocked"`
+	KeyEpoch          string      `json:"key_epoch"`
+	RecoveryConfirmed bool        `json:"recovery_confirmed"`
+	IdleExpiresAt     time.Time   `json:"idle_expires_at,omitempty"`
+	HardExpiresAt     time.Time   `json:"hard_expires_at,omitempty"`
+	Hosts             int         `json:"hosts"`
+	Keys              int         `json:"keys"`
+	KnownHosts        int         `json:"known_hosts"`
+	Pending           int         `json:"pending"`
+	Relay             string      `json:"relay,omitempty"`
+	LastExportPath    string      `json:"last_export_path,omitempty"`
+	LastExportAt      string      `json:"last_export_at,omitempty"`
+	ConfigInstalled   bool        `json:"config_installed"`
+	ConfigPath        string      `json:"config_path"`
+	AgentSocket       string      `json:"agent_socket"`
+	Issues            []HostIssue `json:"issues,omitempty"`
+}
+
+type HostIssue struct {
+	RecordID string `json:"record_id"`
+	Alias    string `json:"alias"`
+	Problem  string `json:"problem"`
+	Remedy   string `json:"remedy"`
+	Omitted  bool   `json:"omitted,omitempty"`
 }
 
 type UnlockRequest struct {
@@ -169,13 +178,14 @@ type RemoveResponse struct {
 }
 
 type HostResponse struct {
-	RecordID  string   `json:"record_id"`
-	Alias     string   `json:"alias"`
-	HostName  string   `json:"hostname"`
-	User      string   `json:"user"`
-	Port      int      `json:"port"`
-	ProxyJump *string  `json:"proxy_jump,omitempty"`
-	KeyIDs    []string `json:"key_ids,omitempty"`
+	RecordID  string      `json:"record_id"`
+	Alias     string      `json:"alias"`
+	HostName  string      `json:"hostname"`
+	User      string      `json:"user"`
+	Port      int         `json:"port"`
+	ProxyJump *string     `json:"proxy_jump,omitempty"`
+	KeyIDs    []string    `json:"key_ids,omitempty"`
+	Issues    []HostIssue `json:"issues,omitempty"`
 }
 
 type ListResponse[T any] struct {
@@ -260,13 +270,14 @@ type ConnectResponse struct {
 }
 
 type SyncResponse struct {
-	Pushed    int    `json:"pushed"`
-	Preserved int    `json:"preserved"`
-	Applied   int    `json:"applied"`
-	Cursor    string `json:"cursor"`
-	Devices   int    `json:"devices"`
-	Learned   int    `json:"learned"`
-	Complete  bool   `json:"complete"`
+	Pushed    int         `json:"pushed"`
+	Preserved int         `json:"preserved"`
+	Applied   int         `json:"applied"`
+	Cursor    string      `json:"cursor"`
+	Devices   int         `json:"devices"`
+	Learned   int         `json:"learned"`
+	Complete  bool        `json:"complete"`
+	Issues    []HostIssue `json:"issues,omitempty"`
 }
 
 type DeviceView struct {

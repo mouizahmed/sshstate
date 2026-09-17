@@ -1008,3 +1008,47 @@ The same sweep made the CLI say things one way. A missing file reads
 with no terminal names `--password-fd` where one exists. The not-set-up and
 not-running messages no longer repeat "sshstate", and `status` shows the vault,
 device, and relay when the daemon is not running.
+
+## D29 — One merge conflict between records stopped every device's SSH config from updating
+
+- Found: two paired devices on the Mac, removing a key on one while the other gave it to a new host
+- Severity: every later `sync`, `add`, and `edit` failed on both devices, and the generated config stopped changing
+- Fixed in: `internal/daemon/generate.go` (`planHosts`), `internal/vault/manager_ops.go`, `internal/cli/list.go` (`resolveHost`)
+
+### What happened
+
+Records are merged one at a time, so two changes that are each valid can
+combine into an invalid vault. A host can end up referencing a removed key, two
+devices can add the same alias, a jump host can be removed while another device
+starts jumping through it, and two edits can close a ProxyJump loop. The
+renderer returned an error for the first inconsistency it met, so the whole
+config failed to regenerate and every command that regenerates reported that
+error. `edit` then re-validated fields it was not changing, so the host with the
+dangling key could not be repaired except by replacing its keys. A duplicate
+alias could not be addressed at all, because `edit` and `remove` matched the
+first host with that name.
+
+### Why it survived until a test found it
+
+Every validation ran at write time on one device, where these states cannot be
+created. No test merged two devices' concurrent edits to different records.
+
+### Fix
+
+Rendering is now a plan over the whole vault that never fails for a merge
+inconsistency. Consistent hosts are rendered. A removed key is dropped from its
+host's list. A host with an ambiguous alias, a missing jump host, a loop, or a
+jump through an omitted host is left out, since connecting to the wrong machine
+or skipping a bastion is worse than not connecting. Every problem carries the
+command that fixes it and appears in `sync`, `status`, `hosts`, and `doctor`,
+which also stops checking the effective config of omitted hosts. `edit` checks
+only the fields it changes and refuses to close a loop locally. `edit` and
+`remove` refuse an ambiguous alias and accept a record id.
+
+`TestPlanRendersEverythingConsistentAndReportsTheRest` covers each kind of
+inconsistency and fails if a loop is reported differently depending on visit
+order. `TestMergesThatBreakReferencesKeepSyncWorkingAndCanBeRepaired` merges a
+key removal and a duplicate alias across two devices, repairs both, and fails if
+a missing key is fatal again, if a duplicate alias is rendered, if `edit`
+re-checks untouched keys, or if an ambiguous alias resolves to the first match.
+`TestLocalEditsCannotCreateAJumpLoop` fails without the local loop check.

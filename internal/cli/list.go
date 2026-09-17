@@ -50,6 +50,9 @@ func runHosts(ctx context.Context, env *Env, args []string) error {
 			env.warnf("  no keys; the agent offers nothing for this host\n")
 		}
 		env.printf("  record  %s\n", h.RecordID)
+		for _, issue := range h.Issues {
+			env.warnf("  ! %s\n    %s\n", issue.Problem, issue.Remedy)
+		}
 	}
 	env.printf("\n%s\n", count(len(hosts), "host", "hosts"))
 	return nil
@@ -138,6 +141,55 @@ func resolveKeyID(keys []control.KeyResponse, want string) (string, error) {
 		fmt.Fprintf(&b, "\n  %s  %s  %s", shortID(k.RecordID), k.Fingerprint, k.Comment)
 	}
 	return "", errors.New(b.String())
+}
+
+func resolveHost(hosts []control.HostResponse, subject string) (*control.HostResponse, error) {
+	var named []int
+	for i, h := range hosts {
+		if h.Alias == subject {
+			named = append(named, i)
+		}
+	}
+	switch len(named) {
+	case 1:
+		return &hosts[named[0]], nil
+	case 0:
+	default:
+		ids := make([]string, 0, len(named))
+		for _, i := range named {
+			ids = append(ids, hosts[i].RecordID)
+		}
+		return nil, fmt.Errorf("%d hosts are named %q; name one by its record id: %s", len(named), subject, strings.Join(ids, ", "))
+	}
+	ids := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		ids = append(ids, h.RecordID)
+	}
+	id, err := resolveRecordID(ids, subject, "host")
+	if err != nil {
+		return nil, fmt.Errorf("no host named %q; see: sshstate hosts", subject)
+	}
+	for i := range hosts {
+		if hosts[i].RecordID == id {
+			return &hosts[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no host named %q; see: sshstate hosts", subject)
+}
+
+func (e *Env) printIssues(issues []control.HostIssue) {
+	if len(issues) == 0 {
+		return
+	}
+	e.warnf("\n%s:\n", count(len(issues), "host problem needs attention", "host problems need attention"))
+	for _, issue := range issues {
+		omitted := ""
+		if issue.Omitted {
+			omitted = " (left out of the SSH config until fixed)"
+		}
+		e.warnf("  %s %s%s\n", issue.Alias, issue.Problem, omitted)
+		e.warnf("    %s\n", issue.Remedy)
+	}
 }
 
 func resolveRecordID(candidates []string, want, kind string) (string, error) {

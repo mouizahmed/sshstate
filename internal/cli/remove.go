@@ -5,7 +5,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/mouizahmed/sshstate/internal/control"
 )
@@ -25,15 +24,9 @@ func runRemove(ctx context.Context, env *Env, args []string) error {
 	if err != nil {
 		return env.hint(err)
 	}
-	var target *control.HostResponse
-	for i, h := range hosts {
-		if h.Alias == positional[0] {
-			target = &hosts[i]
-			break
-		}
-	}
-	if target == nil {
-		return fmt.Errorf("no host named %q; see: sshstate hosts", positional[0])
+	target, err := resolveHost(hosts, positional[0])
+	if err != nil {
+		return err
 	}
 	if !*yes {
 		env.printf("%s -> %s@%s:%d\n", target.Alias, target.User, target.HostName, target.Port)
