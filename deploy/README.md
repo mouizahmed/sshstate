@@ -202,13 +202,13 @@ a copy of the stopped volume:
 2. Stop the old relay so it accepts no more writes: `docker compose stop`.
 3. Copy the volume to the new host, for example:
    ```sh
-   docker run --rm -v deploy_relay-data:/from -v "$PWD":/to busybox \
+   docker run --rm -v sshstate_relay-data:/from -v "$PWD":/to busybox \
      tar -C /from -czf /to/relay-data.tgz .
    ```
    and on the new host, into a volume named for its Compose project:
    ```sh
-   docker volume create deploy_relay-data
-   docker run --rm -v deploy_relay-data:/to -v "$PWD":/from busybox \
+   docker volume create sshstate_relay-data
+   docker run --rm -v sshstate_relay-data:/to -v "$PWD":/from busybox \
      tar -C /to -xzpf /from/relay-data.tgz
    ```
    Keep the owner `65532:65532`; `tar -p` preserves it.

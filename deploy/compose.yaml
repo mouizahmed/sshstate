@@ -1,6 +1,12 @@
 # Self-hosted sshstate relay: one non-root container, one persistent volume, no
 # telemetry. It speaks plain HTTP and needs an HTTPS reverse proxy in front of
 # it. Bring your own, or run the bundled one with `--profile tls`.
+
+# Pinned so the volume is always sshstate_relay-data. Without it Compose names
+# the project after whichever directory this file was downloaded into, and the
+# backup and move instructions would not match what is on the host.
+name: sshstate
+
 services:
   relay:
     # Pin a release tag or set SSHSTATE_IMAGE to a verified digest. Never deploy
