@@ -218,29 +218,26 @@ entries already exist in `known_hosts`.
 ## 4. Self-host a relay and connect the first machine
 
 A single-machine vault works without this section. To share it, run the relay
-on a server with persistent storage and put HTTPS in front of it. The complete
-Compose and reverse-proxy instructions are in [deploy/README.md](../deploy/README.md).
-The container exposes port 8080 on server loopback; the proxy must preserve
-the signed request's `Host` header. Keep a backup of the relay's persistent
+on a server with persistent storage and put HTTPS in front of it, either with
+the bundled Caddy profile or with a proxy you already run. The complete
+instructions are in [deploy/README.md](../deploy/README.md). A proxy you manage
+must preserve the signed request's `Host` header. Keep a backup of the relay's persistent
 volume as well as encrypted exports.
 
-On the server, from the repository root, the documented Compose path starts
-with a one-time secret:
+On the server, with no checkout needed:
 
 ```sh
-head -c 32 /dev/urandom | base64 > deploy/bootstrap.secret
-chmod 600 deploy/bootstrap.secret
-cp deploy/bootstrap.secret ~/bootstrap.secret.for-first-client
-sudo chown 65532:65532 deploy/bootstrap.secret
-cd deploy && docker compose up -d
+curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
+DOMAIN=relay.example.com docker compose --profile tls up -d
+docker compose logs relay
 ```
 
-The container runs as UID 65532, so the secret file must belong to that user or
-the relay cannot read it. The copy is what you transfer to the first client.
+The relay issues a one-time bootstrap secret on first start and prints it to
+that log once. Drop `--profile tls` if you are putting it behind a proxy you
+already run.
 
-Once `https://relay.example.com` reaches the relay, make the bootstrap secret
-file available **locally to the first client** through a private transfer, then
-on that client run:
+Save the printed secret to a file **locally on the first client** through a
+private transfer, then on that client run:
 
 ```sh
 sshstate unlock
@@ -329,7 +326,7 @@ merged: one removes a key while the other gives it to a host, both add the same
 alias, or two jump hosts end up pointing at each other. Sync still succeeds.
 Every host that is still consistent stays in the SSH config. A host whose alias
 is ambiguous, or whose jump host is missing or loops, is left out until fixed. A
-key that is gone is simply no longer offered. `sync`, `status`, `hosts`, and
+key that is gone is no longer offered. `sync`, `status`, `hosts`, and
 `doctor` list each problem with the command that fixes it. Where two hosts share
 an alias, name one by its record id, as `sshstate hosts` shows it:
 
@@ -411,7 +408,7 @@ holds another. If the relay's data is lost, or the relay is restored from a
 backup older than your machines, start from the **most up-to-date machine**:
 
 ```sh
-# on the relay host: create a new bootstrap secret, start an empty relay
+# on the relay host: start an empty relay; it prints a fresh bootstrap secret
 # on your most up-to-date machine:
 sshstate connect https://relay.example.com --bootstrap-secret /path/to/bootstrap.secret
 ```

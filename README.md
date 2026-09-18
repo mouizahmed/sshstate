@@ -44,9 +44,8 @@ agent protocol on its own socket; hosts are pointed at it with `IdentityAgent`.
 Only public keys reach the filesystem, and your global `SSH_AUTH_SOCK` is
 untouched.
 
-**The daemon is per-user and socket-activated.** launchd and systemd start it on
-first use and it comes back locked; the control socket accepts only the owning
-UID.
+**The daemon is socket-activated.** launchd and systemd start it on first use
+and it comes back locked; the control socket accepts only the owning UID.
 
 **The relay is treated as hostile.** It stores ciphertext, signatures and
 cursors, and never receives a vault key, a password wrapper or a password
@@ -73,8 +72,7 @@ does **not** meaningfully protect your SSH private keys, whose public halves are
 already published in `authorized_keys` everywhere you connect; those are only as
 post-quantum as the algorithms OpenSSH supports for authentication.
 
-**No telemetry, ever.** Nothing is reported anywhere. Stated explicitly because
-this tool holds SSH keys.
+**No telemetry.** Nothing is reported anywhere.
 
 ## Why choose sshstate
 
@@ -97,8 +95,7 @@ in.
 
 ### Installation
 
-sshstate is available on macOS and Linux. Choose the installation method that
-best suits your system:
+sshstate is available on macOS and Linux.
 
 #### macOS
 
@@ -267,67 +264,28 @@ and uninstall.
 
 ### Self-host the sync relay
 
-A second machine needs a relay. Run it on a Linux host with Docker Compose,
-persistent storage, a DNS name, and an HTTPS reverse proxy. The whole
-deployment is one container and one SQLite volume; there is no separate
-database service:
-
-```yaml
-services:
-  relay:
-    image: ghcr.io/mouizahmed/sshstate-server:v0.1.4
-    restart: unless-stopped
-    stop_grace_period: 30s
-    read_only: true
-    user: "65532:65532"
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    ports:
-      - "127.0.0.1:8080:8080"
-    volumes:
-      - relay-data:/var/lib/sshstate
-    secrets:
-      - sshstate_bootstrap
-
-volumes:
-  relay-data:
-
-secrets:
-  sshstate_bootstrap:
-    file: ./bootstrap.secret
-```
-
-[deploy/compose.yaml](deploy/compose.yaml) is the canonical file and adds
-digest pinning and a local build target. Clone this repository on the server,
-create the one-time bootstrap secret, and start the relay:
+A second machine needs a relay: one container and one SQLite volume, with no
+separate database service. Point a DNS record at a Linux host with Docker
+Compose and persistent storage, then run the one self-contained Compose file
+there:
 
 ```sh
-git clone https://github.com/mouizahmed/sshstate.git
-cd sshstate
-head -c 32 /dev/urandom | base64 > deploy/bootstrap.secret
-chmod 600 deploy/bootstrap.secret
-cp deploy/bootstrap.secret ~/bootstrap.secret.for-first-client
-sudo chown 65532:65532 deploy/bootstrap.secret
-cd deploy && docker compose up -d
+curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
+DOMAIN=relay.example.com docker compose --profile tls up -d
+docker compose logs relay   # the one-time bootstrap secret, printed once
 ```
 
-Privately transfer the saved copy of the secret to the first machine. The
-container runs as UID 65532 and listens only on server loopback port 8080, so
-terminate TLS at your own reverse proxy: the public URL must use HTTPS. Two
-things decide whether that proxy works. The relay verifies signatures over the
-request authority, so the proxy has to pass the client's original `Host`
-through unchanged; nginx rewrites it by default, and every request then fails
-as an unverifiable signature. The relay has no WebSocket endpoint, so upgrade
-headers are unnecessary.
+The profile runs a Caddy that obtains and renews the certificate. Leave it off
+to use a proxy you already run — that proxy must pass the client's original
+`Host` through unchanged, because signatures cover the request authority. nginx
+rewrites it by default and every request then fails as an unverifiable
+signature, which looks like a cryptography fault and is not one.
 
-[deploy/README.md](deploy/README.md) has the proxy configuration to copy, along
-with image verification, upgrades, backups, and moving a relay between hosts.
-Back up the persistent relay volume.
+[deploy/README.md](deploy/README.md) has the nginx configuration, image
+verification, upgrades, backups, and moving a relay between hosts.
 
-Once `https://relay.example.com` reaches the relay, connect the existing vault
-from the first machine:
+Once `https://relay.example.com` reaches the relay, save the printed secret to a
+file on the first machine and connect the existing vault:
 
 ```sh
 sshstate unlock

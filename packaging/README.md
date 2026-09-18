@@ -65,16 +65,10 @@ bash packaging/build-repositories.sh "$VERSION" dist dist/package-site
 The Alpine and Arch helper images in the builder are pinned by digest. Update
 those digests deliberately when the package tooling needs an update.
 
-On 2026-09-17, a local test staged fabricated 0.1.4 and 0.1.5 package sets
-and built the site with the production keys. Clean Debian, Fedora, Alpine,
-and Arch containers each installed 0.1.4 from the site. Removing the retained
-0.1.4 packages made all four older-version installs fail. This was a local
-mutation test; no 0.1.5 tag or release was created.
-
-That version pair cannot catch the Arch selection bug, because 0.1.4 and 0.1.5
-happen to sort correctly. A second test staged 0.1.4, 0.1.9, and 0.1.10, whose
-glob order is `0.1.10, 0.1.4, 0.1.9`, and `repo-add` replaces unconditionally so
-the last file processed wins. Scoping the main `repo-add` to `$PACKAGE_VERSION`
-produced 0.1.10 in `sshstate.db`; replacing it with an unscoped `./*.pkg.tar.zst`
-produced 0.1.9. Keep the version scope on that command: without it the main Arch
-database advertises whichever retained version sorts last.
+Keep the version scope on the main `repo-add`. `repo-add` replaces
+unconditionally, so with an unscoped `./*.pkg.tar.zst` the main Arch database
+advertises whichever retained version sorts last by glob order rather than the
+newest: staging 0.1.4, 0.1.9 and 0.1.10 globs as `0.1.10, 0.1.4, 0.1.9` and
+published 0.1.9. Scoped to `$PACKAGE_VERSION` it published 0.1.10. Verified by
+local mutation test on 2026-09-17, with retained-version installs checked from
+clean Debian, Fedora, Alpine and Arch containers.

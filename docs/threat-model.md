@@ -48,8 +48,8 @@ in development. Certificate validation is the platform's and is not relaxed, so
 an active network attacker cannot present a substitute relay without a
 certificate the client already trusts.
 
-TLS is terminated by an operator-managed reverse proxy, not by the relay, which
-speaks plain HTTP on loopback. That proxy is inside the trust boundary for
+TLS is terminated by a reverse proxy, not by the relay, which speaks plain HTTP
+behind it. That proxy is inside the trust boundary for
 availability and traffic metadata. It is not an authorization boundary: the
 relay does not trust forwarded identity headers, and every mutation carries its
 own signature covering method, authority, path, query, body digest and
@@ -61,15 +61,17 @@ leave the client, so a terminating proxy sees ciphertext.
 
 ## Enrollment
 
-Registration is opened once, by a 256-bit bootstrap secret the operator mounts
-into the relay. The relay stores only its SHA-256 hash, compares in constant
-time, and records when it was consumed; a spent bootstrap cannot be reopened by
-writing a new secret file. There is no other account-creation path, so a relay
-reachable on the network is not a relay anyone can register against.
+Registration is opened once, by a 256-bit bootstrap secret the relay generates
+on first start and prints once, or one the operator supplies. The relay stores
+only its SHA-256 hash, compares in constant time, and records when it was
+consumed; a spent bootstrap cannot be reopened by issuing or supplying another.
+There is no other account-creation path, so a relay reachable on the network is
+not a relay anyone can register against.
 
 Whoever holds an unspent bootstrap secret before the legitimate first client
-becomes the vault's first device. The secret is therefore transferred privately
-and deleted afterwards, and a relay that already holds a vault ignores the file.
+becomes the vault's first device. It is therefore read from the relay's log,
+transferred privately, and deleted afterwards. Anyone who can read those logs
+can take the vault before its owner does, until it is spent.
 
 ## Local compromise
 

@@ -1,29 +1,21 @@
 # deploy
 
-Container and service-manager assets.
-
-- `Dockerfile` / `compose.yaml` — the sync relay.
-- launchd `.plist` and systemd user `.socket`/`.service` units for socket
-  activation — launchd ships with the client in Milestone 1; systemd is
-  Milestone 3a.
+`Dockerfile` and `compose.yaml` for the sync relay.
 
 ## Running the relay
 
-The supported packaged topology is:
-
 ```text
-clients --HTTPS--> operator reverse proxy --HTTP/loopback--> relay container --> SQLite volume
+clients --HTTPS--> reverse proxy (bundled or your own) --HTTP--> relay container --> SQLite volume
 ```
 
 A relay holds exactly one vault for one user, so it needs no separate database
 service: the relay container and its SQLite volume are the whole deployment.
 
-The production path requires a Linux host with Docker Compose, a persistent
-disk, a DNS name, and an existing reverse proxy or ingress that can obtain a
-valid certificate. sshstate deliberately does not bundle nginx, Caddy, DNS, or
-certificate automation. Running the static server binary directly is possible,
-but its service supervision, user, filesystem permissions, TLS proxy, and
-updates are operator-owned rather than a second supported deployment recipe.
+It needs a Linux host with Docker Compose, a persistent disk, and a DNS name.
+TLS is either the bundled Caddy or your own ingress; the default binds no public
+port, so a host that already runs a proxy is left alone. Running the static
+binary directly works but is not a supported recipe: supervision, permissions,
+TLS and updates are then yours.
 
 The relay stores ciphertext, signatures and cursors. Compromising it does not
 reveal vault plaintext or permit record forgery without an authorized device
@@ -31,53 +23,63 @@ key, but it can destroy availability, observe traffic metadata, withhold
 updates, or maintain isolated forks. The persistent volume is the relay's only
 complete copy of accepted history and must be backed up.
 
-### 1. Create the one-time bootstrap secret
+### 1. Start it
+
+Point a DNS record at the host. `compose.yaml` is self-contained, so it is the
+only file the server needs:
 
 ```sh
-head -c 32 /dev/urandom | base64 > deploy/bootstrap.secret
-chmod 600 deploy/bootstrap.secret
-cp deploy/bootstrap.secret ~/bootstrap.secret.for-first-client
-sudo chown 65532:65532 deploy/bootstrap.secret
+curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
+DOMAIN=relay.example.com docker compose --profile tls up -d
 ```
 
-The container runs as UID 65532 and reads the file through a bind mount, so the
-file has to belong to that user. With any other owner, mode 600 keeps the relay
-out too, and it restarts in a loop with
-`read bootstrap secret: open /run/secrets/sshstate_bootstrap: permission denied`.
-Keep the copy for the first client (step 4) before changing the owner, move it
-there privately, and delete it afterwards.
+That runs the relay and a Caddy in front of it, which obtains and renews the
+certificate itself. Drop `--profile tls` and the `DOMAIN` if you are bringing
+your own proxy; see [step 2](#2-bring-your-own-proxy-instead) for its
+configuration.
 
-256 bits, used exactly once to connect your vault. The relay stores only its
-hash and disables bootstrap permanently afterwards; changing the file later does
-not reopen registration, and a relay that already holds a vault ignores the file
-and logs that it did. There is no other account creation path.
+That URL serves the newest release's Compose file, which pins that release's
+image by tag. The image itself is never `latest`, because `0.x` clients and
+relays may need a coordinated upgrade. For production, verify the image and pin
+`SSHSTATE_IMAGE` to its digest as shown below.
 
-### 2. Start it
-
-The Compose file defaults to the current release tag, never `latest`:
+To build from source instead, clone the repository and, from `deploy/`:
 
 ```sh
-cd deploy && docker compose up -d
-```
-
-For a production deployment, verify the image and pin `SSHSTATE_IMAGE` to the
-digest as shown below. Release tags are easier to read, but a registry tag can
-move while a digest cannot. `0.x` client and relay versions may require a
-coordinated upgrade.
-
-To build from the checked-out source instead:
-
-```sh
-cd deploy
 SSHSTATE_IMAGE=sshstate-server:local docker compose up -d --build
 ```
 
-The container runs as UID 65532 with a read-only root filesystem, no
-capabilities, and `no-new-privileges`. It binds `127.0.0.1:8080` on the host,
-not a public interface. Logs use Docker's bounded local driver and the
-30-second stop grace period exceeds the relay's 15-second graceful HTTP
-shutdown deadline. The image is about 21 MB: a static binary on distroless,
-with no shell and no package manager inside.
+The container runs as UID 65532 on distroless with a read-only root filesystem,
+no capabilities, and `no-new-privileges`. It binds `127.0.0.1:8080`, not a
+public interface.
+
+#### The one-time bootstrap secret
+
+The relay issues its own on first start and prints it once:
+
+```console
+$ docker compose logs relay
+sshstate-server: bootstrap is open; this one-time secret is shown once and cannot be reprinted:
+
+    mamdh50Jkt_txDSZlSxnfxQv8omux7U1kLViU7RSRMU
+
+copy it to the first client now; replace it with the new-bootstrap-secret command if it is lost
+```
+
+256 bits, used exactly once to connect your vault. Only its hash is stored, so a
+restart does not reprint it. If it scrolls away before you copy it, issue a
+replacement — harmless while no vault has connected, and it invalidates the
+previous one:
+
+```sh
+docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
+```
+
+Once a vault has connected, the secret is spent and neither a restart nor a
+replacement reopens registration. There is no other account creation path.
+
+To supply your own secret instead, mount a file and pass
+`-bootstrap-secret <path>` in the container's command.
 
 #### Verifying the image
 
@@ -105,12 +107,16 @@ docker compose up -d
 The `.env` file contains no credential. Keep it with the deployment so a later
 `docker compose up` cannot silently switch the relay image.
 
-### 3. Put HTTPS in front of it
+### 2. Bring your own proxy instead
 
-The relay speaks ordinary HTTP/1.1 on host loopback and expects an
-operator-managed terminating reverse proxy. TLS certificate validation is
-mandatory on clients, so the public relay URL must be `https://`. WebSocket
+Skip this if you started with `--profile tls`; Caddy already covers it.
+
+The relay speaks ordinary HTTP/1.1 on host loopback. TLS certificate validation
+is mandatory on clients, so the public relay URL must be `https://`. WebSocket
 upgrade headers are unnecessary: the relay has no WebSocket endpoint.
+
+<details>
+<summary>nginx configuration</summary>
 
 Place this location inside the proxy's HTTPS `server` block:
 
@@ -131,18 +137,17 @@ location / {
 }
 ```
 
-**Measured, not assumed.** With this configuration and nginx's default header
-buffers, a real signed request went through: the `Signature` header is **4423
-bytes**, which fits the default 8 KB buffer with room to spare. Dropping to
-`large_client_header_buffers 4 4k` makes nginx answer `400` with its own error
-page before the relay sees anything; the client detects that case and says so,
-but the request does not arrive. Apache's `LimitRequestFieldSize` defaults to
-8190 bytes and is likewise sufficient.
+The `Signature` header is 4423 bytes, so nginx's default 8 KB header buffers
+and Apache's 8190-byte `LimitRequestFieldSize` both fit it. Do not lower them:
+at `large_client_header_buffers 4 4k` nginx answers `400` from its own error
+page and the request never reaches the relay.
 
 Do not let the proxy rewrite the request path, query, or the `Content-Digest`,
 `Idempotency-Key`, `SSHState-Vault` and `SSHState-Device` headers: all of them
 are covered by the request signature, and a rewrite invalidates it. Do not
 redirect signed requests.
+
+</details>
 
 The proxy is not an authorization boundary and the relay does not trust
 `X-Forwarded-For` or similar identity headers. Restrict the upstream listener to
@@ -152,21 +157,24 @@ If you are running without a proxy for development, pass `-public-http` so
 signatures are verified against an `http` authority, and keep the listener on
 loopback.
 
-### 4. Connect your vault
+### 3. Connect your vault
 
-On the first client, create and unlock a vault with `sshstate setup`. Make the
-bootstrap secret file available locally to that client through a private
-transfer, then connect it to the relay:
+On the first client, create and unlock a vault with `sshstate setup`. Write the
+secret the relay printed to a file on that client, moving it there privately,
+then connect:
 
 ```sh
 sshstate connect https://relay.example.com --bootstrap-secret /path/to/bootstrap.secret
 ```
 
+It takes a file rather than the secret itself, which would be visible in `ps`
+to every user on that machine. Delete the file afterwards.
+
 This uploads genesis, public membership, ciphertext, and the device and recovery
 envelopes from the existing vault. The bootstrap secret is then spent. See the
 [CLI flows](../docs/cli-flows.md) for pairing another machine and recovery.
 
-### 5. Update safely
+### 4. Update safely
 
 Read the release notes first. If they require coordinated versions, update the
 clients and relay as one operation.
@@ -218,19 +226,16 @@ says it cannot reach the relay at the old address; that machine only needs the
 
 #### Losing the relay's data, or restoring an older backup
 
-The machines hold the vault too. Give the relay an empty volume and a new
-bootstrap secret, start it, and run `sshstate connect <url> --bootstrap-secret
-<file>` on the most up-to-date machine; then `sshstate connect <url> --rejoin`
-on every other machine. A relay restored from a backup older than your machines
-needs no secret: rejoin every machine, most up-to-date first. See
+The machines hold the vault too. Give the relay an empty volume and start it;
+it issues a fresh bootstrap secret because the empty database has no spent one.
+Run `sshstate connect <url> --bootstrap-secret <file>` on the most up-to-date
+machine, then `sshstate connect <url> --rejoin` on every other machine. A relay
+restored from a backup older than your machines needs no secret: rejoin every
+machine, most up-to-date first. See
 [Lose or restore the relay](../docs/cli-flows.md#9-lose-or-restore-the-relay).
 
 The recovery kit restores *access* to retained ciphertext — it is not a backup
-of storage that no longer exists (project brief §7.2). Keep an encrypted client
-export as well; it carries its own checkpoint and works with the relay
-unavailable. A relay backup is no longer the only way back after losing the
-relay: your machines can start a new one. It still saves every machine a rejoin.
-
-### No telemetry
-
-The relay makes no outbound connections and never logs request bodies.
+of storage that no longer exists. Keep an encrypted client export as well; it
+carries its own checkpoint and works with the relay unavailable. A relay backup
+is not the only way back, since your machines can start a new relay, but it
+saves every machine a rejoin.
