@@ -68,10 +68,36 @@ jobs:
           name="sshstate_${version}_${{ matrix.goos }}_${{ matrix.goarch }}"
           tar -C dist/stage -czf "dist/${name}.tar.gz" sshstate LICENSE README.md
 
+      - name: install nFPM
+        if: matrix.goos == 'linux'
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+
+      - name: package for Linux distributions
+        if: matrix.goos == 'linux'
+        env:
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eux
+          export VERSION="${GITHUB_REF_NAME#v}"
+          name="sshstate_${VERSION}_linux_${GOARCH}"
+          for format in deb rpm apk; do
+            "$(go env GOPATH)/bin/nfpm" package \
+              --config packaging/nfpm.yaml --packager "${format}" \
+              --target "dist/${name}.${format}"
+          done
+          "$(go env GOPATH)/bin/nfpm" package \
+            --config packaging/nfpm.yaml --packager archlinux \
+            --target "dist/${name}.pkg.tar.zst"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/*.pkg.tar.zst
           if-no-files-found: error
 
   image:
@@ -129,7 +155,7 @@ jobs:
         run: |
           set -eux
           cd dist
-          sha256sum *.tar.gz > SHA256SUMS
+          sha256sum *.tar.gz *.deb *.rpm *.apk *.pkg.tar.zst > SHA256SUMS
           cat SHA256SUMS
 
       - uses: sigstore/cosign-installer@v3
@@ -208,10 +234,15 @@ jobs:
         run: |
           set -eu
           tag="${GITHUB_REF_NAME}"
-          if ! gh release view "${tag}" >/dev/null 2>&1; then
-            gh release create "${tag}" --draft --title "${tag}" --notes-file notes.md
+          if [[ "$tag" == *-* ]]; then
+            prerelease=(--prerelease)
+          else
+            prerelease=()
           fi
-          for file in dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle; do
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" --draft --title "${tag}" --notes-file notes.md "${prerelease[@]}"
+          fi
+          for file in dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle; do
             attempt=1
             until gh release upload "${tag}" "${file}" --clobber; do
               if [ "${attempt}" -ge 5 ]; then
@@ -222,4 +253,71 @@ jobs:
               attempt=$(( attempt + 1 ))
             done
           done
-          gh release edit "${tag}" --draft=false
+          gh release edit "${tag}" --draft=false "${prerelease[@]}"
+
+  package-repositories:
+    if: vars.PACKAGE_REPOS_ENABLED == 'true' && !contains(github.ref_name, '-')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-{amd64,arm64}"
+          path: dist
+          merge-multiple: true
+      - name: install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils dpkg-dev gnupg rpm createrepo-c openssl
+          docker --version
+      - name: download retained releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tags=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 \
+            --json tagName,isPrerelease,isDraft,publishedAt \
+            --jq '[.[] | select(.isPrerelease == false and .isDraft == false and (.tagName | contains("-") | not))] | sort_by(.publishedAt) | reverse | .[:5] | .[].tagName')
+          while IFS= read -r tag; do
+            test -n "$tag" || continue
+            test "$tag" != "$GITHUB_REF_NAME" || continue
+            count=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '[.assets[].name | select(test("\\.(deb|rpm|apk|pkg\\.tar\\.zst)$"))] | length')
+            if [ "$count" -gt 0 ]; then
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir dist --skip-existing \
+                --pattern '*.deb' --pattern '*.rpm' --pattern '*.apk' --pattern '*.pkg.tar.zst'
+            fi
+          done <<< "$tags"
+      - name: import package signing keys
+        env:
+          PACKAGE_GPG_PRIVATE_KEY_B64: ${{ secrets.PACKAGE_GPG_PRIVATE_KEY_B64 }}
+          PACKAGE_APK_PRIVATE_KEY_B64: ${{ secrets.PACKAGE_APK_PRIVATE_KEY_B64 }}
+        run: |
+          set -eu
+          test -n "$PACKAGE_GPG_PRIVATE_KEY_B64"
+          test -n "$PACKAGE_APK_PRIVATE_KEY_B64"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/package-keys/gnupg"
+          printf '%s' "$PACKAGE_GPG_PRIVATE_KEY_B64" | base64 -d > "$RUNNER_TEMP/package-keys/private.gpg"
+          printf '%s' "$PACKAGE_APK_PRIVATE_KEY_B64" | base64 -d > "$RUNNER_TEMP/package-keys/sshstate.rsa"
+          export GNUPGHOME="$RUNNER_TEMP/package-keys/gnupg"
+          gpg --batch --import "$RUNNER_TEMP/package-keys/private.gpg"
+      - name: build signed package repositories
+        env:
+          GNUPGHOME: ${{ runner.temp }}/package-keys/gnupg
+          PACKAGE_APK_KEY_FILE: ${{ runner.temp }}/package-keys/sshstate.rsa
+        run: bash packaging/build-repositories.sh "${GITHUB_REF_NAME#v}" dist dist/package-site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/package-site
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,8 +1,8 @@
 # Threat model
 
 Status: current for the stable MVP. Mechanisms described as implemented are
-covered by the repository verification; rotation remains specified but
-unimplemented. Nothing here has been independently audited.
+covered by the repository verification; rotation is planned for a future
+iteration.
 
 ## Posture
 
@@ -34,12 +34,42 @@ It cannot substitute enrollment keys without defeating out-of-band full
 fingerprint verification, forge an authorized writer's signature, or alter
 authenticated record fields undetected.
 
-Freshness has explicit limits. Clients detect *observed regression* — a lower
-revision, a differing digest at a revision already seen, a broken parent chain —
+Freshness has explicit limits. Clients detect *observed regression* (a lower
+revision, a differing digest at a revision already seen, a broken parent chain)
 against state they already hold. A freshly enrolled or recovered client has no
 prior baseline beyond the checkpoint transferred to it. Server sequence numbers
 are transport bookkeeping, never trusted time. Complete rollback prevention is
 not claimed.
+
+## Transport
+
+Clients refuse a relay URL that is not `https`, except for a loopback host used
+in development. Certificate validation is the platform's and is not relaxed, so
+an active network attacker cannot present a substitute relay without a
+certificate the client already trusts.
+
+TLS is terminated by an operator-managed reverse proxy, not by the relay, which
+speaks plain HTTP on loopback. That proxy is inside the trust boundary for
+availability and traffic metadata. It is not an authorization boundary: the
+relay does not trust forwarded identity headers, and every mutation carries its
+own signature covering method, authority, path, query, body digest and
+idempotency key. A proxy that rewrites any covered field invalidates the
+signature rather than silently altering an accepted request.
+
+TLS is not what protects record contents. Payloads are encrypted before they
+leave the client, so a terminating proxy sees ciphertext.
+
+## Enrollment
+
+Registration is opened once, by a 256-bit bootstrap secret the operator mounts
+into the relay. The relay stores only its SHA-256 hash, compares in constant
+time, and records when it was consumed; a spent bootstrap cannot be reopened by
+writing a new secret file. There is no other account-creation path, so a relay
+reachable on the network is not a relay anyone can register against.
+
+Whoever holds an unspent bootstrap secret before the legitimate first client
+becomes the vault's first device. The secret is therefore transferred privately
+and deleted afterwards, and a relay that already holds a vault ignores the file.
 
 ## Local compromise
 
@@ -77,16 +107,15 @@ synchronized. Signed revocation stops that device's requests on an honest relay
 and causes informed clients to reject its later writes; it does not erase what
 that device already learned, and a hostile relay can withhold the revocation.
 
-Resumable master-key rotation is specified but not implemented or scheduled. It
-would issue fresh vault keys and re-encrypt current state under a new epoch,
+Resumable master-key rotation is planned for a future iteration. It would issue
+fresh vault keys and re-encrypt current state under a new epoch,
 excluding revoked devices from new bundles. Rotation cannot erase ciphertext an
 attacker already captured, and new encryption keys do not revoke an already
-stolen SSH private key — replace affected SSH credentials at their destinations.
+stolen SSH private key; replace affected SSH credentials at their destinations.
 
 ## Post-quantum scope
 
 Hybrid recipient encryption protects the metadata key's payloads, which are
 long-lived secrets with no public counterpart. It gives little protection to SSH
 private keys, because an adversary capable of breaking X25519 can derive an
-Ed25519, ECDSA or RSA private key from its widely published public half. See
-[decision record 0001](decisions/0001-post-quantum-device-cryptography.md).
+Ed25519, ECDSA or RSA private key from its widely published public half.

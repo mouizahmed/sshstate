@@ -175,7 +175,7 @@ func TestImportRefusesTheWholeFileForOneBadLine(t *testing.T) {
 		t.Fatal(herr)
 	}
 	if len(hosts) != 0 {
-		t.Fatalf("%d hosts were imported from a refused file; §3.2 forbids a partial import", len(hosts))
+		t.Fatalf("%d hosts were imported from a refused file; a partial import is forbidden", len(hosts))
 	}
 }
 

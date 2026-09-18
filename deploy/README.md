@@ -86,8 +86,9 @@ workflow's own identity. A tag can later be moved to different content; a digest
 cannot, so the signature is over the digest.
 
 ```sh
+release=v0.1.4   # the release you are deploying
 digest=$(docker buildx imagetools inspect \
-  ghcr.io/mouizahmed/sshstate-server:v0.1.4 --format '{{.Manifest.Digest}}')
+  ghcr.io/mouizahmed/sshstate-server:"$release" --format '{{.Manifest.Digest}}')
 
 cosign verify "ghcr.io/mouizahmed/sshstate-server@${digest}" \
   --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
@@ -222,7 +223,7 @@ bootstrap secret, start it, and run `sshstate connect <url> --bootstrap-secret
 <file>` on the most up-to-date machine; then `sshstate connect <url> --rejoin`
 on every other machine. A relay restored from a backup older than your machines
 needs no secret: rejoin every machine, most up-to-date first. See
-[Lose or restore the relay](../docs/cli-flows.md#8c-lose-or-restore-the-relay).
+[Lose or restore the relay](../docs/cli-flows.md#9-lose-or-restore-the-relay).
 
 The recovery kit restores *access* to retained ciphertext — it is not a backup
 of storage that no longer exists (project brief §7.2). Keep an encrypted client

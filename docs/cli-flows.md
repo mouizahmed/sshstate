@@ -21,7 +21,8 @@ Values such as `<alias>`, `<vault-id>`, and `<device-id>` are placeholders. Run
 | Lost a machine, another survives | [Pair a replacement](#5-pair-another-machine) | Revoke the lost device |
 | All devices lost, have an export | [Restore from an export](#8a-restore-from-an-encrypted-export) | Set up the new machine |
 | All devices lost, relay survives | [Recover from the relay](#8b-recover-from-a-relay) | Set up and revoke lost devices |
-| Stop using sshstate on a machine | [Uninstall](#9-stop-using-sshstate-on-a-machine) | Vault remains unless purged |
+| Relay data lost, or restored from an older backup | [Restart it from a machine](#9-lose-or-restore-the-relay) | Rejoin the others |
+| Stop using sshstate on a machine | [Uninstall](#10-stop-using-sshstate-on-a-machine) | Vault remains unless purged |
 
 The common path is:
 
@@ -383,7 +384,7 @@ ssh <alias>
 the kit. `setup` starts its service, unlocks, and installs its SSH `Include`.
 The restored data is as current as the export. If the original relay is gone,
 the restored machine can start a new one; see
-[Lose or restore the relay](#8c-lose-or-restore-the-relay).
+[Lose or restore the relay](#9-lose-or-restore-the-relay).
 
 ### 8B. Recover from a relay
 
@@ -403,7 +404,7 @@ depends on the relay retaining valid recovery material and records. Revoke
 devices you no longer control, then take a new encrypted export.
 
 
-### 8C. Lose or restore the relay
+## 9. Lose or restore the relay
 
 The relay's data is one copy of the vault's history, and every enrolled machine
 holds another. If the relay's data is lost, or the relay is restored from a
@@ -452,7 +453,7 @@ was enrolled earlier rejoins; its error says so.
 
 `--rejoin` on a machine that already matches the relay changes nothing.
 
-## 9. Stop using sshstate on a machine
+## 10. Stop using sshstate on a machine
 
 ```sh
 sshstate uninstall
@@ -485,11 +486,11 @@ other machines.
 
 | Job | Commands |
 | --- | --- |
-| Guided setup and health | `setup`, `status`, `doctor`, `unlock`, `lock` |
+| Guided setup and health | `setup`, `status`, `doctor`, `unlock`, `lock`, `change-password` |
 | Hosts and SSH keys | `hosts`, `keys`, `add`, `edit`, `remove`, `add-key`, `remove-key`, `import`, `trust` |
 | Multiple machines | `connect`, `pair`, `approve`, `sync`, `devices`, `revoke`, `conflicts`, `resolve` |
 | Backup and recovery | `export`, `restore`, `recover`, `confirm-recovery` |
 | Manual setup and removal | `init`, `service`, `daemon`, `install`, `uninstall` |
 
 `sshstate --help` lists the commands; `sshstate version` prints the version.
-Master-key rotation is specified in [rotation.md](rotation.md), is not implemented, and is not scheduled.
+Master-key rotation is planned for a future iteration.

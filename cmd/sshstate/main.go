@@ -26,7 +26,7 @@ var withdrawn = map[string]string{
 
 func usage(env *cli.Env) string {
 	var b strings.Builder
-	b.WriteString("sshstate - synchronize an SSH environment across machines\n\n")
+	b.WriteString("sshstate - sync your SSH environment across machines\n\n")
 	b.WriteString("usage: sshstate <command> [flags]\n")
 	for _, group := range cli.Groups() {
 		fmt.Fprintf(&b, "\n%s:\n", group)

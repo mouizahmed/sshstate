@@ -27,7 +27,7 @@ const SchemaVersion = "1"
 const MaxPageBytes = 4 << 20
 
 const schema = `
--- One vault per relay in v1: the server is single-user by design (§4.6).
+-- One vault per relay in v1: the server is single-user by design.
 CREATE TABLE IF NOT EXISTS vault (
     vault_id   TEXT PRIMARY KEY,
     genesis    TEXT NOT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS record_ancestor (
     PRIMARY KEY (vault_id, record_id, digest)
 ) STRICT;
 
--- The immutable accepted-change log. No garbage collection in v1 (§5.1): a
+-- The immutable accepted-change log. No garbage collection in v1: a
 -- client that has been away must be able to replay what it missed.
 CREATE TABLE IF NOT EXISTS change_log (
     vault_id  TEXT NOT NULL,
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS pairing (
 
 CREATE INDEX IF NOT EXISTS pairing_active ON pairing (vault_id, joiner_device_id, state);
 
--- Recovery admission challenges. Consumed once, whatever the outcome (§4.6).
+-- Recovery admission challenges. Consumed once, whatever the outcome.
 CREATE TABLE IF NOT EXISTS recovery_nonce (
     vault_id   TEXT NOT NULL,
     nonce      TEXT NOT NULL,
@@ -120,10 +120,10 @@ CREATE TABLE IF NOT EXISTS recovery_nonce (
     PRIMARY KEY (vault_id, nonce)
 ) STRICT;
 
--- Durable mutation outcomes (§5.3). Rejections are stored too: a retried
+-- Durable mutation outcomes. Rejections are stored too: a retried
 -- candidate must get the same answer, not a fresh evaluation against a head
 -- that has since moved.
--- The one-time bootstrap secret, by hash only (§4.6). The plaintext lives in an
+-- The one-time bootstrap secret, by hash only. The plaintext lives in an
 -- operator-mounted file and is never written here.
 CREATE TABLE IF NOT EXISTS bootstrap (
     id          INTEGER PRIMARY KEY CHECK (id = 1),
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS bootstrap (
     consumed_at TEXT
 ) STRICT;
 
--- Accepted request nonces, kept until expiry plus tolerance (§4.7).
+-- Accepted request nonces, kept until expiry plus tolerance.
 CREATE TABLE IF NOT EXISTS request_nonce (
     device_id  TEXT NOT NULL,
     nonce      TEXT NOT NULL,

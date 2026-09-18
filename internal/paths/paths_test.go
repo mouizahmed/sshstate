@@ -64,7 +64,7 @@ func TestDerivedPathsHangOffTheLayout(t *testing.T) {
 		}
 	}
 	if l.AgentSocket() == l.ControlSocket() {
-		t.Fatal("the agent and control sockets are the same file; §3.3 keeps them separate")
+		t.Fatal("the agent and control sockets are the same file; they must stay separate")
 	}
 	if l.CaptureFile() == l.KnownHosts() {
 		t.Fatal("the capture file and the generated trust file are the same path")

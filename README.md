@@ -1,184 +1,108 @@
-# sshstate
-
-Open-source, self-hostable, CLI-first synchronization for an SSH environment.
+# sshstate: sync your SSH environment across machines
 
 sshstate keeps your managed SSH hosts, connection options, trusted host keys and
-credentials available across every machine you use, including headless ones,
-while native `ssh`, `scp` and editor remote integrations keep working unchanged.
+credentials available on every machine you use, including headless ones. It is a
+configuration and credential manager, **not** an SSH client or a terminal:
+OpenSSH still owns the connection, and `ssh`, `scp` and editor remote
+integrations keep working unchanged.
 
-> **Status: v0.1.3, a stable MVP for single-user self-hosting on macOS and
-> Linux.** Releases remain on the `0.x` line and may require coordinated client
-> and relay upgrades. Local and multi-device SSH workflows work end to end: the
-> sync protocol is frozen, three devices pair and synchronize, conflicts and
-> revocations are explicit, exports restore without a relay, native OpenSSH uses
-> in-memory keys, and launchd and systemd start the daemon locked.
->
-> **Master-key rotation is [specified](docs/rotation.md), not implemented, and
-> not scheduled.** Until it exists, a leaked vault key requires a fresh vault
-> and reviewed migration. Keep the recovery kit, encrypted exports, and a backup
-> of the relay data: each protects different state and none replaces another.
->
-> **A lost relay is rebuilt from your machines.** Start a new relay from the most
-> up-to-date machine and rejoin the others; a relay restored from an older backup
-> is rejoined the same way. Windows is not supported. The project has not been
-> independently audited or exercised by users beyond its author.
+```mermaid
+flowchart LR
+  subgraph machine["your machine"]
+    D["sshstate daemon<br/>private keys in memory only, never on disk"]
+    C["~/.ssh/sshstate/<br/>config + public keys"]
+    O["OpenSSH"]
+    D -->|writes| C
+    C -->|Include| O
+    D -.->|agent signatures, IdentityAgent socket| O
+  end
+  O ==>|ssh prod| S["your servers"]
+  D <-->|ciphertext, signatures, cursors| R["relay (treated as hostile)"]
+```
+
+> **Status: v0.1.4, a stable MVP for single-user self-hosting on macOS and
+> Linux.** Local and multi-device workflows work end to end and the sync
+> protocol is frozen. Releases remain on the `0.x` line and may require
+> coordinated client and relay upgrades. Windows is not supported.
 >
 > What comes next is in the [roadmap](docs/roadmap.md).
 
-## What it is, and is not
-
-It is a configuration and credential manager. It is **not** an SSH client or a
-terminal. OpenSSH owns the connection, key exchange and authentication exchange;
-sshstate supplies configuration and agent signatures. There is deliberately no
-`sshstate ssh` command.
-
-```
-sshstate  →  sync/configure  →  native OpenSSH  →  ssh prod
-```
+## How it works
 
 Generated configuration lives under `~/.ssh/sshstate/`, reached by a single
 `Include` line at the top of `~/.ssh/config`. Your hand-written entries are
 never rewritten.
 
-## Design decisions worth knowing
+**Your machines hold the truth; the relay is optional.** A vault is created and
+fully usable before any relay exists: add hosts and keys, install the `Include`,
+connect. Adding a relay replicates the same vault to your other machines; it
+never becomes the authority, and losing it is recovered from the machines
+themselves.
 
 **Private keys are never written to disk.** A per-user daemon implements the SSH
 agent protocol on its own socket; hosts are pointed at it with `IdentityAgent`.
-Only public keys reach the filesystem. Your global `SSH_AUTH_SOCK` is untouched.
+Only public keys reach the filesystem, and your global `SSH_AUTH_SOCK` is
+untouched.
+
+**The daemon is per-user and socket-activated.** launchd and systemd start it on
+first use and it comes back locked; the control socket accepts only the owning
+UID.
 
 **The relay is treated as hostile.** It stores ciphertext, signatures and
-cursors. It never receives a vault key, a password wrapper or a password
-verifier. Device enrollment is authenticated by comparing a full transcript
-fingerprint out of band, so a malicious relay cannot substitute its own key
-during pairing.
+cursors, and never receives a vault key, a password wrapper or a password
+verifier ([threat model](docs/threat-model.md)). Device enrollment is
+authenticated by comparing a full transcript fingerprint out of band, so a
+malicious relay cannot substitute its own key during pairing.
 
 **The vault is locked by default and expires.** Unlock is explicit. Idle expiry
 is 15 minutes, refreshed by signing and by explicit vault commands but never by
 status polling; hard expiry is 8 hours from password entry and cannot be
 extended. A restarted or crashed daemon comes back locked.
 
-**Host key trust is synchronized and reviewed, not overwritten.** A changed or
-conflicting host key is held as a pending candidate requiring explicit
-resolution. Conflicts never silently change what a machine trusts.
-
-**No last-write-wins.** Records carry per-record revisions with exact parent
-matching. A rejected edit survives as a conflict record for explicit resolution
-rather than being discarded or silently winning.
+**Nothing is overwritten silently.** A changed or conflicting host key is held as
+a pending candidate for explicit resolution. Records carry per-record revisions
+with exact parent matching, so a rejected edit survives as a conflict record
+rather than being discarded or winning by arriving last
+([sync protocol](docs/protocol.md)).
 
 **Post-quantum from genesis.** ML-DSA-65 for signatures, age hybrid recipients
-(ML-KEM-768 + X25519) for every envelope reaching a vault key. See
-[decision record 0001](docs/decisions/0001-post-quantum-device-cryptography.md).
+(ML-KEM-768 + X25519) for every envelope reaching a vault key. This protects
+your synchronized infrastructure map (hostnames, usernames, ports, jump-host
+topology), which is a long-lived secret with no public counterpart. It
+does **not** meaningfully protect your SSH private keys, whose public halves are
+already published in `authorized_keys` everywhere you connect; those are only as
+post-quantum as the algorithms OpenSSH supports for authentication.
 
 **No telemetry, ever.** Nothing is reported anywhere. Stated explicitly because
 this tool holds SSH keys.
 
-## Scope of the post-quantum claim
+## Why choose sshstate
 
-This protects your **synchronized infrastructure map** — hostnames, usernames,
-ports, jump-host topology — which is a long-lived secret with no public
-counterpart.
+Password managers store SSH keys. Encrypted dotfile tools sync SSH files.
+sshstate works on the layer between them: the environment those keys are used
+in.
 
-It does **not** meaningfully protect your SSH private keys. An adversary able to
-break X25519 can equally derive an Ed25519, ECDSA or RSA private key from its
-public half, which sits in `~/.ssh/sshstate/public/`, in `authorized_keys` on
-every destination, and often in a public profile. SSH credentials are only as
-post-quantum as the algorithms OpenSSH supports for authentication.
+- **The environment is modelled, not copied.** Aliases, usernames, ports,
+  jump-host topology, ordered key references and host trust travel together as
+  records. A change on one machine arrives as a change, not as a file that
+  replaced another file.
+- **Headless machines are first-class.** A server, a container or a CI box gets
+  the same environment as your laptop, with no desktop keychain to unlock and no
+  GUI prompt waiting for an answer nobody is there to give.
+- **Disagreement is surfaced, not settled for you.** File-based sync resolves a
+  clash by picking a winner, usually whichever machine wrote last. sshstate
+  stops and asks, because the loser of that race is a host you still need.
 
-## Why this rather than a password manager or encrypted dotfiles
+## Quick start
 
-Password managers solve SSH *key storage*. Encrypted dotfile tools sync SSH
-*files*. Neither gives you a structured model of the environment — aliases,
-usernames, ports, jump-host topology, ordered key references and host trust
-travelling together — with a headless agent and real conflict handling.
+### Installation
 
-Key storage alone would not justify building this. Configuration
-synchronization, reviewed host trust and headless operation are the reason.
+sshstate is available on macOS and Linux. Choose the installation method that
+best suits your system:
 
-Windows is not supported and is not planned (see the project brief). An
-agent-and-daemon design costs considerably more there than a client that writes
-files, and that tradeoff is deliberate.
+#### macOS
 
-## Trying it
-
-One machine, nothing leaving it:
-
-```sh
-go build -o sshstate ./cmd/sshstate
-
-./sshstate setup --import ~/.ssh/config   # vault, service, unlock, hosts, Include
-ssh prod
-```
-
-Or step by step:
-
-```sh
-./sshstate init --kit ~/sshstate-recovery-kit.txt
-./sshstate service                     # service-managed; or: ./sshstate daemon &
-./sshstate unlock
-./sshstate add-key ~/.ssh/id_ed25519
-./sshstate keys                        # fingerprints and comments
-./sshstate add prod --hostname 10.0.0.5 --user ubuntu --key laptop@home
-./sshstate hosts
-./sshstate import ~/.ssh/config --with-keys --comment-source  # or import what you have
-./sshstate install                     # adds the Include to ~/.ssh/config
-./sshstate doctor
-ssh prod
-./sshstate trust                       # host keys ssh captured, and what is pending
-```
-
-A second machine, through a relay you run (`deploy/README.md` sets one up):
-
-```sh
-# on the first machine
-./sshstate connect https://relay.example.com --bootstrap-secret ./bootstrap.secret
-./sshstate export ~/sshstate-backup.age
-
-# on the second machine
-./sshstate pair https://relay.example.com <vault-id>
-# both screens show the same 13-group fingerprint; compare it out of band,
-# then answer on both. Nothing is transferred before you do.
-
-./sshstate sync
-./sshstate devices
-./sshstate revoke <device-id>          # stops that device on an honest relay
-```
-
-If every device is gone, the kit and a backup are enough, with no relay at all:
-
-```sh
-./sshstate restore ~/sshstate-backup.age --kit ~/sshstate-recovery-kit.txt
-```
-
-`init` prints a recovery kit and asks you to type its checksum back. That is
-deliberate: the kit is the only way into the vault if every device is lost, and
-it is not stored anywhere else. If that check fails, the vault is created but
-refuses changes until you run `sshstate confirm-recovery --kit <path>`.
-
-`install` shows the entries in your existing `~/.ssh/known_hosts` that match
-managed hosts — fingerprints, markers, and any conflict with trust already in
-the vault — and asks whether to import them, continue without them, or cancel.
-Nothing is imported without that answer, and your own `known_hosts` is never
-modified. Trust is published before the Include is activated, so a host you have
-already accepted does not prompt again. Scripts pass `--import-trust` or
-`--skip-trust`; without one, a noninteractive install refuses rather than
-choosing for you.
-
-`uninstall` stops the daemon, removes the `Include`, and leaves the vault, your
-keys, your SSH config and your `known_hosts` alone. If the vault is connected to
-a relay it offers to deregister this device first, and says plainly when it could
-not.
-`--purge` additionally deletes the vault, and only after you have taken a backup
-that is still on disk and typed the vault id back.
-
-`install --service` registers the daemon with the platform's service manager,
-which owns both sockets and starts the daemon locked. Systemd starts it when SSH
-or the CLI first connects. Current macOS releases can start the launchd agent as
-soon as launchd registers its Unix sockets. Linux uses three systemd user units
-— one service and one socket unit per socket — because systemd names every
-descriptor in a socket unit alike and the daemon adopts its two sockets by name,
-never by position. Everywhere else, run `sshstate daemon` in the foreground.
-
-## Installing
+Install with [Homebrew](https://github.com/mouizahmed/homebrew-sshstate):
 
 ```sh
 brew tap mouizahmed/sshstate
@@ -186,69 +110,261 @@ brew trust --formula mouizahmed/sshstate/sshstate
 brew install sshstate
 ```
 
-Homebrew 7 will not load a formula from a third-party tap until you say you
-trust it, because a formula is Ruby that Homebrew runs. Trusting the one formula
-is narrower than `brew trust mouizahmed/sshstate`, which would trust anything
-this tap adds later.
+Homebrew 7 asks you to trust third-party formulas before installing them. The
+command above trusts only the sshstate formula.
 
-Or from a release: download the archive for your platform, verify it, and put
-the binary on your `PATH`.
+For a manual install, download the `darwin_arm64` (Apple Silicon) or
+`darwin_amd64` (Intel) archive from
+[GitHub Releases](https://github.com/mouizahmed/sshstate/releases), along with
+`SHA256SUMS` and `SHA256SUMS.cosign.bundle`. In the download directory, run:
 
 ```sh
-sha256sum -c SHA256SUMS --ignore-missing
-
+shasum -a 256 -c SHA256SUMS --ignore-missing
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.cosign.bundle \
   --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-tar xzf sshstate_*.tar.gz && sudo mv sshstate /usr/local/bin/
+tar xzf sshstate_*.tar.gz
+sudo mv sshstate /usr/local/bin/
 ```
 
-The checksum says the download arrived intact. The signature says it was built
-by this repository's release workflow, which a checksum alone cannot tell you —
-anyone who can replace a tarball can replace the sums beside it.
+A browser-downloaded binary may be quarantined. If Gatekeeper blocks it after
+verification, run `xattr -d com.apple.quarantine /usr/local/bin/sshstate`.
+Homebrew installs do not need this step.
 
-macOS binaries are not notarized, so a browser download is quarantined and
-Gatekeeper refuses it. Clear it once:
+#### Linux
+
+Signed packages for amd64 and arm64 are published to repositories hosted on
+GitHub Pages. The repositories retain the five most recent stable releases;
+older versions remain available on
+[GitHub Releases](https://github.com/mouizahmed/sshstate/releases). They go live
+with the next stable tag; v0.1.4 ships archives only.
+Run each command block together; a failed key check stops installation.
+
+<details>
+<summary>Debian and Ubuntu (apt)</summary>
 
 ```sh
-xattr -d com.apple.quarantine /usr/local/bin/sshstate
+curl -fsSL https://mouizahmed.github.io/sshstate/keys/sshstate.gpg -o sshstate.gpg &&
+echo '50383d7e016e1155acb59d5eb8761a657f17004bc65a507b8174a56971ade213  sshstate.gpg' | sha256sum -c - &&
+sudo install -m 0644 sshstate.gpg /usr/share/keyrings/sshstate.gpg &&
+echo 'deb [signed-by=/usr/share/keyrings/sshstate.gpg] https://mouizahmed.github.io/sshstate/apt stable main' | sudo tee /etc/apt/sources.list.d/sshstate.list >/dev/null &&
+sudo apt update &&
+sudo apt install sshstate
 ```
 
-`brew install` is unaffected.
+</details>
 
-## Building
-
-Requires **Go 1.27 or later** — `crypto/mldsa` is not present in Go 1.26.
+<details>
+<summary>Fedora and other dnf distributions (dnf)</summary>
 
 ```sh
-make check      # gofmt, vet, build, test, test -race
-go build ./...
-
-# Register a real service in your own session; opt-in, and not run by CI.
-SSHSTATE_LAUNCHD_TEST=1 go test ./internal/service/ -run Launchd   # macOS
-SSHSTATE_SYSTEMD_TEST=1 go test ./internal/service/ -run Systemd   # Linux
-
-# Start a real sshd and log into it with native OpenSSH. CI runs this on Linux.
-SSHSTATE_SSHD_TEST=1 go test ./internal/cli/ -run NativeSSH
+curl -fsSL https://mouizahmed.github.io/sshstate/keys/sshstate.asc -o sshstate.asc &&
+echo '3e5cfef188d4c529ddba2faa2d9b0c34d109ef7984b453831c7553e167499cb9  sshstate.asc' | sha256sum -c - &&
+sudo rpm --import sshstate.asc &&
+sudo dnf config-manager addrepo --from-repofile=https://mouizahmed.github.io/sshstate/sshstate.repo &&
+sudo dnf install sshstate
 ```
 
-## Documentation
+On dnf4 with `dnf-plugins-core`, use
+`sudo dnf config-manager --add-repo https://mouizahmed.github.io/sshstate/sshstate.repo`
+for the fourth command.
 
-- [CLI flows, from first run to recovery](docs/cli-flows.md)
-- [Project brief and milestones](docs/project-brief.md)
-- [Threat model](docs/threat-model.md)
-- [Defects found during implementation](docs/defects.md)
-- [CLI review](docs/cli-review.md) — gaps in the command surface, and the plan
-- [Distribution plan](docs/distribution-plan.md) — how v0.1.0 ships
-- [Protocol](docs/protocol.md) — draft, frozen before Milestone 2
-- [Decision records](docs/decisions/)
+</details>
 
-## What is not claimed
+<details>
+<summary>Alpine (apk)</summary>
 
-No audited security. No complete key erasure in memory. No complete rollback
-prevention against a withholding relay. No universal SSH config fidelity.
+```sh
+curl -fsSL https://mouizahmed.github.io/sshstate/keys/sshstate.rsa.pub -o sshstate.rsa.pub &&
+echo 'db487d22b47c13cb5c363101853a74e22eee52cf8044f2a948ebdd7cfc781fbe  sshstate.rsa.pub' | sha256sum -c - &&
+sudo install -m 0644 sshstate.rsa.pub /etc/apk/keys/sshstate.rsa.pub &&
+echo 'https://mouizahmed.github.io/sshstate/apk' | sudo tee -a /etc/apk/repositories >/dev/null &&
+sudo apk update &&
+sudo apk add sshstate
+```
+
+</details>
+
+<details>
+<summary>Arch Linux (pacman)</summary>
+
+```sh
+curl -fsSL https://mouizahmed.github.io/sshstate/keys/sshstate.asc -o sshstate.asc &&
+echo '3e5cfef188d4c529ddba2faa2d9b0c34d109ef7984b453831c7553e167499cb9  sshstate.asc' | sha256sum -c - &&
+sudo pacman-key --add sshstate.asc &&
+sudo pacman-key --lsign-key C1E40ECEEA6F0117A52F1E70D16B79E07BBE57AA &&
+printf '[sshstate]\nSigLevel = Required\nServer = https://mouizahmed.github.io/sshstate/arch/$arch\n' | sudo tee -a /etc/pacman.conf >/dev/null &&
+sudo pacman -Syu sshstate
+```
+
+</details>
+
+##### Manual archive
+
+Download the `linux_amd64` or `linux_arm64` archive for your CPU from
+[GitHub Releases](https://github.com/mouizahmed/sshstate/releases), along with
+`SHA256SUMS` and `SHA256SUMS.cosign.bundle`. In the download directory, run:
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.cosign.bundle \
+  --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+tar xzf sshstate_*.tar.gz
+sudo mv sshstate /usr/local/bin/
+```
+
+The archives cover amd64 and arm64. If you use Homebrew on Linux, the macOS
+Homebrew commands above also install the Linux binary.
+
+The `.rpm` attached to a GitHub release is unsigned. RPM signing happens when
+the repository is built, so only its repository copy has a GPG signature. For
+a manual `.rpm` download, verify `SHA256SUMS` with the cosign bundle as shown
+above before installing it.
+
+## Getting started with sshstate
+
+Set up one machine first; add a self-hosted relay when you want to sync another.
+
+### Set up the first machine
+
+To bring existing SSH hosts and keys into sshstate:
+
+```sh
+sshstate setup --import ~/.ssh/config
+sshstate status
+sshstate doctor
+ssh <alias>
+```
+
+`setup` creates a local vault and recovery kit, starts the daemon, imports the
+hosts it can manage, and installs an `Include` in `~/.ssh/config`. It asks you to
+confirm the recovery kit checksum and review matching host keys before changing
+SSH configuration. Store the recovery kit separately from this machine: there is
+no in-place vault-key rotation yet, planned for a future iteration, so the kit
+and an encrypted export are the recovery path. A single machine does not need a
+relay.
+
+To start without importing an SSH config, run `sshstate setup`, then add a key
+and host. Run `sshstate setup` again to finish installing the SSH `Include`:
+
+```sh
+sshstate setup
+sshstate add-key ~/.ssh/id_ed25519
+sshstate add prod --hostname 10.0.0.5 --user ubuntu --key <key-id-or-comment>
+sshstate setup
+ssh prod
+```
+
+The existing private key file stays where it is; sshstate stores an encrypted
+copy in its vault and signs through its own agent. See the
+[CLI flows](docs/cli-flows.md) for manual setup, trust review, backup, recovery,
+and uninstall.
+
+### Self-host the sync relay
+
+A second machine needs a relay. Run it on a Linux host with Docker Compose,
+persistent storage, a DNS name, and an HTTPS reverse proxy. The whole
+deployment is one container and one SQLite volume; there is no separate
+database service:
+
+```yaml
+services:
+  relay:
+    image: ghcr.io/mouizahmed/sshstate-server:v0.1.4
+    restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    user: "65532:65532"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - relay-data:/var/lib/sshstate
+    secrets:
+      - sshstate_bootstrap
+
+volumes:
+  relay-data:
+
+secrets:
+  sshstate_bootstrap:
+    file: ./bootstrap.secret
+```
+
+[deploy/compose.yaml](deploy/compose.yaml) is the canonical file and adds
+digest pinning and a local build target. Clone this repository on the server,
+create the one-time bootstrap secret, and start the relay:
+
+```sh
+git clone https://github.com/mouizahmed/sshstate.git
+cd sshstate
+head -c 32 /dev/urandom | base64 > deploy/bootstrap.secret
+chmod 600 deploy/bootstrap.secret
+cp deploy/bootstrap.secret ~/bootstrap.secret.for-first-client
+sudo chown 65532:65532 deploy/bootstrap.secret
+cd deploy && docker compose up -d
+```
+
+Privately transfer the saved copy of the secret to the first machine. The
+container runs as UID 65532 and listens only on server loopback port 8080, so
+terminate TLS at your own reverse proxy: the public URL must use HTTPS. Two
+things decide whether that proxy works. The relay verifies signatures over the
+request authority, so the proxy has to pass the client's original `Host`
+through unchanged; nginx rewrites it by default, and every request then fails
+as an unverifiable signature. The relay has no WebSocket endpoint, so upgrade
+headers are unnecessary.
+
+[deploy/README.md](deploy/README.md) has the proxy configuration to copy, along
+with image verification, upgrades, backups, and moving a relay between hosts.
+Back up the persistent relay volume.
+
+Once `https://relay.example.com` reaches the relay, connect the existing vault
+from the first machine:
+
+```sh
+sshstate unlock
+sshstate connect https://relay.example.com --bootstrap-secret /path/to/bootstrap.secret
+sshstate status  # copy the vault ID
+```
+
+The bootstrap secret is consumed by this first connection. On a fresh second
+machine, install sshstate but do not create a vault. Pair it with the first:
+
+```sh
+# second machine
+sshstate pair https://relay.example.com <vault-id>
+
+# first machine, using the session ID printed above
+sshstate approve <session-id>
+```
+
+Compare all 13 groups of the pairing fingerprint through a channel other than
+the relay and confirm on both machines. Then finish on the second machine:
+
+```sh
+sshstate setup
+sshstate sync
+sshstate doctor
+```
+
+Run `sshstate sync` on each machine after making changes. Conflicting edits are
+kept for explicit review with `sshstate conflicts`; they are not resolved by
+last-write-wins. The [CLI flows](docs/cli-flows.md) cover additional machines,
+revocation, and recovery.
+
+## Contributing
+
+sshstate is open source, and contributions are welcome. Bug reports, fixes,
+documentation improvements, and feature proposals are all useful. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guidelines.
 
 ## License
 

@@ -1,0 +1,20 @@
+name: sshstate
+arch: ${GOARCH}
+platform: linux
+version: ${VERSION}
+release: 1
+section: utils
+priority: optional
+maintainer: Mouiz Ahmed <mouizahmed1@gmail.com>
+description: Sync your SSH environment across machines
+homepage: https://github.com/mouizahmed/sshstate
+license: MIT
+contents:
+  - src: dist/stage/sshstate
+    dst: /usr/bin/sshstate
+    file_info:
+      mode: 0755
+  - src: LICENSE
+    dst: /usr/share/doc/sshstate/LICENSE
+    file_info:
+      mode: 0644

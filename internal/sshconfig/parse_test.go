@@ -152,7 +152,7 @@ func TestAFileWithAnyProblemImportsNothing(t *testing.T) {
 		t.Fatal("the bad block was accepted")
 	}
 	if len(hosts) != 0 {
-		t.Fatalf("%d hosts were returned alongside problems; §3.2 forbids a partial import", len(hosts))
+		t.Fatalf("%d hosts were returned alongside problems; a partial import is forbidden", len(hosts))
 	}
 }
 

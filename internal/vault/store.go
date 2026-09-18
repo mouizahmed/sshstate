@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS record_history (
     PRIMARY KEY (record_id, digest)
 ) STRICT;
 
--- Outbound candidates persisted before transmission (§5.3), so a retry can
+-- Outbound candidates persisted before transmission, so a retry can
 -- reuse the exact signed bytes instead of producing a second mutation.
 CREATE TABLE IF NOT EXISTS outbox (
     mutation_id TEXT PRIMARY KEY,

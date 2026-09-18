@@ -188,7 +188,7 @@ func TestTombstoneCarriesEmptyPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(tomb.Ciphertext) == 0 {
-		t.Fatal("tombstone has no ciphertext; §5.2 requires an encrypted empty object")
+		t.Fatal("tombstone has no ciphertext; an encrypted empty object is required")
 	}
 	if err := f.reader.Open(tomb, &HostPayload{}); err != nil {
 		t.Fatalf("tombstone did not verify: %v", err)

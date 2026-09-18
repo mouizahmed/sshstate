@@ -1,13 +1,24 @@
 # sshstate sync protocol — v1
 
-Status: **frozen core protocol.** The rotation extension is specified in
-`docs/rotation.md` and its routes are reserved but not implemented. Wire changes
-require a format-version change or an epoch transition, not an undocumented edit.
-
 The relay is unaware of SSH payload semantics. It stores ciphertext, signatures,
 revisions and cursors, and validates structure and authorization only.
 
-Section references in the form §x.y are to `docs/project-brief.md`.
+## Contents
+
+- [1. Conventions](#1-conventions)
+- [2. Genesis](#2-genesis)
+- [3. Records](#3-records)
+- [4. Membership chain](#4-membership-chain)
+- [5. Pairing](#5-pairing)
+- [6. Key bundles, checkpoints and snapshots](#6-key-bundles-checkpoints-and-snapshots)
+- [7. Recovery](#7-recovery)
+- [8. Export](#8-export)
+- [9. Request authentication](#9-request-authentication)
+- [10. HTTP API](#10-http-api)
+- [11. Client obligations](#11-client-obligations)
+- [12. Error codes](#12-error-codes)
+- [13. What this protocol does not promise](#13-what-this-protocol-does-not-promise)
+- [Local control protocol](#local-control-protocol)
 
 ---
 
@@ -18,7 +29,7 @@ Section references in the form §x.y are to `docs/project-brief.md`.
 One suite per vault per epoch, identified by `sshstate.suite.v1` and bound into
 genesis, membership events, pairing transcripts, bundles, export manifests and
 record context. An unknown suite identifier fails closed: the reader stops, and
-never falls back to another algorithm. See decision record 0001.
+never falls back to another algorithm.
 
 | Role | Algorithm |
 |---|---|
@@ -183,7 +194,7 @@ operation in this protocol.
 
 Record type is visible metadata. `host`, `known_host` and `conflict_metadata`
 payloads are encrypted under the vault **metadata** key; `key` and
-`conflict_secret` under the vault **secret** key (§4.1).
+`conflict_secret` under the vault **secret** key.
 
 **host**
 
@@ -364,8 +375,8 @@ the failure. It does not adopt a partially valid prefix.
 
 ## 5. Pairing
 
-Out-of-band verification of a full SHA-256 transcript fingerprint (§4.5). Both
-devices must have a trusted display.
+Out-of-band verification of a full SHA-256 transcript fingerprint. Both devices
+must have a trusted display.
 
 ### 5.1 Transcript
 
@@ -614,7 +625,7 @@ a signed recovery-purpose §6.2 bundle carrying the vault keys.
 
 Every record in an export is encrypted under those keys, and the relay's copy of
 them is precisely what is unreachable in the case an export exists for: "explicit
-recovery can use a local export if the relay is unavailable" (§4.6) is not true
+recovery can use a local export if the relay is unavailable" is not true
 without it. Including them is safe because the archive is sealed to the recovery
 recipient and to nothing else, so they are reachable by exactly the party that
 could already open the relay's copy. The bundle is signed by the exporting
@@ -1028,19 +1039,19 @@ POST   /v1/rotations/:id/commit
 DELETE /v1/rotations/:id
 ```
 
-Specified in `docs/rotation.md`; not implemented and not scheduled. The routes are
+Planned for a future iteration; not implemented. The routes are
 listed here so the relay's storage and the sync reader are built to accommodate
 them from the start; a transition that has to be atomic cannot be bolted onto
 storage that never anticipated it. A relay that does not implement rotation
 returns `not_implemented`, and must still reject old-epoch writes once an epoch
 has advanced.
 
-`DELETE /v1/rotations/:id` is an amendment to this list. §7.1 requires an
+`DELETE /v1/rotations/:id` is an amendment to this list. Rotation requires an
 explicit authenticated abort that discards staging and releases the write freeze,
 and the list as frozen had no route for it. It is a new method on an existing
-path, accepted from any currently authorized device — §7.1 requires a remaining
-device to be able to clear a rotation stranded by a lost initiator, which is
-exactly the case where the initiator cannot ask.
+path, accepted from any currently authorized device, because a remaining device
+has to be able to clear a rotation stranded by a lost initiator, which is exactly
+the case where the initiator cannot ask.
 
 ---
 
