@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
@@ -64,6 +65,29 @@ func (s *Store) SetBootstrapSecret(secret []byte) error {
 	return tx.Commit()
 }
 
+func (s *Store) MintBootstrapSecret() (string, error) {
+	secret := make([]byte, BootstrapSecretBytes)
+	if _, err := rand.Read(secret); err != nil {
+		return "", err
+	}
+	if err := s.SetBootstrapSecret(secret); err != nil {
+		return "", err
+	}
+	return EncodeBootstrapSecret(secret), nil
+}
+
+func (s *Store) bootstrapConfigured() (bool, error) {
+	var stored []byte
+	err := s.db.QueryRow(`SELECT secret_hash FROM bootstrap WHERE id = 1`).Scan(&stored)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) ConfigureBootstrap(secretPath string) (string, error) {
 	consumed, err := s.BootstrapConsumed()
 	if err != nil {
@@ -75,17 +99,31 @@ func (s *Store) ConfigureBootstrap(secretPath string) (string, error) {
 		}
 		return fmt.Sprintf("bootstrap is closed; this relay holds its vault and ignores %s", secretPath), nil
 	}
-	if secretPath == "" {
-		return "bootstrap is not configured; pass -bootstrap-secret to allow a vault to connect", nil
+	if secretPath != "" {
+		secret, err := ReadBootstrapSecret(secretPath)
+		if err != nil {
+			return "", err
+		}
+		if err := s.SetBootstrapSecret(secret); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("bootstrap is open; connect a vault with the secret in %s", secretPath), nil
 	}
-	secret, err := ReadBootstrapSecret(secretPath)
+	configured, err := s.bootstrapConfigured()
 	if err != nil {
 		return "", err
 	}
-	if err := s.SetBootstrapSecret(secret); err != nil {
+	if configured {
+		return "bootstrap is open; connect a vault with the secret already issued, " +
+			"or replace it with the new-bootstrap-secret command", nil
+	}
+	issued, err := s.MintBootstrapSecret()
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("bootstrap is open; connect a vault with the secret in %s", secretPath), nil
+	return "bootstrap is open; this one-time secret is shown once and cannot be reprinted:\n\n" +
+		"    " + issued + "\n\n" +
+		"copy it to the first client now; replace it with the new-bootstrap-secret command if it is lost", nil
 }
 
 func (s *Store) BootstrapConsumed() (bool, error) {

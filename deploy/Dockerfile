@@ -30,7 +30,7 @@ COPY --from=build /out/sshstate-server /usr/local/bin/sshstate-server
 
 # The volume holds the only state that matters. Losing it loses the vault's
 # ciphertext; a recovery kit restores access to retained ciphertext, not to
-# storage that is gone (project brief §7.2).
+# storage that is gone.
 VOLUME ["/var/lib/sshstate"]
 
 EXPOSE 8080
@@ -38,5 +38,4 @@ EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/sshstate-server"]
 CMD ["serve", \
      "-addr", "0.0.0.0:8080", \
-     "-data", "/var/lib/sshstate/relay.db", \
-     "-bootstrap-secret", "/run/secrets/sshstate_bootstrap"]
+     "-data", "/var/lib/sshstate/relay.db"]

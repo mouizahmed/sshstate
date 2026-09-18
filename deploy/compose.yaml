@@ -1,5 +1,6 @@
 # Self-hosted sshstate relay: one non-root container, one persistent volume, no
-# telemetry. Put an HTTPS reverse proxy in front of it (project brief §9).
+# telemetry. It speaks plain HTTP and needs an HTTPS reverse proxy in front of
+# it. Bring your own, or run the bundled one with `--profile tls`.
 services:
   relay:
     # Pin a release tag or set SSHSTATE_IMAGE to a verified digest. Never deploy
@@ -25,20 +26,57 @@ services:
     # Published on loopback only. Terminate TLS in a reverse proxy and forward
     # to this port; clients must reach the relay over HTTPS, and the container
     # is left with -public-http unset so signatures are verified against the
-    # https authority.
+    # https authority. The bundled Caddy below reaches it over the Compose
+    # network instead and does not need this.
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - relay-data:/var/lib/sshstate
-    secrets:
-      - sshstate_bootstrap
+
+  # Off unless you ask for it: `DOMAIN=relay.example.com docker compose
+  # --profile tls up -d`. Without the profile nothing binds 80 or 443, so a host
+  # that already runs an ingress is left alone.
+  caddy:
+    profiles:
+      - tls
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # Caddy obtains and renews the certificate itself, and its reverse_proxy
+    # passes the client's Host through unchanged, which the request signatures
+    # require.
+    # DOMAIN is the public name clients will use. It is required with this
+    # profile; it is not marked required here because Compose interpolates the
+    # whole file even when the profile is off, which would break the default
+    # deployment for everyone who never asks for TLS.
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - relay
+
+# Inline so this file deploys on its own, with no checkout beside it. A bind
+# mount would have Docker create a directory named Caddyfile when the file is
+# absent, and Caddy would start on a default config instead of failing.
+configs:
+  caddyfile:
+    content: |
+      {$$DOMAIN} {
+      	reverse_proxy relay:8080
+      	request_body {
+      		max_size 256MB
+      	}
+      }
 
 volumes:
   relay-data:
-
-secrets:
-  sshstate_bootstrap:
-    # Create with:  head -c 32 /dev/urandom | base64 > bootstrap.secret
-    # then:         chmod 600 bootstrap.secret && sudo chown 65532:65532 bootstrap.secret
-    # The relay runs as 65532 and cannot read the file under any other owner.
-    file: ./bootstrap.secret
+  caddy-data:
+  caddy-config:

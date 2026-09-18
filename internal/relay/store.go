@@ -123,8 +123,8 @@ CREATE TABLE IF NOT EXISTS recovery_nonce (
 -- Durable mutation outcomes. Rejections are stored too: a retried
 -- candidate must get the same answer, not a fresh evaluation against a head
 -- that has since moved.
--- The one-time bootstrap secret, by hash only. The plaintext lives in an
--- operator-mounted file and is never written here.
+-- The one-time bootstrap secret, by hash only. The plaintext is generated at
+-- startup or supplied in a file, and is never written here.
 CREATE TABLE IF NOT EXISTS bootstrap (
     id          INTEGER PRIMARY KEY CHECK (id = 1),
     secret_hash BLOB NOT NULL,

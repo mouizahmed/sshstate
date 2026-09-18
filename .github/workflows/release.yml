@@ -218,9 +218,8 @@ jobs:
           vault and a reviewed migration rather than a rotation. Windows is out
           of scope for v1.
 
-          This is a 0.x release. It works, it is tested against real sshd,
-          launchd, systemd and a real relay, and it has not been independently
-          audited or used by anyone but its author.
+          This is a 0.x release, tested against real sshd, launchd, systemd and
+          a real relay.
           EOF
 
       # Uploads to uploads.github.com answer 500 often enough to lose a release
@@ -242,7 +241,8 @@ jobs:
           if ! gh release view "${tag}" >/dev/null 2>&1; then
             gh release create "${tag}" --draft --title "${tag}" --notes-file notes.md "${prerelease[@]}"
           fi
-          for file in dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle; do
+          cp deploy/compose.yaml dist/compose.yaml
+          for file in dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/compose.yaml dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle; do
             attempt=1
             until gh release upload "${tag}" "${file}" --clobber; do
               if [ "${attempt}" -ge 5 ]; then

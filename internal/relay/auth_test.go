@@ -293,14 +293,103 @@ func TestAConsumedRelayStartsWithAStrangeSecretFile(t *testing.T) {
 
 func TestAnUnusedRelayRefusesToStartWithoutItsSecret(t *testing.T) {
 	store := emptyStore(t)
+	if _, err := store.ConfigureBootstrap(filepath.Join(t.TempDir(), "gone.secret")); err == nil {
+		t.Fatal("a relay with no vault started without the secret it was given")
+	}
+}
+
+func TestARelayWithNoSecretIssuesOneAndKeepsItAcrossRestarts(t *testing.T) {
+	store := emptyStore(t)
 	status, err := store.ConfigureBootstrap("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(status, "not configured") {
+
+	issued := statusSecret(t, status)
+	decoded, err := DecodeBootstrapSecret(issued)
+	if err != nil {
+		t.Fatalf("the relay printed something that is not a usable secret: %v", err)
+	}
+
+	restarted, err := store.ConfigureBootstrap("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(restarted, issued) {
+		t.Fatal("a restart reprinted the secret from a store that keeps only its hash")
+	}
+	if strings.Contains(restarted, "shown once") {
+		t.Fatal("a restart issued a second secret, invalidating the one already copied out")
+	}
+
+	g, root := newVault(t)
+	if err := store.Bootstrap(decoded, g, root); err != nil {
+		t.Fatalf("the issued secret did not connect a vault: %v", err)
+	}
+}
+
+func TestEachIssuedSecretIsDifferentAndReplacesTheLast(t *testing.T) {
+	store := emptyStore(t)
+	first, err := store.MintBootstrapSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.MintBootstrapSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("two issued secrets were identical")
+	}
+
+	stale, err := DecodeBootstrapSecret(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, root := newVault(t)
+	mustCode(t, store.Bootstrap(stale, g, root), protocol.CodeNotAuthorized)
+
+	current, err := DecodeBootstrapSecret(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Bootstrap(current, g, root); err != nil {
+		t.Fatalf("the replacement secret did not connect a vault: %v", err)
+	}
+}
+
+func TestAConsumedRelayWillNotIssueANewSecret(t *testing.T) {
+	store := emptyStore(t)
+	if err := store.SetBootstrapSecret(secret(1)); err != nil {
+		t.Fatal(err)
+	}
+	g, root := newVault(t)
+	if err := store.Bootstrap(secret(1), g, root); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.MintBootstrapSecret(); err == nil {
+		t.Fatal("a relay that already holds a vault issued a secret that would reopen registration")
+	} else {
+		mustCode(t, err, protocol.CodeBootstrapConsumed)
+	}
+
+	status, err := store.ConfigureBootstrap("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(status, "closed") {
 		t.Fatalf("unhelpful status %q", status)
 	}
-	if _, err := store.ConfigureBootstrap(filepath.Join(t.TempDir(), "gone.secret")); err == nil {
-		t.Fatal("a relay with no vault started without the secret it was given")
+}
+
+func statusSecret(t *testing.T, status string) string {
+	t.Helper()
+	for _, line := range strings.Split(status, "\n") {
+		if field := strings.TrimSpace(line); strings.HasPrefix(line, "    ") && field != "" {
+			return field
+		}
 	}
+	t.Fatalf("no secret in status %q", status)
+	return ""
 }

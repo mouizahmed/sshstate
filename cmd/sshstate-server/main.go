@@ -21,8 +21,9 @@ const usage = `sshstate-server - sshstate sync relay
 usage: sshstate-server <command> [flags]
 
 commands:
-  serve      run the HTTP relay
-  version    print version
+  serve                  run the HTTP relay
+  new-bootstrap-secret   issue a replacement one-time secret
+  version                print version
 
 serve flags:
   -addr string
@@ -30,9 +31,19 @@ serve flags:
   -data string
         database path (default "/var/lib/sshstate/relay.db")
   -bootstrap-secret string
-        path to the operator-mounted one-time secret file
+        path to an operator-supplied one-time secret file
   -public-http
         clients reach this relay over plain HTTP (development only)
+
+new-bootstrap-secret flags:
+  -data string
+        database path (default "/var/lib/sshstate/relay.db")
+
+A relay with no secret issues one itself on first start and prints it once.
+Only its hash is stored, so a secret lost before it reaches the first client is
+replaced with new-bootstrap-secret rather than reprinted; once a vault has
+connected, neither path reopens registration. -bootstrap-secret supplies your
+own secret instead.
 
 The relay terminates plain HTTP and expects an HTTPS reverse proxy in front of
 it. -public-http describes the URL clients use, not this process's listener:
@@ -56,6 +67,10 @@ func main() {
 		if err := serve(flag.Args()[1:]); err != nil {
 			log.Fatal(err)
 		}
+	case "new-bootstrap-secret":
+		if err := newBootstrapSecret(flag.Args()[1:]); err != nil {
+			log.Fatal(err)
+		}
 	case "version":
 		fmt.Printf("sshstate-server %s\n", buildinfo.String())
 		fmt.Println()
@@ -66,6 +81,28 @@ func main() {
 		fmt.Fprintf(os.Stderr, "sshstate-server: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
 	}
+}
+
+func newBootstrapSecret(args []string) error {
+	fs := flag.NewFlagSet("new-bootstrap-secret", flag.ExitOnError)
+	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
+	data := fs.String("data", "/var/lib/sshstate/relay.db", "database path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	store, err := relay.Open(*data)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	issued, err := store.MintBootstrapSecret()
+	if err != nil {
+		return err
+	}
+	fmt.Println(issued)
+	return nil
 }
 
 func serve(args []string) error {
