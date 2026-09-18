@@ -61,17 +61,17 @@ leave the client, so a terminating proxy sees ciphertext.
 
 ## Enrollment
 
-Registration is opened once, by a 256-bit bootstrap secret the relay generates
-on first start and prints once, or one the operator supplies. The relay stores
-only its SHA-256 hash, compares in constant time, and records when it was
-consumed; a spent bootstrap cannot be reopened by issuing or supplying another.
-There is no other account-creation path, so a relay reachable on the network is
-not a relay anyone can register against.
+Registration is opened once, by a 256-bit bootstrap secret the operator asks
+the relay to issue, or one they supply. The relay stores only its SHA-256 hash,
+compares in constant time, and records when it was consumed; a spent bootstrap
+cannot be reopened by issuing or supplying another. There is no other
+account-creation path, so a relay reachable on the network is not a relay anyone
+can register against.
 
 Whoever holds an unspent bootstrap secret before the legitimate first client
-becomes the vault's first device. It is therefore read from the relay's log,
-transferred privately, and deleted afterwards. Anyone who can read those logs
-can take the vault before its owner does, until it is spent.
+becomes the vault's first device. It is therefore issued on demand, printed to
+the operator's terminal rather than to any log, transferred privately, and
+deleted afterwards.
 
 ## Local compromise
 

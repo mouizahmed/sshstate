@@ -272,7 +272,7 @@ there:
 ```sh
 curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
 DOMAIN=relay.example.com docker compose --profile tls up -d
-docker compose logs relay   # the one-time bootstrap secret, printed once
+docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
 ```
 
 The profile runs a Caddy that obtains and renews the certificate. Leave it off

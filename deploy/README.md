@@ -55,28 +55,20 @@ public interface.
 
 #### The one-time bootstrap secret
 
-The relay issues its own on first start and prints it once:
+A new relay has none until you ask for one:
 
 ```console
-$ docker compose logs relay
-sshstate-server: bootstrap is open; this one-time secret is shown once and cannot be reprinted:
-
-    mamdh50Jkt_txDSZlSxnfxQv8omux7U1kLViU7RSRMU
-
-copy it to the first client now; replace it with the new-bootstrap-secret command if it is lost
+$ docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
+mamdh50Jkt_txDSZlSxnfxQv8omux7U1kLViU7RSRMU
 ```
 
-256 bits, used exactly once to connect your vault. Only its hash is stored, so a
-restart does not reprint it. If it scrolls away before you copy it, issue a
-replacement — harmless while no vault has connected, and it invalidates the
-previous one:
+256 bits, printed to your terminal and never to a log, and used exactly once to
+connect your vault. Only its hash is stored, so running the command again
+issues a replacement rather than reprinting the last one — harmless while no
+vault has connected, and it invalidates the previous secret.
 
-```sh
-docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
-```
-
-Once a vault has connected, the secret is spent and neither a restart nor a
-replacement reopens registration. There is no other account creation path.
+Once a vault has connected, the secret is spent and no replacement reopens
+registration. There is no other account creation path.
 
 To supply your own secret instead, mount a file and pass
 `-bootstrap-secret <path>` in the container's command.

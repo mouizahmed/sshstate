@@ -298,17 +298,26 @@ func TestAnUnusedRelayRefusesToStartWithoutItsSecret(t *testing.T) {
 	}
 }
 
-func TestARelayWithNoSecretIssuesOneAndKeepsItAcrossRestarts(t *testing.T) {
+func TestStartingARelayNeverIssuesASecretByItself(t *testing.T) {
 	store := emptyStore(t)
 	status, err := store.ConfigureBootstrap("")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(status, "not configured") {
+		t.Fatalf("unhelpful status %q", status)
+	}
+	if configured, err := store.bootstrapConfigured(); err != nil || configured {
+		t.Fatal("starting the relay issued a secret nobody asked for")
+	}
 
-	issued := statusSecret(t, status)
+	issued, err := store.MintBootstrapSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
 	decoded, err := DecodeBootstrapSecret(issued)
 	if err != nil {
-		t.Fatalf("the relay printed something that is not a usable secret: %v", err)
+		t.Fatalf("new-bootstrap-secret printed something that is not a usable secret: %v", err)
 	}
 
 	restarted, err := store.ConfigureBootstrap("")
@@ -316,10 +325,7 @@ func TestARelayWithNoSecretIssuesOneAndKeepsItAcrossRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(restarted, issued) {
-		t.Fatal("a restart reprinted the secret from a store that keeps only its hash")
-	}
-	if strings.Contains(restarted, "shown once") {
-		t.Fatal("a restart issued a second secret, invalidating the one already copied out")
+		t.Fatal("a restart printed the secret from a store that keeps only its hash")
 	}
 
 	g, root := newVault(t)
@@ -381,15 +387,4 @@ func TestAConsumedRelayWillNotIssueANewSecret(t *testing.T) {
 	if !strings.Contains(status, "closed") {
 		t.Fatalf("unhelpful status %q", status)
 	}
-}
-
-func statusSecret(t *testing.T, status string) string {
-	t.Helper()
-	for _, line := range strings.Split(status, "\n") {
-		if field := strings.TrimSpace(line); strings.HasPrefix(line, "    ") && field != "" {
-			return field
-		}
-	}
-	t.Fatalf("no secret in status %q", status)
-	return ""
 }

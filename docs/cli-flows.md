@@ -229,12 +229,11 @@ On the server, with no checkout needed:
 ```sh
 curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
 DOMAIN=relay.example.com docker compose --profile tls up -d
-docker compose logs relay
+docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
 ```
 
-The relay issues a one-time bootstrap secret on first start and prints it to
-that log once. Drop `--profile tls` if you are putting it behind a proxy you
-already run.
+The last command prints a one-time bootstrap secret to your terminal. Drop
+`--profile tls` if you are putting it behind a proxy you already run.
 
 Save the printed secret to a file **locally on the first client** through a
 private transfer, then on that client run:

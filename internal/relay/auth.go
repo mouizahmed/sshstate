@@ -117,13 +117,8 @@ func (s *Store) ConfigureBootstrap(secretPath string) (string, error) {
 		return "bootstrap is open; connect a vault with the secret already issued, " +
 			"or replace it with the new-bootstrap-secret command", nil
 	}
-	issued, err := s.MintBootstrapSecret()
-	if err != nil {
-		return "", err
-	}
-	return "bootstrap is open; this one-time secret is shown once and cannot be reprinted:\n\n" +
-		"    " + issued + "\n\n" +
-		"copy it to the first client now; replace it with the new-bootstrap-secret command if it is lost", nil
+	return "bootstrap is not configured; issue a one-time secret with the " +
+		"new-bootstrap-secret command to let a vault connect", nil
 }
 
 func (s *Store) BootstrapConsumed() (bool, error) {

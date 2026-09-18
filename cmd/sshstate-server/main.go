@@ -39,11 +39,11 @@ new-bootstrap-secret flags:
   -data string
         database path (default "/var/lib/sshstate/relay.db")
 
-A relay with no secret issues one itself on first start and prints it once.
-Only its hash is stored, so a secret lost before it reaches the first client is
-replaced with new-bootstrap-secret rather than reprinted; once a vault has
-connected, neither path reopens registration. -bootstrap-secret supplies your
-own secret instead.
+A new relay has no bootstrap secret until you ask for one with
+new-bootstrap-secret, which prints it to your terminal and never to a log. Only
+its hash is stored, so run it again to replace a secret rather than reprint it;
+once a vault has connected, neither path reopens registration.
+-bootstrap-secret supplies your own secret instead.
 
 The relay terminates plain HTTP and expects an HTTPS reverse proxy in front of
 it. -public-http describes the URL clients use, not this process's listener:
