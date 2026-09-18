@@ -13,9 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is the primary development platform (brief §8, R9); Linux runs
-        # portable tests from the start. Go 1.27 is the minimum: crypto/mldsa,
-        # required by the §4.8 suite, is not present in 1.26.
+        # Test both supported platforms. Go 1.27 provides crypto/mldsa.
         os: [macos-latest, ubuntu-latest]
         # 1.27.0 verifies the floor declared in go.mod is honest; 1.27.1 is the
         # latest patch. Go 1.26 cannot build this project at all.

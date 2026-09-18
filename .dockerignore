@@ -1,0 +1,8 @@
+*
+!go.mod
+!go.sum
+!cmd/
+!cmd/sshstate-server/
+!cmd/sshstate-server/**
+!internal/
+!internal/**

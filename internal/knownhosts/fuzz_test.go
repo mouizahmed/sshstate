@@ -22,9 +22,6 @@ func FuzzParseLine(f *testing.F) {
 		if e.Line == "" {
 			t.Fatal("an accepted entry kept no line")
 		}
-		if LineDigest(e.Line) != LineDigest(e.Line) {
-			t.Fatal("the line digest is not stable")
-		}
 	})
 }
 

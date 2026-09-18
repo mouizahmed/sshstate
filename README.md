@@ -9,7 +9,7 @@ integrations keep working unchanged.
 ```mermaid
 flowchart LR
   subgraph machine["your machine"]
-    D["sshstate daemon<br/>private keys in memory only, never on disk"]
+    D["sshstate daemon<br/>plaintext private keys in memory only"]
     C["~/.ssh/sshstate/<br/>config + public keys"]
     O["OpenSSH"]
     D -->|writes| C
@@ -20,7 +20,7 @@ flowchart LR
   D <-->|ciphertext, signatures, cursors| R["relay (treated as hostile)"]
 ```
 
-> **Status: v0.1.4, a stable MVP for single-user self-hosting on macOS and
+> **Status: stable MVP for single-user self-hosting on macOS and
 > Linux.** Local and multi-device workflows work end to end and the sync
 > protocol is frozen. Releases remain on the `0.x` line and may require
 > coordinated client and relay upgrades. Windows is not supported.
@@ -30,8 +30,9 @@ flowchart LR
 ## How it works
 
 Generated configuration lives under `~/.ssh/sshstate/`, reached by a single
-`Include` line at the top of `~/.ssh/config`. Your hand-written entries are
-never rewritten.
+`Include` line at the top of `~/.ssh/config`. When you import hosts from your
+config, sshstate backs it up and comments out the imported blocks so the
+managed definitions take effect. Other entries remain as they were.
 
 **Your machines hold the truth; the relay is optional.** A vault is created and
 fully usable before any relay exists: add hosts and keys, install the `Include`,
@@ -39,10 +40,11 @@ connect. Adding a relay replicates the same vault to your other machines; it
 never becomes the authority, and losing it is recovered from the machines
 themselves.
 
-**Private keys are never written to disk.** A per-user daemon implements the SSH
-agent protocol on its own socket; hosts are pointed at it with `IdentityAgent`.
-Only public keys reach the filesystem, and your global `SSH_AUTH_SOCK` is
-untouched.
+**sshstate never writes plaintext private keys to disk.** A per-user daemon
+implements the SSH agent protocol on its own socket; hosts are pointed at it
+with `IdentityAgent`. The generated SSH directory contains configuration and
+public keys; encrypted key material stays in the vault database. Your global
+`SSH_AUTH_SOCK` is untouched.
 
 **The daemon is socket-activated.** launchd and systemd start it on first use
 and it comes back locked; the control socket accepts only the owning UID.
@@ -132,11 +134,11 @@ Homebrew installs do not need this step.
 
 #### Linux
 
-Signed packages for amd64 and arm64 are published to repositories hosted on
-GitHub Pages. The repositories retain the five most recent stable releases;
-older versions remain available on
-[GitHub Releases](https://github.com/mouizahmed/sshstate/releases). They go live
-with the next stable tag; v0.1.4 ships archives only.
+Starting with v0.1.5, signed packages for amd64 and arm64 are published to
+repositories hosted on GitHub Pages. They retain the five most recent stable
+releases; older versions remain available on
+[GitHub Releases](https://github.com/mouizahmed/sshstate/releases). v0.1.4
+ships archives only.
 Run each command block together; a failed key check stops installation.
 
 <details>

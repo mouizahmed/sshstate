@@ -205,15 +205,15 @@ argument.
 `setup` registers the daemon with launchd on macOS or systemd user units on
 Linux. The service does not inherit your shell, so registration copies
 `SSL_CERT_FILE`, `SSL_CERT_DIR`, and the `*_PROXY` variables from the shell
-that ran it. If you change those later, register again with `sshstate service`. The manual controls are `sshstate service` to register, `sshstate service
---remove` to unregister, and `sshstate daemon` to run in the foreground. The
-foreground daemon is useful on a platform without service integration. If you
-choose the manual route, `sshstate init --kit <path>` creates only the vault;
-then start the daemon, `unlock`, add/import hosts, and `sshstate install` to
-activate the SSH `Include`. `sshstate install --service` can register the
-service as part of that manual route. For unattended installation, choose
-`install --import-trust` or `install --skip-trust` explicitly when matching
-entries already exist in `known_hosts`.
+that ran it. If those values change, register again with `sshstate service`.
+Use `sshstate service --remove` to unregister it, or `sshstate daemon` to run
+it in the foreground.
+
+For manual setup, `sshstate init --kit <path>` creates the vault. Start the
+daemon, unlock, add or import hosts, then run `sshstate install` to activate
+the SSH `Include`. Add `--service` to register the daemon. For unattended
+installation, choose `--import-trust` or `--skip-trust` when matching entries
+already exist in `known_hosts`.
 
 ## 4. Self-host a relay and connect the first machine
 
@@ -221,8 +221,8 @@ A single-machine vault works without this section. To share it, run the relay
 on a server with persistent storage and put HTTPS in front of it, either with
 the bundled Caddy profile or with a proxy you already run. The complete
 instructions are in [deploy/README.md](../deploy/README.md). A proxy you manage
-must preserve the signed request's `Host` header. Keep a backup of the relay's persistent
-volume as well as encrypted exports.
+must preserve the signed request's `Host` header. Back up the relay's persistent
+volume and keep encrypted exports.
 
 On the server, with no checkout needed:
 

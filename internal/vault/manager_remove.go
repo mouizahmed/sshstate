@@ -71,7 +71,7 @@ func (m *Manager) removal(w *Writer, r *Reader, recordID protocol.ID, want proto
 			}
 		}
 		if len(users) > 0 {
-			return nil, fmt.Errorf("key %s is offered by %s; remove it from %s first with: sshstate edit <alias> --key ...",
+			return nil, fmt.Errorf("key %s is offered by %s; edit %s to remove that key first",
 				recordID, strings.Join(users, ", "), plural(len(users), "that host", "those hosts"))
 		}
 	}

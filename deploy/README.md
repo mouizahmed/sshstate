@@ -39,9 +39,9 @@ your own proxy; see [step 2](#2-bring-your-own-proxy-instead) for its
 configuration.
 
 That URL serves the newest release's Compose file, which pins that release's
-image by tag. The image itself is never `latest`, because `0.x` clients and
-relays may need a coordinated upgrade. For production, verify the image and pin
-`SSHSTATE_IMAGE` to its digest as shown below.
+image by tag. Compose does not use the floating `latest` tag because `0.x`
+clients and relays may need a coordinated upgrade. For production, verify the
+image and pin `SSHSTATE_IMAGE` to its digest as shown below.
 
 To build from source instead, clone the repository and, from `deploy/`:
 
@@ -50,8 +50,8 @@ SSHSTATE_IMAGE=sshstate-server:local docker compose up -d --build
 ```
 
 The container runs as UID 65532 on distroless with a read-only root filesystem,
-no capabilities, and `no-new-privileges`. It binds `127.0.0.1:8080`, not a
-public interface.
+no capabilities, and `no-new-privileges`. Compose publishes its HTTP port on
+the host's `127.0.0.1:8080` only.
 
 #### The one-time bootstrap secret
 
@@ -80,7 +80,7 @@ workflow's own identity. A tag can later be moved to different content; a digest
 cannot, so the signature is over the digest.
 
 ```sh
-release=v0.1.4   # the release you are deploying
+release=v0.1.5   # the release you are deploying
 digest=$(docker buildx imagetools inspect \
   ghcr.io/mouizahmed/sshstate-server:"$release" --format '{{.Manifest.Digest}}')
 
@@ -129,7 +129,7 @@ location / {
 }
 ```
 
-The `Signature` header is 4423 bytes, so nginx's default 8 KB header buffers
+The `Signature` header is about 4.4 KB, so nginx's default 8 KB header buffers
 and Apache's 8190-byte `LimitRequestFieldSize` both fit it. Do not lower them:
 at `large_client_header_buffers 4 4k` nginx answers `400` from its own error
 page and the request never reaches the relay.

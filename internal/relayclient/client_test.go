@@ -138,23 +138,33 @@ func mustCode(t *testing.T, err error, want string) {
 
 func TestURLValidation(t *testing.T) {
 	for name, url := range map[string]string{
-		"https":         "https://relay.example.com",
-		"loopback http": "http://127.0.0.1:8080",
-		"localhost":     "http://localhost:8080",
+		"https":          "https://relay.example.com",
+		"trailing slash": "https://relay.example.com/",
+		"loopback http":  "http://127.0.0.1:8080",
+		"localhost":      "http://localhost:8080",
 	} {
 		if _, err := New(Options{BaseURL: url}); err != nil {
 			t.Errorf("%s was rejected: %v", name, err)
 		}
 	}
 	for name, url := range map[string]string{
-		"public http": "http://relay.example.com",
-		"no scheme":   "relay.example.com",
-		"no host":     "https://",
-		"ftp":         "ftp://relay.example.com",
+		"public http":  "http://relay.example.com",
+		"no scheme":    "relay.example.com",
+		"no host":      "https://",
+		"ftp":          "ftp://relay.example.com",
+		"credentials":  "https://user:password@relay.example.com",
+		"path":         "https://relay.example.com/other",
+		"double slash": "https://relay.example.com//",
+		"query":        "https://relay.example.com?x=1",
+		"empty query":  "https://relay.example.com?",
+		"fragment":     "https://relay.example.com#other",
 	} {
 		if _, err := New(Options{BaseURL: url}); err == nil {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+	if _, err := New(Options{BaseURL: "https://user:password@relay.example.com"}); err == nil || strings.Contains(err.Error(), "password") {
+		t.Fatalf("credentials appeared in relay URL error: %v", err)
 	}
 }
 

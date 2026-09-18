@@ -145,7 +145,7 @@ func (d *Daemon) serveAgent(ln net.Listener) error {
 		}
 		go func() {
 			defer conn.Close()
-			if err := agent.ServeAgent(d.agent, conn); err != nil && !errors.Is(err, os.ErrClosed) {
+			if err := agent.ServeAgent(d.agent, conn); !errors.Is(err, os.ErrClosed) {
 				d.log.Debug("agent connection ended", "reason", err)
 			}
 		}()

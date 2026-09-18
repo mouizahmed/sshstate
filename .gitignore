@@ -9,10 +9,3 @@ deploy/bootstrap.secret
 /sshstate
 /sshstate-server
 /packaging/keys/
-
-# Working context for the author and agents, kept locally.
-/CLAUDE.md
-/docs/decisions/
-/docs/defects.md
-/docs/project-brief.md
-/docs/rotation.md

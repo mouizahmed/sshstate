@@ -141,7 +141,7 @@ jobs:
             "ghcr.io/${{ github.repository_owner }}/sshstate-server@${{ steps.push.outputs.digest }}"
 
   release:
-    needs: build
+    needs: [build, image]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -154,8 +154,9 @@ jobs:
       - name: checksums
         run: |
           set -eux
+          cp deploy/compose.yaml dist/compose.yaml
           cd dist
-          sha256sum *.tar.gz *.deb *.rpm *.apk *.pkg.tar.zst > SHA256SUMS
+          sha256sum *.tar.gz *.deb *.rpm *.apk *.pkg.tar.zst compose.yaml > SHA256SUMS
           cat SHA256SUMS
 
       - uses: sigstore/cosign-installer@v3
@@ -172,54 +173,13 @@ jobs:
 
       - name: release notes
         run: |
-          set -eu
-          version="${GITHUB_REF_NAME}"
-          if [ -f "docs/release-notes-${version}.md" ]; then
-            cp "docs/release-notes-${version}.md" notes.md
-            exit 0
-          fi
-          cat > notes.md <<EOF
-          ## Verify what you downloaded
-
-          \`\`\`sh
-          sha256sum -c SHA256SUMS --ignore-missing
-
-          cosign verify-blob SHA256SUMS \\
-            --bundle SHA256SUMS.cosign.bundle \\
-            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \\
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com
-          \`\`\`
-
-          The first says the file arrived intact. The second says it was built by
-          this repository's release workflow at ${version}, which is the part a
-          checksum alone cannot tell you.
-
-          ## Install
-
-          \`\`\`sh
-          tar xzf sshstate_*.tar.gz
-          sudo mv sshstate /usr/local/bin/
-          sshstate setup --import ~/.ssh/config
-          \`\`\`
-
-          On macOS a browser download is quarantined and Gatekeeper refuses it,
-          because these binaries are not notarized. Clear it with:
-
-          \`\`\`sh
-          xattr -d com.apple.quarantine /usr/local/bin/sshstate
-          \`\`\`
-
-          \`brew install\` is unaffected.
-
-          ## What is not here
-
-          Master-key rotation is specified but not implemented; it ships in the
-          next milestone. If a vault key were exposed, the fallback is a fresh
-          vault and a reviewed migration rather than a rotation. Windows is out
-          of scope for v1.
-
-          This is a 0.x release, tested against real sshd, launchd, systemd and
-          a real relay.
+          cat > notes.md <<'EOF'
+          - Issue relay bootstrap secrets on demand with `sshstate-server new-bootstrap-secret`.
+          - Deploy the relay from one Compose file, with optional Caddy TLS and a fixed volume name.
+          - Build Linux packages and signed repositories for apt, dnf, apk, and pacman.
+          - Reject relay URLs containing credentials, paths, queries, or fragments.
+          - License the project under MIT.
+          - Verify downloads with `SHA256SUMS` and `SHA256SUMS.cosign.bundle`; see the [install guide](https://github.com/mouizahmed/sshstate#quick-start).
           EOF
 
       # Uploads to uploads.github.com answer 500 often enough to lose a release
@@ -241,7 +201,6 @@ jobs:
           if ! gh release view "${tag}" >/dev/null 2>&1; then
             gh release create "${tag}" --draft --title "${tag}" --notes-file notes.md "${prerelease[@]}"
           fi
-          cp deploy/compose.yaml dist/compose.yaml
           for file in dist/*.tar.gz dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/compose.yaml dist/SHA256SUMS dist/SHA256SUMS.cosign.bundle; do
             attempt=1
             until gh release upload "${tag}" "${file}" --clobber; do

@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -39,10 +38,16 @@ type Options struct {
 }
 
 func New(opts Options) (*Client, error) {
-	base, err := url.Parse(strings.TrimSuffix(opts.BaseURL, "/"))
+	base, err := url.Parse(opts.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("relay url: %w", err)
+		return nil, errors.New("relay URL is malformed")
 	}
+	if base.User != nil || base.Opaque != "" ||
+		(base.Path != "" && base.Path != "/") || base.RawPath != "" ||
+		base.RawQuery != "" || base.ForceQuery || base.Fragment != "" {
+		return nil, errors.New("relay URL must contain only a scheme, host, and optional port")
+	}
+	base.Path = ""
 	switch base.Scheme {
 	case "https":
 	case "http":

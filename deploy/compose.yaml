@@ -12,7 +12,7 @@ services:
     # Pin a release tag or set SSHSTATE_IMAGE to a verified digest. Never deploy
     # `latest`: 0.x releases may require a coordinated client/relay upgrade.
     # `docker compose up --build` still builds from the source tree below.
-    image: ${SSHSTATE_IMAGE:-ghcr.io/mouizahmed/sshstate-server:v0.1.4}
+    image: ${SSHSTATE_IMAGE:-ghcr.io/mouizahmed/sshstate-server:v0.1.5}
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -50,12 +50,8 @@ services:
     # Caddy obtains and renews the certificate itself, and its reverse_proxy
     # passes the client's Host through unchanged, which the request signatures
     # require.
-    # DOMAIN is the public name clients will use. It is required with this
-    # profile; it is not marked required here because Compose interpolates the
-    # whole file even when the profile is off, which would break the default
-    # deployment for everyone who never asks for TLS.
-    environment:
-      DOMAIN: ${DOMAIN:-}
+    # DOMAIN is the public name clients will use. Compose fills it into the
+    # Caddyfile below. The empty default keeps the proxy optional.
     ports:
       - "80:80"
       - "443:443"
@@ -75,11 +71,11 @@ services:
 configs:
   caddyfile:
     content: |
-      {$$DOMAIN} {
-      	reverse_proxy relay:8080
-      	request_body {
-      		max_size 256MB
-      	}
+      ${DOMAIN:-} {
+        reverse_proxy relay:8080
+        request_body {
+          max_size 256MiB
+        }
       }
 
 volumes:

@@ -41,9 +41,9 @@ never falls back to another algorithm.
 
 ### 1.2 Encodings
 
-- **Canonical JSON**: RFC 8785 JCS. This is the only form that is ever hashed,
-  signed, or used as AEAD associated data. No delimiter-concatenation format
-  appears anywhere in this protocol.
+- **Canonical JSON**: RFC 8785 JCS. Protocol objects are hashed, signed, or
+  used as AEAD associated data in this form. HTTP request signatures use the
+  RFC 9421 signature base described in §9.
 - **Binary fields**: base64url, no padding. Padded or standard-alphabet base64 is
   rejected rather than accepted and normalized.
 - **Counters** (`rev`, `seq`, `key_epoch`): decimal strings, no leading zeros, no
@@ -77,7 +77,7 @@ Every parser in this protocol, on both sides:
 
 | Object | Bound |
 |---|---|
-| Any single parsed JSON object | 1 MiB |
+| Parsed JSON object | 1 MiB, except the 4 MiB record import batch |
 | Record envelope | 1 MiB |
 | Response page | 4 MiB |
 | Request body | 4 MiB |
@@ -578,14 +578,13 @@ write.
 ```
 
 Signed under `sshstate.recovery-admit.v1` by the recovery signing key. The relay's
-nonce expires after 10 minutes and is consumed once. Before proof of authority, a
-recovery caller can retrieve only the public genesis and the encrypted recovery
-material — nothing else.
+nonce expires after 10 minutes and is consumed once. Before proof of authority,
+the recovery endpoints expose only the public genesis and encrypted recovery
+material.
 
-On success the relay records the caller's replacement-device registration; the
-recovery-authorized `enroll` membership event is published separately through
-`POST /v1/membership`, signed by the recovery key, so the chain remains the single
-source of authorization.
+The recovery request carries a recovery-signed `enroll` membership event. The
+relay appends it to the chain before accepting the replacement device, so the
+chain remains the source of authorization.
 
 Recovery with the relay unavailable uses a local export instead (§8), which is why
 an export carries its own checkpoint.
@@ -619,18 +618,10 @@ and local password wrappers are excluded.
 }
 ```
 
-**Recorded amendment.** `bundle.json` was added to this member set when
-implementing restore showed the archive could not do its job without it. It holds
-a signed recovery-purpose §6.2 bundle carrying the vault keys.
-
-Every record in an export is encrypted under those keys, and the relay's copy of
-them is precisely what is unreachable in the case an export exists for: "explicit
-recovery can use a local export if the relay is unavailable" is not true
-without it. Including them is safe because the archive is sealed to the recovery
-recipient and to nothing else, so they are reachable by exactly the party that
-could already open the relay's copy. The bundle is signed by the exporting
-device, because encryption to a published recipient is not evidence of who
-produced it.
+`bundle.json` holds a signed recovery-purpose §6.2 bundle with the vault keys.
+It lets a restore decrypt the records when the relay is unavailable. The whole
+archive is sealed to the recovery recipient, and the exporting device signs
+the bundle.
 
 Every member is named even when empty: a missing member and an empty member are
 different statements, and a reader must not have to guess which it is looking
@@ -652,8 +643,7 @@ A stale backup cannot establish later freshness.
 
 ## 9. Request authentication
 
-RFC 9421 HTTP Message Signatures, restricted to the closed profile in decision
-record 0002. In summary, and normative there:
+RFC 9421 HTTP Message Signatures, restricted to this profile:
 
 - one signature, label `sshstate`;
 - covered components, in order:
@@ -761,15 +751,16 @@ Request:
 
 Response `201`: `{"session_id": "<id>", "expires_at": "..."}`
 
-An honest relay allows one active attempt per pending device and rate-limits
-offers. Cryptographic safety does not depend on a hostile relay enforcing either.
+An honest relay allows one active attempt per pending device. Cryptographic
+safety does not depend on a hostile relay enforcing that limit.
 
 ```
 GET /v1/pairings/:id
 ```
 
-Auth: the joiner of that session, or any authorized device. Capability is
-restricted to the named session.
+Anyone with the random session ID can fetch that session. The relay does not
+authenticate this request; the response contains public material and encrypted
+bundles, and the joiner verifies the signed transcript and bundle.
 
 Response `200`:
 ```json
@@ -794,8 +785,8 @@ not yet posted are `null`.
 POST /v1/pairings/:id/confirm
 ```
 
-Auth: the approver (an authorized device) or the joiner. The relay identifies the
-caller by `keyid` and rejects a third party.
+The request carries a signed confirmation. The relay verifies it against the
+authorized approver's key or the joiner's offered key for this session.
 
 The approver's first call carries its half of the transcript and its
 confirmation; the joiner's call carries only its confirmation.
@@ -829,7 +820,10 @@ fingerprint the user approved.
 POST /v1/pairings/:id/complete
 ```
 
-Auth: the approver, then the joiner.
+The approver submits the membership event and encrypted bundle after both
+confirmations. The joiner later acknowledges completion. These requests use
+the session ID; they do not carry HTTP request signatures. Clients verify the
+signed membership event and bundle before accepting them.
 
 Approver request:
 ```json
@@ -847,13 +841,13 @@ GET /v1/pairings/:id/snapshot
 The sealed snapshot (§6.3) travels as a raw `application/octet-stream` body,
 bounded by the streamed-object limit rather than the 4 MiB request bound. The
 approver uploads it after both confirmations and before `complete`, and the
-joiner downloads it once the bundle names a snapshot. The bundle binds its
-digest and length, so the body needs no signature of its own. A session response
-and a `complete` request may still carry a `snapshot` field inline when it is at
-most 1 MiB, but a client must be able to fetch it from this endpoint.
+joiner downloads it once the bundle names a snapshot. These requests use the
+session ID without HTTP request signatures. The bundle binds the snapshot's
+digest and length, so a changed body fails client verification. A session
+response and a `complete` request may carry a `snapshot` field inline when it
+is at most 1 MiB.
 
-Rejected with `pairing_incomplete` unless both confirmations are present and the
-session has not expired.
+The snapshot upload requires both confirmations and an unexpired session.
 
 Joiner request: `{"acknowledged": true}` — the session moves to `completed` and is
 consumed. A completed or expired session is never reopened.
@@ -866,14 +860,12 @@ POST /v1/membership
 ```
 
 `GET` returns the full chain: `{"events": [{"event": {...}, "signature": "..."}]}`,
-ascending by `chain_seq`. It is unauthenticated in content terms — the chain is
-public — but still requires a valid signed request from a registered device, the
-recovery authority, or a joiner within its session.
+ascending by `chain_seq`. The chain is public in content, but this route
+requires a signed request from an authorized device.
 
 `POST` appends exactly one event. The relay checks `chain_seq`, `parent_digest`,
 the signature, and that the signer is authorized at that point, then appends
-atomically. A gap or a fork is rejected with `parent_mismatch`; the response
-carries the current head so the caller can refetch.
+atomically. A gap or a fork is rejected with `chain_mismatch`.
 
 The relay's own device table is derived from the chain and is never authoritative
 for a client.
@@ -921,13 +913,15 @@ Response `200`:
 }
 ```
 
-That is the entire pre-authority surface: public genesis and the encrypted
-recovery material, nothing else.
+The recovery endpoints expose public genesis and encrypted recovery material
+before admission.
 
-`complete` request: `{"admission": {...}, "signature": "<base64url>"}`.
+`complete` request: `{"admission": {...}, "signature": "<base64url>",
+"membership_event": {"event": {...}, "signature": "<base64url>"}}`.
 Response `200`: `{"device_id": "<id>", "membership_head_digest": "<sha256-base64url>"}`.
 
-The nonce is consumed once, whatever the outcome.
+The relay consumes the nonce before checking the admission signature and
+membership event.
 
 ### 10.6 Records
 
@@ -1039,19 +1033,10 @@ POST   /v1/rotations/:id/commit
 DELETE /v1/rotations/:id
 ```
 
-Planned for a future iteration; not implemented. The routes are
-listed here so the relay's storage and the sync reader are built to accommodate
-them from the start; a transition that has to be atomic cannot be bolted onto
-storage that never anticipated it. A relay that does not implement rotation
-returns `not_implemented`, and must still reject old-epoch writes once an epoch
-has advanced.
-
-`DELETE /v1/rotations/:id` is an amendment to this list. Rotation requires an
-explicit authenticated abort that discards staging and releases the write freeze,
-and the list as frozen had no route for it. It is a new method on an existing
-path, accepted from any currently authorized device, because a remaining device
-has to be able to clear a rotation stranded by a lost initiator, which is exactly
-the case where the initiator cannot ask.
+Rotation is planned for a future iteration. These routes currently return
+`not_implemented`. A future rotation must reject old-epoch writes after an
+epoch advances. `DELETE /v1/rotations/:id` will let an authorized device abort
+staging and release the write freeze.
 
 ---
 
@@ -1092,14 +1077,14 @@ no periodic background sync, and a network failure never blocks local SSH use.
 
 ## 12. Error codes
 
-Every error response is:
+An error response has this shape:
 
 ```json
-{"error": {"code": "parent_mismatch", "message": "human-readable", "detail": {}}}
+{"error": {"code": "parent_mismatch", "message": "human-readable"}}
 ```
 
 `code` is stable and machine-readable; `message` is not. `detail` carries
-structured context where a client can act on it, and is `{}` otherwise. Some
+structured context when available and may be absent otherwise. Some
 responses carry additional top-level fields, as noted above for
 `parent_mismatch`.
 
@@ -1130,20 +1115,17 @@ responses carry additional top-level fields, as noted above for
 | `epoch_mismatch` | 409 | `key_epoch` is not the vault's current epoch |
 | `body_too_large` | 413 | Body above 4 MiB, or an envelope above 1 MiB |
 | `header_too_large` | 431 | `Signature` or `Signature-Input` above the configured bound |
-| `rate_limited` | 429 | Honest-relay throttling |
+| `rate_limited` | 429 | A pending device already has an active pairing attempt |
 | `not_implemented` | 501 | A reserved route this relay does not serve |
 | `internal` | 500 | Unexpected failure; no detail is disclosed |
 
-`epoch_mismatch` is an amendment to this table, added while specifying rotation.
-Most stale writes are already caught as `parent_mismatch`, because rotation
-advances every record's `rev`. A record *creation* has no parent digest to
-mismatch, so without this code an old-epoch create would be accepted into a vault
-that had moved on, and would be undecryptable to every migrated device.
+`rotation_in_progress` and `epoch_mismatch` are reserved for future rotation.
+The latter will reject a record creation at an old epoch, which has no parent
+digest to trigger `parent_mismatch`.
 
-A 431 is deliberately distinct from a 401. An ML-DSA-65 `Signature` header is
-4430 bytes, roughly 54% of the 8190-byte single-header limit Apache and nginx
-commonly deploy; an operator who has hit a proxy limit must see a size error, not
-a signature failure. The header is never truncated to fit.
+A 431 distinguishes an oversized header from an invalid signature. An
+ML-DSA-65 `Signature` header is about 4.4 KB; proxy header limits must fit it.
+The header is never truncated to fit.
 
 ---
 

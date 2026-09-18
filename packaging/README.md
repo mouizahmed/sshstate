@@ -13,9 +13,7 @@ Arch's main `sshstate` database selects the newest release. Each retained
 version also has its own signed database under `arch/$arch/releases/<version>/`
 so an older version can be selected by configuring that path as a temporary
 repository named `sshstate`. The package files themselves remain in the main
-Arch directory. A local two-version build was 213 MiB, including the extra Arch
-copies; five versions are expected to use about 535 MiB of the 1 GB Pages
-site limit.
+Arch directory.
 
 The root [README](../README.md#linux) has installation commands. Those URLs
 become live after the first tag containing the packaging workflow. Pages is
@@ -65,10 +63,5 @@ bash packaging/build-repositories.sh "$VERSION" dist dist/package-site
 The Alpine and Arch helper images in the builder are pinned by digest. Update
 those digests deliberately when the package tooling needs an update.
 
-Keep the version scope on the main `repo-add`. `repo-add` replaces
-unconditionally, so with an unscoped `./*.pkg.tar.zst` the main Arch database
-advertises whichever retained version sorts last by glob order rather than the
-newest: staging 0.1.4, 0.1.9 and 0.1.10 globs as `0.1.10, 0.1.4, 0.1.9` and
-published 0.1.9. Scoped to `$PACKAGE_VERSION` it published 0.1.10. Verified by
-local mutation test on 2026-09-17, with retained-version installs checked from
-clean Debian, Fedora, Alpine and Arch containers.
+Keep the main Arch `repo-add` scoped to `$PACKAGE_VERSION`; an unscoped glob
+can make the repository advertise an older retained package as the latest.
