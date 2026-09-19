@@ -32,8 +32,8 @@ jobs:
       # installed, so the floor is actually exercised.
       GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
           check-latest: false
@@ -59,8 +59,8 @@ jobs:
     # Run alongside ordinary tests, rather than adding nine minutes after them.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27.1'
       - run: go test -race -timeout 30m ./...
@@ -68,8 +68,8 @@ jobs:
   cross-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27.1'
       # Linux ships static, so CGO_ENABLED=0 is what release builds use and
@@ -102,8 +102,8 @@ jobs:
             targets: FuzzParseSignatureParams FuzzParseByteSequence FuzzParseDictionaryMember
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27.1'
       - name: fuzz
@@ -123,8 +123,8 @@ jobs:
     # activation stays uncovered here: the runners have no user manager.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27.1'
       - name: sshd is present
@@ -135,8 +135,8 @@ jobs:
   vuln:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27.1'
       - name: govulncheck
