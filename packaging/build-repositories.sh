@@ -101,6 +101,7 @@ docker run --rm --platform linux/amd64 \
   sh -eu -c 'apk add --no-cache alpine-sdk >/dev/null; for arch in x86_64 aarch64; do cd "/repo/$arch"; apk index --allow-untrusted -o APKINDEX.tar.gz ./*.apk; abuild-sign -k "/keys/'"$key_name"'" -p sshstate.rsa.pub APKINDEX.tar.gz; done'
 
 docker run --rm --platform linux/amd64 \
+  --user "$(id -u):$(id -g)" \
   -e PACKAGE_VERSION="$version" -v "$output/arch:/repo" \
   archlinux@sha256:421f8732de4338c86c204a2af2d62d650f46e3a667744ab8dc5e88853481a4aa \
   sh -eu -c '
