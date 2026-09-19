@@ -1,10 +1,10 @@
 # sshstate: sync your SSH environment across machines
 
-sshstate keeps your managed SSH hosts, connection options, trusted host keys and
-credentials available on every machine you use, including headless ones. It is a
-configuration and credential manager, **not** an SSH client or a terminal:
-OpenSSH still owns the connection, and `ssh`, `scp` and editor remote
-integrations keep working unchanged.
+sshstate manages your SSH environment across macOS and Linux, including headless
+machines. It syncs hosts, connection options, trusted host keys, and credentials;
+stores managed copies of private keys in an encrypted vault; and asks you to
+review conflicting changes. OpenSSH still handles connections, so `ssh`, `scp`,
+and editor integrations work as usual.
 
 ```mermaid
 flowchart LR
