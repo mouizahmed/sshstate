@@ -396,9 +396,18 @@ func (m *Manager) lockLocked() {
 func (m *Manager) Touch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.current != nil {
+	if _, err := m.session(); err == nil {
 		m.current.idleDeadline = m.clock().Add(IdleTimeout)
 	}
+}
+
+// Expire releases expired session keys even when no client sends a request.
+// It reports whether the vault is locked.
+func (m *Manager) Expire() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, err := m.session()
+	return err != nil
 }
 
 func (m *Manager) session() (*session, error) {
@@ -406,7 +415,7 @@ func (m *Manager) session() (*session, error) {
 		return nil, ErrLocked
 	}
 	now := m.clock()
-	if now.After(m.current.hardDeadline) || now.After(m.current.idleDeadline) {
+	if !now.Before(m.current.hardDeadline) || !now.Before(m.current.idleDeadline) {
 		m.lockLocked()
 		return nil, ErrLocked
 	}

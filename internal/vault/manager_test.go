@@ -229,7 +229,7 @@ func TestHardExpiryIsNotRefreshable(t *testing.T) {
 	if err := m.Unlock([]byte(testPassword)); err != nil {
 		t.Fatal(err)
 	}
-	for elapsed := time.Duration(0); elapsed < HardTimeout; elapsed += IdleTimeout / 2 {
+	for elapsed := time.Duration(0); elapsed < HardTimeout-IdleTimeout/2; elapsed += IdleTimeout / 2 {
 		now = now.Add(IdleTimeout / 2)
 		if _, err := m.Status(); err != nil {
 			t.Fatal(err)
@@ -431,5 +431,38 @@ func TestLocalEditsCannotCreateAJumpLoop(t *testing.T) {
 	port := 2222
 	if err := m.EditHost(b, HostEdit{Port: &port}); err != nil {
 		t.Fatalf("an edit that does not touch the jump was refused: %v", err)
+	}
+}
+
+func TestExpireWipesKeysWithoutAClientRequest(t *testing.T) {
+	for _, deadline := range []string{"idle", "hard"} {
+		t.Run(deadline, func(t *testing.T) {
+			m, _, _ := newVault(t)
+			keys := m.current.keys
+			metadata, secret := keys.Metadata, keys.Secret
+			now := m.current.idleDeadline
+			if deadline == "hard" {
+				now = m.current.hardDeadline
+				m.current.idleDeadline = now.Add(IdleTimeout)
+			}
+			m.now = func() time.Time { return now }
+			m.Expire()
+			if m.current != nil {
+				t.Fatal("expired session retained without a client request")
+			}
+			if *metadata != (crypto.SymmetricKey{}) || *secret != (crypto.SymmetricKey{}) || keys.Metadata != nil || keys.Secret != nil {
+				t.Fatal("expired vault keys were not wiped")
+			}
+		})
+	}
+}
+
+func TestTouchCannotReviveExpiredSession(t *testing.T) {
+	m, _, _ := newVault(t)
+	now := m.current.idleDeadline
+	m.now = func() time.Time { return now }
+	m.Touch()
+	if m.current != nil {
+		t.Fatal("a late signature refreshed an expired session")
 	}
 }

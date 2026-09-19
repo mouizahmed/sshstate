@@ -3,7 +3,6 @@ package agentsrv
 import (
 	"errors"
 	"fmt"
-	"sync"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -19,19 +18,10 @@ var errLocked = errors.New("vault is locked")
 
 type Agent struct {
 	mgr *vault.Manager
-
-	mu     sync.Mutex
-	signer map[protocol.ID]ssh.Signer
 }
 
 func New(mgr *vault.Manager) *Agent {
-	return &Agent{mgr: mgr, signer: map[protocol.ID]ssh.Signer{}}
-}
-
-func (a *Agent) Forget() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	clear(a.signer)
+	return &Agent{mgr: mgr}
 }
 
 func (a *Agent) List() ([]*agent.Key, error) {
@@ -125,12 +115,6 @@ func (a *Agent) signerFor(key ssh.PublicKey) (ssh.Signer, error) {
 }
 
 func (a *Agent) loadSigner(id protocol.ID) (ssh.Signer, error) {
-	a.mu.Lock()
-	cached, ok := a.signer[id]
-	a.mu.Unlock()
-	if ok {
-		return cached, nil
-	}
 	priv, err := a.mgr.PrivateKey(id)
 	if err != nil {
 		if errors.Is(err, vault.ErrLocked) {
@@ -138,14 +122,9 @@ func (a *Agent) loadSigner(id protocol.ID) (ssh.Signer, error) {
 		}
 		return nil, err
 	}
-	signer, err := sshkeys.Signer(priv)
-	if err != nil {
-		return nil, err
-	}
-	a.mu.Lock()
-	a.signer[id] = signer
-	a.mu.Unlock()
-	return signer, nil
+	// Parse only for this request; retaining signers would retain private keys
+	// after the vault session expires.
+	return sshkeys.Signer(priv)
 }
 
 func (a *Agent) Signers() ([]ssh.Signer, error) {

@@ -11,7 +11,7 @@ clients --HTTPS--> reverse proxy (bundled or your own) --HTTP--> relay container
 A relay holds exactly one vault for one user, so it needs no separate database
 service: the relay container and its SQLite volume are the whole deployment.
 
-It needs a Linux host with Docker Compose, a persistent disk, and a DNS name.
+It needs a Linux host with Docker Compose 2.23.1 or later, a persistent disk, and a DNS name.
 TLS is either the bundled Caddy or your own ingress; the default binds no public
 port, so a host that already runs a proxy is left alone. Running the static
 binary directly works but is not a supported recipe: supervision, permissions,
@@ -30,11 +30,13 @@ only file the server needs:
 
 ```sh
 curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
-DOMAIN=relay.example.com docker compose --profile tls up -d
+printf 'DOMAIN=relay.example.com\n' >> .env
+docker compose --profile tls up -d
 ```
 
 That runs the relay and a Caddy in front of it, which obtains and renews the
-certificate itself. Drop `--profile tls` and the `DOMAIN` if you are bringing
+certificate itself. The domain stays in `.env` for later restarts and upgrades. Use one `DOMAIN`
+entry in that file. Drop `--profile tls` and the `DOMAIN` entry if you are bringing
 your own proxy; see [step 2](#2-bring-your-own-proxy-instead) for its
 configuration.
 
@@ -50,7 +52,7 @@ SSHSTATE_IMAGE=sshstate-server:local docker compose up -d --build
 ```
 
 The container runs as UID 65532 on distroless with a read-only root filesystem,
-no capabilities, and `no-new-privileges`. Compose publishes its HTTP port on
+a temporary `/tmp` mount for SQLite, no capabilities, and `no-new-privileges`. Compose publishes its HTTP port on
 the host's `127.0.0.1:8080` only.
 
 #### The one-time bootstrap secret
@@ -85,18 +87,19 @@ digest=$(docker buildx imagetools inspect \
   ghcr.io/mouizahmed/sshstate-server:"$release" --format '{{.Manifest.Digest}}')
 
 cosign verify "ghcr.io/mouizahmed/sshstate-server@${digest}" \
-  --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
+  --certificate-identity "https://github.com/mouizahmed/sshstate/.github/workflows/release.yml@refs/tags/$release" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 Pin the verified digest for Compose:
 
 ```sh
-printf 'SSHSTATE_IMAGE=ghcr.io/mouizahmed/sshstate-server@%s\n' "$digest" > .env
+printf 'SSHSTATE_IMAGE=ghcr.io/mouizahmed/sshstate-server@%s\n' "$digest" >> .env
 docker compose up -d
 ```
 
-The `.env` file contains no credential. Keep it with the deployment so a later
+Keep one `SSHSTATE_IMAGE` entry in `.env`; edit it for subsequent upgrades
+instead of appending another. The `.env` file contains no credential. Keep it with the deployment so a later
 `docker compose up` cannot silently switch the relay image.
 
 ### 2. Bring your own proxy instead
@@ -173,7 +176,9 @@ clients and relay as one operation.
 
 1. Back up the relay data volume (see below).
 2. Verify the new image and replace `SSHSTATE_IMAGE` in `.env` with its digest.
-3. Run `docker compose pull && docker compose up -d`.
+3. Run `docker compose --profile tls pull && docker compose --profile tls up -d`
+   with bundled Caddy, or `docker compose pull && docker compose up -d` with your
+   own proxy.
 4. Confirm `docker compose ps` shows the relay running and an existing client can complete `sshstate sync`.
 
 Never run `docker compose down -v` for an update; `-v` deletes the named data
@@ -219,7 +224,8 @@ says it cannot reach the relay at the old address; that machine only needs the
 #### Losing the relay's data, or restoring an older backup
 
 The machines hold the vault too. Give the relay an empty volume and start it;
-it issues a fresh bootstrap secret because the empty database has no spent one.
+then issue a fresh bootstrap secret with
+`docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret`.
 Run `sshstate connect <url> --bootstrap-secret <file>` on the most up-to-date
 machine, then `sshstate connect <url> --rejoin` on every other machine. A relay
 restored from a backup older than your machines needs no secret: rejoin every

@@ -531,3 +531,25 @@ func TestASkewedClockIsNamedWithTheDifference(t *testing.T) {
 		t.Fatalf("the explanation hid the protocol code: %v", err)
 	}
 }
+
+func TestRelayResponsesRejectAmbiguousJSON(t *testing.T) {
+	for _, body := range []string{
+		`{"events":[],"events":[]}`,
+		`{"events":[],"unknown":true}`,
+		`{"events":[]} {}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			client, err := New(Options{BaseURL: srv.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.Membership(context.Background()); err == nil {
+				t.Fatal("accepted ambiguous or unknown response fields")
+			}
+		})
+	}
+}

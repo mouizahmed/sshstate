@@ -20,6 +20,18 @@ const (
 	snapshotAttempts = 3
 )
 
+// Pending approvals hold device signing keys. Drop abandoned sessions and all
+// pending approvals on lock so they cannot retain those keys indefinitely.
+func (d *Daemon) expireApprovals(locked bool) {
+	d.approvalsMu.Lock()
+	defer d.approvalsMu.Unlock()
+	for id, approver := range d.approvals {
+		if locked || approver.Transcript().Expired(d.mgr.Now()) {
+			delete(d.approvals, id)
+		}
+	}
+}
+
 func (d *Daemon) handlePairApprove(w http.ResponseWriter, r *http.Request) {
 	var req control.PairApproveRequest
 	if err := decode(r, &req); err != nil {
@@ -62,6 +74,13 @@ func (d *Daemon) handlePairApprove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	// Publish the signed transcript now so the joiner can display its
+	// fingerprint before either user answers the comparison prompt. The vault
+	// bundle is still withheld until the approver confirms delivery below.
+	if err := approver.Confirm(r.Context()); err != nil {
+		writeError(w, err)
+		return
+	}
 
 	d.approvalsMu.Lock()
 	if d.approvals == nil {
@@ -95,10 +114,6 @@ func (d *Daemon) handlePairDeliver(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	if err := approver.Confirm(ctx); err != nil {
-		writeError(w, err)
-		return
-	}
 	ready, err := d.awaitJoiner(ctx, approver)
 	if err != nil {
 		writeError(w, err)

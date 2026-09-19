@@ -65,7 +65,7 @@ never falls back to another algorithm.
 
 ### 1.3 Parsing rules
 
-Every parser in this protocol, on both sides:
+Parsers for protocol objects, relay requests, and JSON responses:
 
 - rejects duplicate JSON keys at any depth;
 - rejects unknown fields;
@@ -79,7 +79,8 @@ Every parser in this protocol, on both sides:
 |---|---|
 | Parsed JSON object | 1 MiB, except the 4 MiB record import batch |
 | Record envelope | 1 MiB |
-| Response page | 4 MiB |
+| Record response page | 4 MiB |
+| Client JSON response limit | 8 MiB |
 | Request body | 4 MiB |
 | `Signature` / `Signature-Input` header | configured, default 16 KiB |
 | age key bundle (non-streamed) | 1 MiB |
@@ -369,7 +370,9 @@ Carried as `{"event": {...}, "signature": "<base64url>"}`, signed under
 6. `suite` and `vault_id` must match genesis on every event.
 
 A client that fails validation keeps its previously validated chain and reports
-the failure. It does not adopt a partially valid prefix.
+the failure. It does not adopt a partially valid prefix. Before replacing a
+locally stored chain, it also requires every stored event to match the relay's
+prefix exactly; a shorter or conflicting chain needs an explicit rejoin.
 
 ---
 
@@ -434,15 +437,16 @@ This improves readability. It does not eliminate human comparison error.
    a **self-signed offer** under `sshstate.pairing-offer.v1`. A self-signed offer
    alone never authorizes a device; it proves possession of the offered key and
    nothing more.
-2. The approver — unlocked, already authorized — generates its own challenge and
-   builds the transcript. Both devices display the same fingerprint.
+2. The approver — unlocked, already authorized — generates its own challenge,
+   builds the transcript, and signs it so the joiner can display an authenticated
+   fingerprint. Both devices display the same fingerprint.
 3. The user compares the fingerprints over a channel independent of the relay and
    confirms explicitly on both devices. No vault secret is sent and no membership
-   is finalized before both confirmations. Replacing a key or restarting the
-   attempt invalidates any prior confirmation.
-4. Both devices sign the transcript digest under
-   `sshstate.pairing-confirm.v1`. The approver then signs the membership
-   enrolment event and a key bundle, and seals the bundle to the joiner.
+   is finalized before both users confirm. Replacing a key or restarting the
+   attempt invalidates the transcript.
+4. The joiner signs the transcript digest under `sshstate.pairing-confirm.v1`
+   after comparison. The approver sends the membership enrolment event and sealed
+   key bundle only after its user approves and the joiner's signature verifies.
 5. The joiner verifies the approver's confirmation against its own computed
    transcript, decrypts the bundle, validates the bundle and the membership chain,
    installs the snapshot at the bundle's checkpoint, and persists everything under
@@ -456,7 +460,9 @@ completed twice.
 
 ### 5.4 Confirmation
 
-What each device signs once its user has compared the fingerprint:
+The approver signs this transcript digest before prompting its user so the
+joiner can display an authenticated fingerprint. The joiner signs after its user
+compares the two displays. The approver's signature alone never releases keys.
 
 ```json
 {
@@ -1053,10 +1059,11 @@ chain, AEAD decryption, and parent chains before committing anything. Apply the
 page, the trusted heads and the next cursor in **one** SQLite transaction. Do not
 advance the cursor on failure.
 
-**Before rendering.** Render generated SSH configuration only after reaching the
-snapshot boundary and validating every referenced dependency — a host that names a
-key ID needs that key record. If the snapshot is incomplete or inconsistent, keep
-the previously generated state rather than publishing a partial one.
+**Before rendering.** Reach the snapshot boundary before publishing fetched
+state. Keep the previous generated state while the snapshot is incomplete. Once
+complete, report inconsistent dependencies: omit hosts with ambiguous aliases or
+missing or cyclic jump hosts, and omit references to deleted keys. Render the
+remaining usable configuration so independent edits cannot block every host.
 
 **Persisted head state.** Record each observed head, digest, tombstone and the
 highest known epoch transactionally. Reject a lower revision, a different digest at
@@ -1070,8 +1077,9 @@ conflict after success; a new race is a new conflict. A delete/edit race preserv
 the edit as a candidate without resurrecting a tombstoned record. Alias and trust
 conflicts never generate automatic "copy" host entries.
 
-**Sync timing.** Sync explicitly, and once after unlock when configured. There is
-no periodic background sync, and a network failure never blocks local SSH use.
+**Sync timing.** Sync explicitly with `sshstate sync`. Unlock does not trigger
+sync. There is no periodic background sync, and a network failure never blocks
+local SSH use.
 
 ---
 

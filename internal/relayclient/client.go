@@ -144,7 +144,7 @@ func (c *Client) call(ctx context.Context, method, path string, in, out any, hea
 	if out == nil {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
+	if err := protocol.StrictUnmarshalLimit(raw, out, MaxResponseBytes); err != nil {
 		return fmt.Errorf("decode the relay's response: %w", err)
 	}
 	return nil
@@ -257,7 +257,7 @@ func signatureBytes(r *http.Request) int {
 
 func relayErrorBody(raw []byte) (protocol.ErrorResponse, bool) {
 	var body protocol.ErrorResponse
-	if err := json.Unmarshal(raw, &body); err != nil || !protocol.KnownCode(body.Error.Code) {
+	if err := protocol.StrictUnmarshalLimit(raw, &body, MaxResponseBytes); err != nil || !protocol.KnownCode(body.Error.Code) {
 		return body, false
 	}
 	return body, true
@@ -358,7 +358,7 @@ func (c *Client) ImportRecords(ctx context.Context, req *protocol.ImportRequest)
 		return nil, c.asMember(explainClock(decodeError(rep.status, rep.body, signatureBytes(rep.req)), rep))
 	}
 	var out protocol.ImportResponse
-	if err := json.Unmarshal(rep.body, &out); err != nil {
+	if err := protocol.StrictUnmarshalLimit(rep.body, &out, MaxResponseBytes); err != nil {
 		return nil, fmt.Errorf("decode the relay's response: %w", err)
 	}
 	return &out, nil
@@ -418,7 +418,7 @@ func (c *Client) PutRecord(ctx context.Context, env *protocol.Envelope) (*PutRes
 	status, raw := rep.status, rep.body
 	if status < 300 {
 		var accepted protocol.PutRecordResponse
-		if err := json.Unmarshal(raw, &accepted); err != nil {
+		if err := protocol.StrictUnmarshalLimit(raw, &accepted, MaxResponseBytes); err != nil {
 			return nil, fmt.Errorf("decode the relay's response: %w", err)
 		}
 		return &PutResult{Accepted: true, Seq: accepted.Seq, Digest: accepted.Digest}, nil

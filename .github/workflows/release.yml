@@ -9,7 +9,13 @@ permissions:
   id-token: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   build:
+    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -101,6 +107,7 @@ jobs:
           if-no-files-found: error
 
   image:
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -129,7 +136,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/sshstate-server:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/sshstate-server:latest
+            ${{ !contains(github.ref_name, '-') && format('ghcr.io/{0}/sshstate-server:latest', github.repository_owner) || '' }}
 
       # Signed by digest, not by tag: a tag can be moved to different content
       # later, a digest cannot.
@@ -156,7 +163,7 @@ jobs:
           set -eux
           cp deploy/compose.yaml dist/compose.yaml
           cd dist
-          sha256sum *.tar.gz *.deb *.rpm *.apk *.pkg.tar.zst compose.yaml > SHA256SUMS
+          sha256sum -- *.tar.gz *.deb *.rpm *.apk *.pkg.tar.zst compose.yaml > SHA256SUMS
           cat SHA256SUMS
 
       - uses: sigstore/cosign-installer@v3

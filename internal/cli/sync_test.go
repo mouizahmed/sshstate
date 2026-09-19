@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -544,11 +545,24 @@ func TestPairingTwoDevicesThroughTheCLI(t *testing.T) {
 
 	session, errCh := beginPairing(t, b, r.url, vaultID)
 
-	a.lines = []string{"y"}
 	a.out.Reset()
+	a.answer = func(string) (string, error) {
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if strings.Contains(b.out.String(), "Checking only the first and last groups is not enough.") {
+				if fingerprintFrom(t, a.out.String()) != fingerprintFrom(t, b.out.String()) {
+					return "", errors.New("the two devices displayed different fingerprints")
+				}
+				return "y", nil
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return "", errors.New("the joiner could not display its fingerprint before approval")
+	}
 	if err := a.run(t, "approve", session); err != nil {
 		t.Fatalf("approve: %v\nstdout:\n%s\nstderr:\n%s", err, a.out, a.errOut)
 	}
+	a.answer = nil
 	if err := <-errCh; err != nil {
 		t.Fatalf("pair: %v\nstdout:\n%s\nstderr:\n%s", err, b.out, b.errOut)
 	}

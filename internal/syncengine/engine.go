@@ -84,10 +84,25 @@ func (e *Engine) syncMembership(ctx context.Context) (*membership.Chain, []proto
 	if err != nil {
 		return nil, nil, fmt.Errorf("membership chain from the relay: %w", err)
 	}
-	if chain.Len() >= localChainLength(e.Store) {
-		if err := e.Store.PutMembershipEvents(chain.Events()); err != nil {
+	local, err := e.Store.MembershipEvents()
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(events) < len(local) {
+		return nil, nil, fmt.Errorf("the relay's device list is older than this machine's; sync stopped; "+
+			"if you restored the relay from an older backup, run: sshstate connect %s --rejoin", e.Client.URL())
+	}
+	for i := range local {
+		same, err := sameEvent(local[i], events[i])
+		if err != nil {
 			return nil, nil, err
 		}
+		if !same {
+			return nil, nil, fmt.Errorf("the relay's device list forks from this machine's at event %d; sync stopped", i+1)
+		}
+	}
+	if err := e.Store.PutMembershipEvents(chain.Events()); err != nil {
+		return nil, nil, err
 	}
 	var newlyRevoked []protocol.ID
 	for _, d := range chain.Devices() {

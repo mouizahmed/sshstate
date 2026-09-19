@@ -4,9 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -43,27 +48,22 @@ jobs:
       - name: test
         run: go test ./...
 
-      # The race detector finds races in this code, not in the operating
-      # system, so the full suite runs under it once rather than on every
-      # matrix cell. Linux is about three times faster than the hosted macOS
-      # runners for identical work, so that is where it runs.
-      #
-      # The timeout is raised because the suite is integration-heavy: almost
-      # every test starts a real daemon, binds two Unix sockets, opens SQLite,
-      # and several spawn ssh, sshd or ssh -G. Measured on an M-series Mac,
-      # internal/daemon takes 212s under -race across 40 tests; argon2id is
-      # about 13% of that and starting real daemons is most of the rest. Go's
-      # default is 10 minutes per package, and a hosted runner crosses it.
-      - name: test -race
-        if: matrix.os == 'ubuntu-latest' && matrix.go == '1.27.1'
-        run: go test -race -timeout 30m ./...
-
       # Linux cannot reach these: launchd activation through cgo, the macOS
       # LOCAL_PEERCRED socket check, and the launchd service definition. They
       # are small, so covering them under -race here costs seconds.
       - name: test -race (darwin-only packages)
         if: matrix.os == 'macos-latest'
         run: go test -race -timeout 30m ./internal/activation/ ./internal/peercred/ ./internal/service/
+
+  race:
+    # Run alongside ordinary tests, rather than adding nine minutes after them.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      - run: go test -race -timeout 30m ./...
 
   cross-build:
     runs-on: ubuntu-latest
@@ -88,6 +88,18 @@ jobs:
     # This job is the other half: a short exploratory run per target, so the
     # parsers that take input from a relay, a peer, or an old known_hosts file
     # keep being pushed at rather than only replayed against known cases.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: protocol
+            targets: FuzzStrictUnmarshalEnvelope FuzzStrictUnmarshalMembership FuzzCounterAndBytes FuzzParseFingerprint
+          - package: sshconfig
+            targets: FuzzParseImport
+          - package: knownhosts
+            targets: FuzzParseLine FuzzParseFile
+          - package: httpsig
+            targets: FuzzParseSignatureParams FuzzParseByteSequence FuzzParseDictionaryMember
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,19 +107,14 @@ jobs:
         with:
           go-version: '1.27.1'
       - name: fuzz
+        env:
+          FUZZ_PACKAGE: ${{ matrix.package }}
+          FUZZ_TARGETS: ${{ matrix.targets }}
         run: |
-          set -eux
-          fuzz() { go test "$1" -run '^$' -fuzz "^$2\$" -fuzztime 60s; }
-          fuzz ./internal/protocol FuzzStrictUnmarshalEnvelope
-          fuzz ./internal/protocol FuzzStrictUnmarshalMembership
-          fuzz ./internal/protocol FuzzCounterAndBytes
-          fuzz ./internal/protocol FuzzParseFingerprint
-          fuzz ./internal/sshconfig FuzzParseImport
-          fuzz ./internal/knownhosts FuzzParseLine
-          fuzz ./internal/knownhosts FuzzParseFile
-          fuzz ./internal/httpsig FuzzParseSignatureParams
-          fuzz ./internal/httpsig FuzzParseByteSequence
-          fuzz ./internal/httpsig FuzzParseDictionaryMember
+          set -eu
+          for target in $FUZZ_TARGETS; do
+            go test "./internal/$FUZZ_PACKAGE" -run '^$' -fuzz "^${target}\$" -fuzztime 60s
+          done
 
   native-ssh:
     # A real sshd, real OpenSSH, and a private key that exists only in the

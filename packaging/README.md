@@ -35,18 +35,18 @@ The `.rpm` attached to GitHub Releases is unsigned. The repository builder
 signs its copy before generating RPM metadata. Verify a manually downloaded
 `.rpm` with the release `SHA256SUMS` and cosign bundle.
 
-The private keys are stored locally in ignored `packaging/keys/private.asc`
-and `packaging/keys/sshstate.rsa`, and as GitHub Actions secrets
-`PACKAGE_GPG_PRIVATE_KEY_B64` and `PACKAGE_APK_PRIVATE_KEY_B64`. Back up the
-local private keys securely outside the repository. Losing them means rotating
-the keys and asking users to trust the replacements before updates can resume.
-Do not commit the private keys. The local `packaging/keys/gnupg` directory is
-only the key generation workspace.
+The release workflow reads the private keys from GitHub Actions secrets
+`PACKAGE_GPG_PRIVATE_KEY_B64` and `PACKAGE_APK_PRIVATE_KEY_B64`. Keep secure
+backups outside the repository; GitHub does not let you download secret values.
+If you keep working copies in `packaging/keys/`, that directory is ignored.
+Losing the keys means rotating them and asking users to trust the replacements
+before updates can resume. Never commit private keys.
 
 ## Release and verification
 
-Push the packaging changes before tagging a new release. The existing release
-workflow publishes the packages first, then deploys the repositories. Check
+Push the reviewed changes and wait for CI before tagging a new release. The
+release workflow also runs CI on the tagged commit before building and publishing
+artifacts. It publishes packages first, then deploys the repositories. Check
 that the `package-repositories` job succeeds and that the Pages URL serves
 `apt/dists/stable/InRelease`, `rpm/x86_64/repodata/repomd.xml.asc`,
 `apk/x86_64/APKINDEX.tar.gz`, and `arch/x86_64/sshstate.db.sig`.
@@ -62,6 +62,9 @@ bash packaging/build-repositories.sh "$VERSION" dist dist/package-site
 
 The Alpine and Arch helper images in the builder are pinned by digest. Update
 those digests deliberately when the package tooling needs an update.
+
+After publishing, update the separate Homebrew tap to the new version, archive
+checksums, and current license. The release workflow does not update that tap.
 
 Keep the main Arch `repo-add` scoped to `$PACKAGE_VERSION`; an unscoped glob
 can make the repository advertise an older retained package as the latest.

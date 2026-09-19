@@ -13,7 +13,7 @@ test:
 	$(GO) test $(PKGS)
 
 race:
-	$(GO) test -race $(PKGS)
+	$(GO) test -race -timeout 30m $(PKGS)
 
 vet:
 	$(GO) vet $(PKGS)

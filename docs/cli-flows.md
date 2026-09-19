@@ -228,7 +228,8 @@ On the server, with no checkout needed:
 
 ```sh
 curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
-DOMAIN=relay.example.com docker compose --profile tls up -d
+printf 'DOMAIN=relay.example.com\n' >> .env
+docker compose --profile tls up -d
 docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
 ```
 
@@ -407,7 +408,8 @@ holds another. If the relay's data is lost, or the relay is restored from a
 backup older than your machines, start from the **most up-to-date machine**:
 
 ```sh
-# on the relay host: start an empty relay; it prints a fresh bootstrap secret
+# on the relay host, after starting an empty relay:
+docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
 # on your most up-to-date machine:
 sshstate connect https://relay.example.com --bootstrap-secret /path/to/bootstrap.secret
 ```

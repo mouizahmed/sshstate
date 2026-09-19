@@ -34,9 +34,10 @@ It cannot substitute enrollment keys without defeating out-of-band full
 fingerprint verification, forge an authorized writer's signature, or alter
 authenticated record fields undetected.
 
-Freshness has explicit limits. Clients detect *observed regression* (a lower
-revision, a differing digest at a revision already seen, a broken parent chain)
-against state they already hold. A freshly enrolled or recovered client has no
+Freshness has explicit limits. Clients detect *observed regression* (a shorter
+or conflicting membership chain, a lower record revision, a differing digest
+at a revision already seen, a broken parent chain) against state they already
+hold. A freshly enrolled or recovered client has no
 prior baseline beyond the checkpoint transferred to it. Server sequence numbers
 are transport bookkeeping, never trusted time. Complete rollback prevention is
 not claimed.
@@ -90,7 +91,10 @@ Go cannot guarantee erasure of every copy of a secret held by the runtime or by
 SSH and crypto libraries, nor prevent paging or memory inspection. The heap
 collector is non-moving; the difficulty is untracked copies and the absence of
 locked memory, not heap relocation. Buffers we own are wiped on lock and exit,
-core dumps are disabled where supported, and decrypted key lifetime is bounded.
+the client sets its core-file size limit to zero, and decrypted keys are not
+cached by the agent. The daemon checks session expiry once per second even
+without requests. OS crash collectors and privileged debuggers may still capture
+process memory.
 Complete zeroization is not claimed.
 
 ## Agent forwarding

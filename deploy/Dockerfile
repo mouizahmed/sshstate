@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build the relay. modernc.org/sqlite is pure Go, so CGO stays off and the
-# result is a static binary with no runtime image to keep patched.
+# result is a static binary in a minimal runtime image.
 FROM golang:1.27.1-alpine AS build
 
 WORKDIR /src

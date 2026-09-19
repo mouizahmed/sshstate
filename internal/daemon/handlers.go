@@ -205,7 +205,7 @@ func (d *Daemon) handleUnlock(w http.ResponseWriter, r *http.Request) {
 
 func (d *Daemon) handleLock(w http.ResponseWriter, r *http.Request) {
 	d.mgr.Lock()
-	d.agent.Forget()
+	d.expireApprovals(true)
 	d.handleStatus(w, r)
 }
 

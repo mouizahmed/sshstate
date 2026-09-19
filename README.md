@@ -56,7 +56,7 @@ authenticated by comparing a full transcript fingerprint out of band, so a
 malicious relay cannot substitute its own key during pairing.
 
 **The vault is locked by default and expires.** Unlock is explicit. Idle expiry
-is 15 minutes, refreshed by signing and by explicit vault commands but never by
+is 15 minutes, refreshed by signing and successful vault edits but never by
 status polling; hard expiry is 8 hours from password entry and cannot be
 extended. A restarted or crashed daemon comes back locked.
 
@@ -118,13 +118,13 @@ For a manual install, download the `darwin_arm64` (Apple Silicon) or
 `SHA256SUMS` and `SHA256SUMS.cosign.bundle`. In the download directory, run:
 
 ```sh
-shasum -a 256 -c SHA256SUMS --ignore-missing
+release=v0.1.5  # the release you downloaded
+shasum -a 256 -c SHA256SUMS --ignore-missing &&
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.cosign.bundle \
-  --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-
-tar xzf sshstate_*.tar.gz
+  --certificate-identity "https://github.com/mouizahmed/sshstate/.github/workflows/release.yml@refs/tags/$release" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com &&
+tar xzf sshstate_*.tar.gz &&
 sudo mv sshstate /usr/local/bin/
 ```
 
@@ -200,6 +200,9 @@ sudo pacman -Syu sshstate
 
 </details>
 
+On systems without a systemd user session, including Alpine and many containers,
+use the [foreground daemon setup](docs/cli-flows.md#3-locking-unlocking-and-the-daemon).
+
 ##### Manual archive
 
 Download the `linux_amd64` or `linux_arm64` archive for your CPU from
@@ -207,13 +210,13 @@ Download the `linux_amd64` or `linux_arm64` archive for your CPU from
 `SHA256SUMS` and `SHA256SUMS.cosign.bundle`. In the download directory, run:
 
 ```sh
-sha256sum -c SHA256SUMS --ignore-missing
+release=v0.1.5  # the release you downloaded
+sha256sum -c SHA256SUMS --ignore-missing &&
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.cosign.bundle \
-  --certificate-identity-regexp '^https://github.com/mouizahmed/sshstate/' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-
-tar xzf sshstate_*.tar.gz
+  --certificate-identity "https://github.com/mouizahmed/sshstate/.github/workflows/release.yml@refs/tags/$release" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com &&
+tar xzf sshstate_*.tar.gz &&
 sudo mv sshstate /usr/local/bin/
 ```
 
@@ -273,7 +276,8 @@ there:
 
 ```sh
 curl -fsSLO https://github.com/mouizahmed/sshstate/releases/latest/download/compose.yaml
-DOMAIN=relay.example.com docker compose --profile tls up -d
+printf 'DOMAIN=relay.example.com\n' >> .env
+docker compose --profile tls up -d
 docker compose exec relay /usr/local/bin/sshstate-server new-bootstrap-secret
 ```
 

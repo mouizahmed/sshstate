@@ -103,15 +103,24 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}()
 	go func() { errc <- d.serveAgent(agentLn) }()
 
-	select {
-	case <-ctx.Done():
-	case <-d.stop:
-	case err := <-errc:
-		if err != nil {
-			d.shutdown(srv, agentLn)
-			return err
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			d.expireApprovals(d.mgr.Expire())
+			continue
+		case <-ctx.Done():
+		case <-d.stop:
+		case err := <-errc:
+			if err != nil {
+				d.shutdown(srv, agentLn)
+				return err
+			}
 		}
+		break
 	}
+
 	d.shutdown(srv, agentLn)
 	return nil
 }
@@ -122,7 +131,7 @@ func (d *Daemon) shutdown(srv *http.Server, agentLn net.Listener) {
 	_ = srv.Shutdown(shutdownCtx)
 	_ = agentLn.Close()
 	d.mgr.Lock()
-	d.agent.Forget()
+	d.expireApprovals(true)
 }
 
 func (d *Daemon) Shutdown() {

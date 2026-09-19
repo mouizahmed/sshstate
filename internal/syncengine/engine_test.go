@@ -812,3 +812,66 @@ func TestARelayRolledBackBehindThisDeviceIsNamed(t *testing.T) {
 		t.Fatalf("the local head was replaced by the relay's older copy: %q", got)
 	}
 }
+
+func TestMembershipRollbackCannotUndoKnownRevocation(t *testing.T) {
+	w := newWorld(t)
+	a := w.device(w.first)
+	second := newKeys(t)
+	w.enroll(a, second)
+	a.sync()
+	old, err := a.store.MembershipEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.revoke(a, second.id)
+	a.sync()
+	lying := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(rw).Encode(protocol.MembershipResponse{Events: old})
+	}))
+	defer lying.Close()
+	a.engine.Client = clientFor(t, lying.URL, w.first)
+	if _, _, err := a.engine.syncMembership(context.Background()); err == nil {
+		t.Error("accepted membership preceding a known revocation")
+	}
+	d, err := a.store.Device(second.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Status != vault.DeviceRevoked {
+		t.Fatal("relay undid a known revocation")
+	}
+}
+
+func TestMembershipForkCannotReplaceKnownHistory(t *testing.T) {
+	w := newWorld(t)
+	a := w.device(w.first)
+	root := mustChain(t, w, a)
+	w.enroll(a, newKeys(t))
+	a.sync()
+	before, err := a.store.MembershipEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork, err := root.Enroll(membership.Signer{DeviceID: w.first.id, Key: w.first.signing},
+		newKeys(t).deviceKeys(), bytes.Repeat([]byte{8}, 32), w.tick())
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := append(root.Events(), fork)
+	lying := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(rw).Encode(protocol.MembershipResponse{Events: events})
+	}))
+	defer lying.Close()
+	a.engine.Client = clientFor(t, lying.URL, w.first)
+	if _, _, err := a.engine.syncMembership(context.Background()); err == nil {
+		t.Error("accepted a valid but conflicting membership chain")
+	}
+	after, err := a.store.MembershipEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := sameEvent(before[1], after[1])
+	if err != nil || !same {
+		t.Fatalf("stored membership changed: %v", err)
+	}
+}

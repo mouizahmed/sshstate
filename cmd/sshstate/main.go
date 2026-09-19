@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/mouizahmed/sshstate/internal/buildinfo"
 	"github.com/mouizahmed/sshstate/internal/cli"
 	"github.com/mouizahmed/sshstate/internal/crypto"
@@ -62,6 +64,9 @@ func main() {
 }
 
 func run() error {
+	if err := unix.Setrlimit(unix.RLIMIT_CORE, &unix.Rlimit{}); err != nil {
+		return fmt.Errorf("disable core dumps: %w", err)
+	}
 	env, err := cli.DefaultEnv()
 	if err != nil {
 		return err

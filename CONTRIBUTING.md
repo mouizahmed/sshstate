@@ -22,7 +22,7 @@ Requires **Go 1.27 or later**: `crypto/mldsa` is not present in Go 1.26.
 make check      # gofmt, vet, build, test, test -race
 ```
 
-Three integration tests touch the real system, so they are opt-in and skipped
+Native integration tests touch the real system, so they are opt-in and skipped
 unless their variable is set. Run the ones that apply to a change in native SSH
 or service-manager behavior:
 
