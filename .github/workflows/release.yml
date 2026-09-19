@@ -185,6 +185,9 @@ jobs:
           - Deploy the relay from one Compose file, with optional Caddy TLS and a fixed volume name.
           - Build Linux packages and signed repositories for apt, dnf, apk, and pacman.
           - Reject relay URLs containing credentials, paths, queries, or fragments.
+          - Let both devices display and compare the pairing fingerprint before either user approves the exchange.
+          - Reject older or conflicting relay membership chains so a relay rollback cannot undo an observed device revocation.
+          - Expire vault session keys while idle and avoid caching decrypted SSH signing keys in the agent.
           - License the project under MIT.
           - Verify downloads with `SHA256SUMS` and `SHA256SUMS.cosign.bundle`; see the [install guide](https://github.com/mouizahmed/sshstate#quick-start).
           EOF
