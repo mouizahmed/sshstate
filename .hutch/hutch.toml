@@ -1,0 +1,5 @@
+version = 1
+size = { cpu = 2, memory = "4G" }   # Go build and tests; no services. 3 boxes fit on the m8i.xlarge worker
+disk.size = "20G"                   # Go toolchain, module and build caches
+idle_timeout = "10m"
+base = "hutch-setup"                # boxes start from this branch until it's merged
