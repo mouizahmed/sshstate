@@ -174,3 +174,17 @@ func TestLineDigestIdentity(t *testing.T) {
 		t.Fatal("a different key produced the same line digest")
 	}
 }
+
+func TestUnknownMarkerRejected(t *testing.T) {
+	text := "@revokd 10.0.0.5 " + sampleKey + "\n10.0.0.6 " + sampleKey
+	entries, problems := Parse(text)
+	if len(problems) != 1 || problems[0].LineNo != 1 {
+		t.Fatalf("got problems %v, want one on line 1", problems)
+	}
+	if !strings.Contains(problems[0].Reason, "@revokd") {
+		t.Fatalf("problem does not name the marker: %q", problems[0].Reason)
+	}
+	if len(entries) != 1 || entries[0].Matches("10.0.0.5") {
+		t.Fatalf("misspelled marker produced a trusted entry: %+v", entries)
+	}
+}
